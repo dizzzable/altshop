@@ -5,7 +5,7 @@
     <u><b>РУССКИЙ</b></u>
 </p>
 
-# 🛒 RemnashopAI
+# 🛒 ALTSHOPAI
 
 **Telegram-бот для продажи VPN-подписок, интегрированный с Remnawave.**
 
