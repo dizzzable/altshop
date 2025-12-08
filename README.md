@@ -5,7 +5,7 @@
     <a href="README.ru_RU.md"><b>РУССКИЙ</b></a>
 </p>
 
-# 🛒 RemnashopAI
+# 🛒 ALTSHOPAI
 
 **Telegram bot for selling VPN subscriptions, integrated with Remnawave.**
 
