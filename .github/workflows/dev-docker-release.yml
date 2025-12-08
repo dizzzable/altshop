@@ -1,0 +1,115 @@
+name: Remnashop - Dev
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  docker-build:
+    name: 🏗️ Build and Push Docker Image
+    runs-on: ubuntu-latest
+
+    outputs:
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+      short_sha: ${{ steps.vars.outputs.short_sha }}
+
+    steps:
+      - name: 🧾 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Set Up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: 🏷️ Define Tags & Outputs
+        id: vars
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          IMAGE_REPO="ghcr.io/${GITHUB_REPOSITORY}"
+          IMAGE_TAGS="${IMAGE_REPO}:dev,${IMAGE_REPO}:dev-${SHORT_SHA}"
+
+          echo "image_tag=${IMAGE_TAGS}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+
+          echo "✅ Tags: ${IMAGE_TAGS}"
+          echo "✅ SHA: ${SHORT_SHA}"
+
+      - name: 🏗️ Build and Push Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.vars.outputs.image_tag }}
+
+  release:
+    name: 📦 Build and Publish Dev Artifact
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SHORT_SHA: ${{ needs.docker-build.outputs.short_sha }}
+
+    steps:
+      - name: 🧾 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🧱 Generate Build Metadata
+        run: |
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BRANCH="${{ github.ref_name }}"
+          FULL_SHA="${{ github.sha }}"
+          COMMIT_URL="https://github.com/${{ github.repository }}/commit/$SHORT_SHA"
+
+          TAG_VALUE=$(grep -m1 '"version":' package.json | cut -d'"' -f4 || true)
+          if [ -z "$TAG_VALUE" ]; then
+            JSON_TAG="null"
+          else
+            JSON_TAG="\"$TAG_VALUE\""
+          fi
+
+          cat <<EOF > build.info.json
+          {
+            "buildTime": "$BUILD_TIME",
+            "commitFull": "$FULL_SHA",
+            "commit": "$SHORT_SHA",
+            "tag": $JSON_TAG,
+            "branch": "$BRANCH",
+            "commitUrl": "$COMMIT_URL"
+          }
+          EOF
+          echo "✅ Generated build.info.json"
+
+      - name: 📁 Archive Project Files
+        run: |
+          zip -r remnashop-dev.zip . \
+            -x ".git/*" ".github/*" "logs/*" "*.zip" "node_modules/*"
+
+      - name: 🧹 Remove Previous Artifact
+        continue-on-error: true
+        run: gh release delete-asset dev-build remnashop-dev.zip || true
+
+      - name: ⬆️ Upload Artifact to Release
+        run: gh release upload dev-build remnashop-dev.zip --clobber
+
+      - name: 📝 Update Release Notes
+        run: |
+          COMMIT_URL="https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          DATE=$(date -u +'%Y-%m-%d %H:%M:%S UTC')
+
+          gh release edit dev-build --notes-file - <<EOF
+          🔁 Updated development build
+          🔗 [Commit]($COMMIT_URL)
+          🏷️ Tags:
+          • \`dev\`
+          • \`dev-$SHORT_SHA\`
+          📅 Built: $DATE
+          EOF

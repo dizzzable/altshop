@@ -1,0 +1,21 @@
+services:
+  remnawave-nginx:
+    image: nginx:1.28
+    container_name: remnawave-nginx
+    hostname: remnawave-nginx
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./remnabot_fullchain.pem:/etc/nginx/ssl/remnabot_fullchain.pem:ro
+      - ./remnabot_privkey.key:/etc/nginx/ssl/remnabot_privkey.key:ro
+    restart: always
+    ports:
+      - '0.0.0.0:80:80'
+      - '0.0.0.0:443:443'
+    networks:
+      - remnawave-network
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    driver: bridge
+    external: false

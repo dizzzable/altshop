@@ -1,0 +1,21 @@
+FROM python:3.12-slim-bookworm
+
+WORKDIR /opt/remnashop
+
+COPY pyproject.toml .
+COPY uv.lock .
+COPY docker-entrypoint.sh .
+
+RUN pip install --no-cache-dir uv && uv sync --frozen
+
+ENV UVICORN_RELOAD_ENABLED=true
+ENV PATH="/opt/remnashop/.venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/opt/remnashop
+
+COPY ./src ./src
+COPY ./assets /opt/remnashop/assets.default
+
+RUN chmod +x ./docker-entrypoint.sh
+
+CMD ["./docker-entrypoint.sh"]
