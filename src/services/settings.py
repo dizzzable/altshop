@@ -11,7 +11,7 @@ from src.core.enums import AccessMode, Currency, SystemNotificationType, UserNot
 from src.core.storage.key_builder import build_key
 from src.core.utils.types import AnyNotification
 from src.infrastructure.database import UnitOfWork
-from src.infrastructure.database.models.dto import ReferralSettingsDto, SettingsDto
+from src.infrastructure.database.models.dto import PartnerSettingsDto, ReferralSettingsDto, SettingsDto
 from src.infrastructure.database.models.sql import Settings
 from src.infrastructure.redis import RedisRepository
 from src.infrastructure.redis.cache import redis_cache
@@ -63,6 +63,9 @@ class SettingsService(BaseService):
 
         if settings.referral.changed_data or settings.referral.reward:
             settings.referral = settings.referral
+
+        if settings.partner.changed_data:
+            settings.partner = settings.partner
 
         changed_data = settings.prepare_changed_data()
         db_updated_settings = await self.uow.repository.settings.update(**changed_data)
@@ -174,6 +177,16 @@ class SettingsService(BaseService):
     async def is_referral_enable(self) -> bool:
         settings = await self.get()
         return settings.referral.enable
+
+    #
+
+    async def get_partner_settings(self) -> PartnerSettingsDto:
+        settings = await self.get()
+        return settings.partner
+
+    async def is_partner_enabled(self) -> bool:
+        settings = await self.get()
+        return settings.partner.enabled
 
     #
 

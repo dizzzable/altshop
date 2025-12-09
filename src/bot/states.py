@@ -116,6 +116,16 @@ class DashboardUser(StatesGroup):
     MESSAGE = State()
     GIVE_SUBSCRIPTION = State()
     SUBSCRIPTION_DURATION = State()
+    # Партнерская программа
+    PARTNER = State()  # Управление партнеркой пользователя
+    PARTNER_BALANCE = State()  # Управление балансом партнера
+    PARTNER_SETTINGS = State()  # Индивидуальные настройки партнера
+    PARTNER_SETTINGS_ACCRUAL = State()  # Выбор стратегии начисления
+    PARTNER_SETTINGS_REWARD = State()  # Выбор типа вознаграждения
+    PARTNER_SETTINGS_PERCENT = State()  # Настройка индивидуальных процентов
+    PARTNER_SETTINGS_FIXED = State()  # Настройка фиксированных сумм
+    PARTNER_WITHDRAWALS = State()  # Список заявок на вывод
+    PARTNER_WITHDRAWAL = State()  # Детали заявки на вывод
 
 
 class DashboardRemnashop(StatesGroup):
@@ -154,6 +164,22 @@ class RemnashopReferral(StatesGroup):
     EXCHANGE_GIFT_DURATION = State()  # Длительность подарочной подписки
     EXCHANGE_DISCOUNT_MAX = State()  # Максимальный процент скидки
     EXCHANGE_TRAFFIC_MAX = State()  # Максимум ГБ трафика
+
+
+# Настройки партнерской программы в админке
+class RemnashopPartner(StatesGroup):
+    MAIN = State()  # Главное окно настроек
+    LEVEL_PERCENTS = State()  # Настройка процентов по уровням
+    LEVEL_1_PERCENT = State()  # Процент для 1 уровня
+    LEVEL_2_PERCENT = State()  # Процент для 2 уровня
+    LEVEL_3_PERCENT = State()  # Процент для 3 уровня
+    TAX_SETTINGS = State()  # Настройки налогов
+    TAX_PERCENT = State()  # Процент налога
+    GATEWAY_FEES = State()  # Комиссии платежных систем
+    GATEWAY_FEE_EDIT = State()  # Редактирование комиссии ПС
+    MIN_WITHDRAWAL = State()  # Минимальная сумма вывода
+    WITHDRAWALS_LIST = State()  # Список запросов на вывод
+    WITHDRAWAL_DETAILS = State()  # Детали запроса на вывод
 
 
 class RemnashopGateways(StatesGroup):
@@ -206,6 +232,16 @@ class DashboardImporter(StatesGroup):
     SQUADS = State()
     IMPORT_COMPLETED = State()
     SYNC_COMPLETED = State()
+
+
+# Клиентский интерфейс партнера
+class UserPartner(StatesGroup):
+    MAIN = State()  # Главное окно партнерки
+    REFERRALS = State()  # Список рефералов
+    EARNINGS = State()  # История начислений
+    WITHDRAW = State()  # Запрос на вывод
+    WITHDRAW_CONFIRM = State()  # Подтверждение вывода
+    WITHDRAW_HISTORY = State()  # История выводов
 
 
 def state_from_string(state_str: str, sep: Optional[str] = ":") -> Optional[State]:

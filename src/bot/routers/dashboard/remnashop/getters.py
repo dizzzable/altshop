@@ -7,7 +7,24 @@ from dishka.integrations.aiogram_dialog import inject
 from src.core.config import AppConfig
 from src.core.enums import UserRole
 from src.infrastructure.database.models.dto import UserDto
+from src.services.partner import PartnerService
 from src.services.user import UserService
+
+
+@inject
+async def remnashop_main_getter(
+    dialog_manager: DialogManager,
+    partner_service: FromDishka[PartnerService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Getter для главного окна RemnaShop."""
+    # Получаем количество ожидающих запросов на вывод
+    stats = await partner_service.get_partner_statistics()
+    pending_withdrawals = stats.get("pending_withdrawals", 0)
+    
+    return {
+        "pending_withdrawals": pending_withdrawals,
+    }
 
 
 @inject

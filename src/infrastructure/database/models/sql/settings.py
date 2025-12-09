@@ -5,6 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.enums import AccessMode, Currency
 from src.infrastructure.database.models.dto import (
+    PartnerSettingsDto,
     ReferralSettingsDto,
     SystemNotificationDto,
     UserNotificationDto,
@@ -57,6 +58,12 @@ class Settings(BaseSql):
 
     referral: Mapped[ReferralSettingsDto] = mapped_column(
         JSON,
-        default=lambda: ReferralSettingsDto().model_dump(),
+        default=lambda: ReferralSettingsDto().model_dump(mode="json"),
+        nullable=False,
+    )
+
+    partner: Mapped[PartnerSettingsDto] = mapped_column(
+        JSON,
+        default=lambda: PartnerSettingsDto().model_dump(mode="json"),
         nullable=False,
     )

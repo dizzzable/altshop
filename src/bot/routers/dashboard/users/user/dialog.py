@@ -33,6 +33,13 @@ from .getters import (
     give_access_getter,
     give_subscription_getter,
     internal_squads_getter,
+    partner_accrual_strategy_getter,
+    partner_balance_getter,
+    partner_fixed_getter,
+    partner_getter,
+    partner_percent_getter,
+    partner_reward_type_getter,
+    partner_settings_getter,
     points_getter,
     role_getter,
     squads_getter,
@@ -59,6 +66,21 @@ from .handlers import (
     on_give_access,
     on_give_subscription,
     on_internal_squad_select,
+    on_partner,
+    on_partner_accrual_strategy_select,
+    on_partner_balance,
+    on_partner_balance_input,
+    on_partner_balance_select,
+    on_partner_create,
+    on_partner_delete,
+    on_partner_fixed_input,
+    on_partner_fixed_level_select,
+    on_partner_percent_input,
+    on_partner_percent_level_select,
+    on_partner_reward_type_select,
+    on_partner_settings,
+    on_partner_toggle,
+    on_partner_use_global_toggle,
     on_plan_select,
     on_points_input,
     on_points_select,
@@ -147,6 +169,14 @@ user = Window(
             id="block",
             on_click=on_block_toggle,
             when=F["is_not_self"] & F["can_edit"],
+        ),
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-partner", is_partner=F["is_partner"]),
+            id="partner",
+            on_click=on_partner,
+            when=F["can_edit"],
         ),
     ),
     Row(
@@ -674,6 +704,301 @@ role = Window(
     getter=role_getter,
 )
 
+# Партнерская программа пользователя
+partner = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-partner"),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-partner-create"),
+            id="partner_create",
+            on_click=on_partner_create,
+            when=~F["is_partner"],
+        ),
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-partner-balance"),
+            id="partner_balance",
+            on_click=on_partner_balance,
+            when=F["is_partner"],
+        ),
+        Button(
+            text=I18nFormat("btn-user-partner-settings"),
+            id="partner_settings",
+            on_click=on_partner_settings,
+            when=F["is_partner"],
+        ),
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-partner-toggle", is_active=F["is_active"]),
+            id="partner_toggle",
+            on_click=on_partner_toggle,
+            when=F["is_partner"],
+        ),
+        Button(
+            text=I18nFormat("btn-user-partner-delete"),
+            id="partner_delete",
+            on_click=on_partner_delete,
+            when=F["is_partner"],
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.MAIN,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.PARTNER,
+    getter=partner_getter,
+)
+
+
+# Управление балансом партнера
+partner_balance = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-partner-balance"),
+    Group(
+        Select(
+            text=Format("{item[operation]}{item[amount]} ₽"),
+            id="balance_select",
+            item_id_getter=lambda item: item["amount"],
+            items="amounts",
+            type_factory=int,
+            on_click=on_partner_balance_select,
+        ),
+        width=2,
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.PARTNER,
+        ),
+    ),
+    MessageInput(func=on_partner_balance_input),
+    IgnoreUpdate(),
+    state=DashboardUser.PARTNER_BALANCE,
+    getter=partner_balance_getter,
+)
+
+# Индивидуальные настройки партнера
+partner_settings = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-partner-settings"),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-partner-use-global", use_global=F["use_global_settings"]),
+            id="use_global_toggle",
+            on_click=on_partner_use_global_toggle,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-user-partner-accrual-strategy"),
+            id="accrual_strategy",
+            state=DashboardUser.PARTNER_SETTINGS_ACCRUAL,
+            when=~F["use_global_settings"],
+        ),
+        SwitchTo(
+            text=I18nFormat("btn-user-partner-reward-type"),
+            id="reward_type",
+            state=DashboardUser.PARTNER_SETTINGS_REWARD,
+            when=~F["use_global_settings"],
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-user-partner-percents"),
+            id="percents",
+            state=DashboardUser.PARTNER_SETTINGS_PERCENT,
+            when=~F["use_global_settings"] & ~F["is_fixed_amount"],
+        ),
+        SwitchTo(
+            text=I18nFormat("btn-user-partner-fixed-amounts"),
+            id="fixed_amounts",
+            state=DashboardUser.PARTNER_SETTINGS_FIXED,
+            when=~F["use_global_settings"] & F["is_fixed_amount"],
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.PARTNER,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.PARTNER_SETTINGS,
+    getter=partner_settings_getter,
+)
+
+
+# Выбор стратегии начисления
+partner_settings_accrual = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-partner-accrual-strategy"),
+    Column(
+        Select(
+            text=Format("{item[name]}"),
+            id="strategy_select",
+            item_id_getter=lambda item: item["value"],
+            items="strategies",
+            type_factory=str,
+            on_click=on_partner_accrual_strategy_select,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.PARTNER_SETTINGS,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.PARTNER_SETTINGS_ACCRUAL,
+    getter=partner_accrual_strategy_getter,
+)
+
+
+# Выбор типа вознаграждения
+partner_settings_reward = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-partner-reward-type"),
+    Column(
+        Select(
+            text=Format("{item[name]}"),
+            id="reward_type_select",
+            item_id_getter=lambda item: item["value"],
+            items="reward_types",
+            type_factory=str,
+            on_click=on_partner_reward_type_select,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.PARTNER_SETTINGS,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.PARTNER_SETTINGS_REWARD,
+    getter=partner_reward_type_getter,
+)
+
+
+# Настройка индивидуальных процентов
+partner_settings_percent = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-partner-percent"),
+    I18nFormat("msg-user-partner-percent-level1"),
+    Group(
+        Select(
+            text=Format("{item[label]}"),
+            id="percent_l1_select",
+            item_id_getter=lambda item: f"1:{item['value']}",
+            items="percentages",
+            type_factory=str,
+            on_click=on_partner_percent_level_select,
+        ),
+        width=5,
+    ),
+    I18nFormat("msg-user-partner-percent-level2"),
+    Group(
+        Select(
+            text=Format("{item[label]}"),
+            id="percent_l2_select",
+            item_id_getter=lambda item: f"2:{item['value']}",
+            items="percentages",
+            type_factory=str,
+            on_click=on_partner_percent_level_select,
+        ),
+        width=5,
+    ),
+    I18nFormat("msg-user-partner-percent-level3"),
+    Group(
+        Select(
+            text=Format("{item[label]}"),
+            id="percent_l3_select",
+            item_id_getter=lambda item: f"3:{item['value']}",
+            items="percentages",
+            type_factory=str,
+            on_click=on_partner_percent_level_select,
+        ),
+        width=5,
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.PARTNER_SETTINGS,
+        ),
+    ),
+    MessageInput(func=on_partner_percent_input),
+    IgnoreUpdate(),
+    state=DashboardUser.PARTNER_SETTINGS_PERCENT,
+    getter=partner_percent_getter,
+)
+
+
+# Настройка фиксированных сумм
+partner_settings_fixed = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-partner-fixed"),
+    I18nFormat("msg-user-partner-fixed-level1"),
+    Group(
+        Select(
+            text=Format("{item[label]}"),
+            id="fixed_l1_select",
+            item_id_getter=lambda item: f"1:{item['value']}",
+            items="amounts",
+            type_factory=str,
+            on_click=on_partner_fixed_level_select,
+        ),
+        width=4,
+    ),
+    I18nFormat("msg-user-partner-fixed-level2"),
+    Group(
+        Select(
+            text=Format("{item[label]}"),
+            id="fixed_l2_select",
+            item_id_getter=lambda item: f"2:{item['value']}",
+            items="amounts",
+            type_factory=str,
+            on_click=on_partner_fixed_level_select,
+        ),
+        width=4,
+    ),
+    I18nFormat("msg-user-partner-fixed-level3"),
+    Group(
+        Select(
+            text=Format("{item[label]}"),
+            id="fixed_l3_select",
+            item_id_getter=lambda item: f"3:{item['value']}",
+            items="amounts",
+            type_factory=str,
+            on_click=on_partner_fixed_level_select,
+        ),
+        width=4,
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.PARTNER_SETTINGS,
+        ),
+    ),
+    MessageInput(func=on_partner_fixed_input),
+    IgnoreUpdate(),
+    state=DashboardUser.PARTNER_SETTINGS_FIXED,
+    getter=partner_fixed_getter,
+)
+
+
 router = Dialog(
     user,
     subscription,
@@ -693,4 +1018,11 @@ router = Dialog(
     points,
     give_access,
     role,
+    partner,
+    partner_balance,
+    partner_settings,
+    partner_settings_accrual,
+    partner_settings_reward,
+    partner_settings_percent,
+    partner_settings_fixed,
 )

@@ -47,3 +47,33 @@ ntf-promocode-created = <i>✅ Promocode successfully created.</i>
 ntf-promocode-updated = <i>✅ Promocode successfully updated.</i>
 ntf-promocode-deleted = <i>✅ Promocode successfully deleted.</i>
 ntf-invalid-value = <i>❌ Invalid value.</i>
+
+# Partner Withdrawals
+ntf-partner-balance-insufficient = <i>❌ Insufficient balance for the specified withdrawal amount.</i>
+ntf-partner-balance-updated = <i>✅ Partner balance successfully updated.</i>
+ntf-partner-balance-invalid-amount = <i>❌ Invalid amount. Enter a number (positive to add, negative to subtract).</i>
+
+ntf-partner-withdrawal-approved = <i>✅ Withdrawal request successfully completed.</i>
+ntf-partner-withdrawal-pending-set = <i>💭 Request marked as "Under review".</i>
+ntf-partner-withdrawal-rejected = <i>🚫 Withdrawal request rejected.</i>
+
+ntf-partner-withdrawal-completed =
+    <b>💰 Withdrawal request completed!</b>
+
+    Your withdrawal request for <b>{ $amount } ₽</b> has been completed.
+
+    Thank you for using the partner program!
+
+ntf-partner-withdrawal-under-review =
+    <b>💭 Withdrawal request under review</b>
+
+    Your withdrawal request for <b>{ $amount } ₽</b> has been placed under review.
+
+    We will notify you of the decision.
+
+ntf-partner-withdrawal-rejected-user =
+    <b>🚫 Withdrawal request rejected</b>
+
+    Your withdrawal request for <b>{ $amount } ₽</b> has been rejected.
+
+    Contact the administrator for more details.

@@ -38,6 +38,7 @@ def setup_routers(router: Router) -> None:
         #
         menu.handlers.router,
         menu.dialog.router,
+        menu.partner.router,
         #
         subscription.dialog.router,
         #
@@ -53,6 +54,7 @@ def setup_routers(router: Router) -> None:
         remnashop.referral.dialog.router,
         remnashop.notifications.dialog.router,
         remnashop.plans.dialog.router,
+        remnashop.partner.dialog.router,
         #
         remnawave.dialog.router,
         #

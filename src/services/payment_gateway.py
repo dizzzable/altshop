@@ -50,6 +50,7 @@ from src.infrastructure.taskiq.tasks.notifications import (
     send_test_transaction_notification_task,
 )
 from src.infrastructure.taskiq.tasks.subscriptions import purchase_subscription_task
+from src.services.partner import PartnerService
 from src.services.referral import ReferralService
 from src.services.subscription import SubscriptionService
 
@@ -63,6 +64,7 @@ class PaymentGatewayService(BaseService):
     subscription_service: SubscriptionService
     payment_gateway_factory: PaymentGatewayFactory
     referral_service: ReferralService
+    partner_service: PartnerService
 
     def __init__(
         self,
@@ -77,6 +79,7 @@ class PaymentGatewayService(BaseService):
         subscription_service: SubscriptionService,
         payment_gateway_factory: PaymentGatewayFactory,
         referral_service: ReferralService,
+        partner_service: PartnerService,
     ) -> None:
         super().__init__(config, bot, redis_client, redis_repository, translator_hub)
         self.uow = uow
@@ -84,6 +87,7 @@ class PaymentGatewayService(BaseService):
         self.subscription_service = subscription_service
         self.payment_gateway_factory = payment_gateway_factory
         self.referral_service = referral_service
+        self.partner_service = partner_service
 
     async def create_default(self) -> None:
         for gateway_type in PaymentGatewayType:
@@ -469,6 +473,13 @@ class PaymentGatewayService(BaseService):
 
         if not transaction.pricing.is_free:
             await self.referral_service.assign_referral_rewards(transaction=transaction)
+            
+            # Начисляем партнерские проценты
+            await self.partner_service.process_partner_earning(
+                payer_user_id=transaction.user.telegram_id,
+                payment_amount=transaction.pricing.final_amount,
+                gateway_type=transaction.gateway_type,
+            )
 
         logger.debug(f"Called tasks payment for user '{transaction.user.telegram_id}'")
 

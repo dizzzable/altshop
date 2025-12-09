@@ -99,6 +99,20 @@ btn-referral-eligible-plan-choice = { $selected ->
 
 # RemnaShop
 btn-remnashop-banners = 🖼️ Banners
+btn-remnashop-withdrawal-requests = 📝 Withdrawal requests ({ $count })
+
+# Partner Program (Admin)
+btn-partner-withdrawals = 📝 Requests ({ $count })
+btn-user-partner-balance = 💰 Adjust balance
+
+# Partner Program (Client)
+btn-partner-withdraw = 💰 Withdrawal
+btn-partner-withdraw-confirm = ✅ Confirm request
+
+# Partner Withdrawal Admin Actions
+btn-partner-withdrawal-approve = ✅ Completed
+btn-partner-withdrawal-pending = 💭 Under review
+btn-partner-withdrawal-reject = 🚫 Rejected
 
 # Banners
 btn-banner-item = 🖼️ { $name }

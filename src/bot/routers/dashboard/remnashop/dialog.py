@@ -11,13 +11,14 @@ from src.bot.states import (
     RemnashopBanners,
     RemnashopGateways,
     RemnashopNotifications,
+    RemnashopPartner,
     RemnashopPlans,
     RemnashopReferral,
 )
 from src.bot.widgets import Banner, I18nFormat, IgnoreUpdate
 from src.core.enums import BannerName
 
-from .getters import admins_getter
+from .getters import admins_getter, remnashop_main_getter
 from .handlers import on_logs_request, on_user_role_remove, on_user_select
 
 remnashop = Window(
@@ -43,6 +44,21 @@ remnashop = Window(
             id="referral",
             state=RemnashopReferral.MAIN,
         ),
+        Start(
+            text=I18nFormat("btn-remnashop-partner"),
+            id="partner",
+            state=RemnashopPartner.MAIN,
+        ),
+    ),
+    Row(
+        Start(
+            text=I18nFormat("btn-remnashop-withdrawal-requests", count=F["pending_withdrawals"]),
+            id="withdrawal_requests",
+            state=RemnashopPartner.WITHDRAWALS_LIST,
+        ),
+        when=F["pending_withdrawals"] > 0,
+    ),
+    Row(
         Button(
             text=I18nFormat("btn-remnashop-advertising"),
             id="advertising",
@@ -93,6 +109,7 @@ remnashop = Window(
     ),
     IgnoreUpdate(),
     state=DashboardRemnashop.MAIN,
+    getter=remnashop_main_getter,
 )
 
 admins = Window(

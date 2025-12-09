@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from aiogram_dialog import DialogManager
@@ -31,6 +32,15 @@ def parse_int(value: Optional[str]) -> Optional[int]:
     try:
         return int(value)
     except ValueError:
+        return None
+
+
+def parse_decimal(value: Optional[str]) -> Optional[Decimal]:
+    if not value:
+        return None
+    try:
+        return Decimal(value)
+    except (InvalidOperation, ValueError):
         return None
 
 

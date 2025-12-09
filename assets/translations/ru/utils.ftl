@@ -272,6 +272,15 @@ gateway-type = { $gateway_type ->
     *[OTHER] { $gateway_type }
 }
 
+# Partner gateway keys (lowercase for use in partner settings)
+yookassa = YooKassa
+telegram_stars = Telegram Stars
+cryptopay = CryptoBot
+heleket = Heleket
+pal24 = PayPalych
+wata = WATA
+platega = Platega
+
 access-mode = { $access_mode ->
     [PUBLIC] 🟢 Разрешен для всех
     [INVITED] ⚪ Разрешен для приглашенных

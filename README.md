@@ -73,6 +73,20 @@
 - ✅ **QR code generation** for referral links with custom logo
 - ✅ **Points exchange system**: exchange points for subscription days, gift subscriptions, discounts, or traffic
 
+### 👾 Partner Program
+- ✅ **Three-level partner system** — earn from partners at 3 levels deep
+- ✅ Partner program configurator with percentage settings per level
+- ✅ **Reward types**: percentage of payment or fixed amount
+- ✅ **Accrual strategies**: only on first payment or on every payment
+- ✅ **Individual partner settings** — customize settings per partner
+- ✅ Tax settings for partner earnings
+- ✅ Payment gateway fee settings
+- ✅ Minimum withdrawal amount configuration
+- ✅ **Withdrawal requests management** — approve, reject, or mark as pending
+- ✅ Partner balance management (add/subtract funds)
+- ✅ Partner earnings history and statistics
+- ✅ Partner referrals list with earnings breakdown by level
+
 ### 💳 Payment System
 - ✅ Multiple payment gateways: Telegram Stars, YooKassa, CryptoPay, Heleket, Pal24, Platega, Wata, Cryptomus, YooMoney, RoboKassa
 - ✅ Payment gateway configurator

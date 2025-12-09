@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any, Iterable, Optional, Type, TypeVar
 
 from pydantic import BaseModel as _BaseModel
@@ -65,12 +66,21 @@ class TrackableDto(BaseDto):
             if encrypt:
                 raw = encrypt_func(raw)
             return raw
+        if isinstance(value, Decimal):
+            # Конвертируем Decimal в строку для JSON сериализации
+            return str(value)
         if isinstance(value, list):
             return [self._process_value(v, encrypt) for v in value]
         if isinstance(value, dict):
             return {k: self._process_value(v, encrypt) for k, v in value.items()}
-        if isinstance(value, TrackableDto):
-            return value.prepare_init_data(encrypt)
+        if isinstance(value, BaseDto):
+            # Обрабатываем вложенные DTO (как TrackableDto, так и BaseDto)
+            if isinstance(value, TrackableDto):
+                return value.prepare_init_data(encrypt)
+            return {
+                k: self._process_value(v, encrypt)
+                for k, v in value.model_dump().items()
+            }
         return value
 
     def prepare_init_data(self, encrypt: bool = False) -> dict[str, Any]:

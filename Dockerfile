@@ -24,6 +24,7 @@ COPY ./src ./src
 COPY ./assets /opt/remnashop/assets.default
 COPY ./docker-entrypoint.sh ./docker-entrypoint.sh
 
-RUN chmod +x ./docker-entrypoint.sh
+# Convert CRLF to LF (in case file was copied from Windows) and make executable
+RUN sed -i 's/\r$//' ./docker-entrypoint.sh && chmod +x ./docker-entrypoint.sh
 
 CMD ["./docker-entrypoint.sh"]

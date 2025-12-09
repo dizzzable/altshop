@@ -19,6 +19,34 @@ class ReferralRewardType(UpperStrEnum):
 class ReferralLevel(IntEnum):
     FIRST = auto()
     SECOND = auto()
+    THIRD = auto()
+
+
+class PartnerLevel(IntEnum):
+    """Уровни партнерской программы (3 уровня)."""
+    LEVEL_1 = 1  # Прямой реферал
+    LEVEL_2 = 2  # Реферал реферала
+    LEVEL_3 = 3  # Реферал реферала реферала
+
+
+class PartnerAccrualStrategy(UpperStrEnum):
+    """Стратегия начисления партнерских вознаграждений."""
+    ON_FIRST_PAYMENT = auto()  # Только при первой оплате реферала
+    ON_EACH_PAYMENT = auto()   # С каждой оплаты реферала
+
+
+class PartnerRewardType(UpperStrEnum):
+    """Тип вознаграждения партнера."""
+    PERCENT = auto()       # Процент с оплаты (по умолчанию)
+    FIXED_AMOUNT = auto()  # Фиксированная сумма
+
+
+class WithdrawalStatus(UpperStrEnum):
+    """Статусы запросов на вывод средств партнера."""
+    PENDING = auto()    # Ожидает обработки
+    COMPLETED = auto()  # Завершён
+    REJECTED = auto()   # Отклонён
+    CANCELED = auto()   # Отменён
 
 
 class ReferralAccrualStrategy(UpperStrEnum):

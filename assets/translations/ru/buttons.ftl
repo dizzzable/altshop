@@ -181,6 +181,61 @@ btn-user-block = { $is_blocked ->
     *[0] 🔒 Заблокировать
     }
 
+btn-user-partner = 👾 Партнерка
+btn-user-partner-balance = 💰 Изменить баланс
+btn-user-partner-create = ✅ Выдать партнерку
+btn-user-partner-toggle = { $is_active ->
+    [1] 🔴 Деактивировать
+    *[0] 🟢 Активировать
+    }
+btn-user-partner-delete = ❌ Удалить партнерку
+btn-user-partner-withdrawals = 💸 Заявки на вывод
+btn-user-partner-withdrawal = { $status ->
+    [PENDING] 🕓
+    [APPROVED] ✅
+    [REJECTED] ❌
+    *[OTHER] { $status }
+    } { $amount } - { $created_at }
+btn-user-partner-withdrawal-approve = ✅ Одобрить
+btn-user-partner-withdrawal-reject = ❌ Отклонить
+btn-user-partner-settings = ⚙️ Индивидуальные настройки
+btn-user-partner-use-global = { $use_global ->
+    [1] 🔘 Глобальные настройки
+    *[0] ⚪ Индивидуальные настройки
+    }
+btn-user-partner-accrual-strategy = 📍 Условие начисления
+btn-user-partner-reward-type = 🎀 Тип награды
+btn-user-partner-percents = 📊 Проценты по уровням
+btn-user-partner-fixed-amounts = 💰 Фиксированные суммы
+btn-user-partner-accrual-strategy-choice = { $selected ->
+    [1] 🔘
+    *[0] ⚪
+    } { $strategy ->
+    [ON_FIRST_PAYMENT] 💳 Только первый платеж
+    [ON_EACH_PAYMENT] 💸 Каждый платеж
+    *[OTHER] { $strategy }
+    }
+btn-user-partner-reward-type-choice = { $selected ->
+    [1] 🔘
+    *[0] ⚪
+    } { $reward_type ->
+    [PERCENT] 📊 Процент от оплаты
+    [FIXED_AMOUNT] 💰 Фиксированная сумма
+    *[OTHER] { $reward_type }
+    }
+btn-user-partner-level-percent = { $level ->
+    [1] 1️⃣
+    [2] 2️⃣
+    [3] 3️⃣
+    *[OTHER] { $level }
+    } уровень: { $percent }%
+btn-user-partner-level-fixed = { $level ->
+    [1] 1️⃣
+    [2] 2️⃣
+    [3] 3️⃣
+    *[OTHER] { $level }
+    } уровень: { $amount } руб.
+
 
 # Broadcast
 btn-broadcast-list = 📄 Список всех рассылок
@@ -245,6 +300,8 @@ btn-access-condition-toggle = { $enabled ->
 btn-remnashop-admins = 👮‍♂️ Администраторы
 btn-remnashop-gateways = 🌐 Платежные системы
 btn-remnashop-referral = 👥 Реф. система
+btn-remnashop-partner = 👾 Партнерка
+btn-remnashop-withdrawal-requests = 📝 Запросы на вывод ({ $count })
 btn-remnashop-advertising = 🎯 Реклама
 btn-remnashop-plans = 📦 Планы
 btn-remnashop-notifications = 🔔 Уведомления
@@ -587,3 +644,60 @@ btn-promocode-availability-choice = { $type ->
     [ALLOWED] 🔐 Для разрешенных
     *[OTHER] { $type }
     }
+
+
+# Partner Program (Admin)
+btn-partner-enable = { $is_enabled ->
+    [1] 🟢 Включена
+    *[0] 🔴 Выключена
+    }
+btn-partner-level-percents = 📊 Проценты по уровням
+btn-partner-level-percent = { $level ->
+    [1] 1️⃣
+    [2] 2️⃣
+    [3] 3️⃣
+    *[OTHER] { $level }
+    } уровень: { $percent }%
+btn-partner-tax-settings = 🏛 Налоги
+btn-partner-tax-percent = 🏛 Налог ({ $percent }%)
+btn-partner-gateway-fees = 💳 Комиссии ПС
+btn-partner-gateway-fee = { gateway-type }: { $fee }%
+btn-partner-min-withdrawal = ⬇️ Мин. вывод ({ $min_withdrawal })
+btn-partner-level-choice = { $level ->
+    [1] 1️⃣ Уровень 1
+    [2] 2️⃣ Уровень 2
+    [3] 3️⃣ Уровень 3
+    *[OTHER] { $level } уровень
+    }
+btn-partner-withdrawals = 📝 Запросы ({ $count })
+btn-partner-withdrawal-status = { $status ->
+    [PENDING] 🕓 Ожидает
+    [APPROVED] ✅ Одобрено
+    [REJECTED] ❌ Отклонено
+    *[OTHER] { $status }
+    }
+btn-partner-withdrawal-item = { $status ->
+    [PENDING] 🕓
+    [COMPLETED] ✅
+    [REJECTED] ❌
+    *[OTHER] { $status }
+    } { $user_id } - { $amount } - { $created_at }
+btn-partner-withdrawal-approve = ✅ Выполнено
+btn-partner-withdrawal-pending = 💭 На рассмотрении
+btn-partner-withdrawal-reject = 🚫 Отказано
+
+# Partner Program (Client)
+btn-menu-partner = 👾 Партнерка
+btn-partner-referrals = 👥 Мои рефералы ({ $count })
+btn-partner-earnings = 📊 Мои начисления
+btn-partner-withdraw = 💰 Вывод
+btn-partner-withdraw-confirm = ✅ Подтвердить запрос
+btn-partner-invite-copy = 🔗 Скопировать ссылку
+btn-partner-invite-send = 📩 Пригласить
+btn-partner-history = 📜 История выводов
+btn-partner-referral-item = { $level ->
+    [1] 1️⃣
+    [2] 2️⃣
+    [3] 3️⃣
+    *[OTHER] { $level }
+    } { $username } - { $total_earned }

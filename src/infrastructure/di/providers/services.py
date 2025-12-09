@@ -5,6 +5,7 @@ from src.services.broadcast import BroadcastService
 from src.services.command import CommandService
 from src.services.importer import ImporterService
 from src.services.notification import NotificationService
+from src.services.partner import PartnerService
 from src.services.payment_gateway import PaymentGatewayService
 from src.services.plan import PlanService
 from src.services.pricing import PricingService
@@ -25,6 +26,7 @@ class ServicesProvider(Provider):
     access_service = provide(source=AccessService, scope=Scope.REQUEST)
     notification_service = provide(source=NotificationService, scope=Scope.REQUEST)
     gateway_service = provide(source=PaymentGatewayService, scope=Scope.REQUEST)
+    partner_service = provide(source=PartnerService, scope=Scope.REQUEST)
     plan_service = provide(source=PlanService, scope=Scope.REQUEST)
     promocode_service = provide(source=PromocodeService, scope=Scope.REQUEST)
     remnawave_service = provide(source=RemnawaveService, scope=Scope.REQUEST)

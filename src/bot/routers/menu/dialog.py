@@ -18,7 +18,7 @@ from aiogram_dialog.widgets.text import Format
 from magic_filter import F
 
 from src.bot.routers.dashboard.users.handlers import on_user_search
-from src.bot.states import Dashboard, MainMenu, Subscription
+from src.bot.states import Dashboard, MainMenu, Subscription, UserPartner
 from src.bot.widgets import Banner, I18nFormat, IgnoreUpdate
 from src.core.constants import MIDDLEWARE_DATA_KEY, PURCHASE_PREFIX, USER_KEY
 from src.core.enums import BannerName, PointsExchangeType
@@ -106,6 +106,14 @@ menu = Window(
             id="exchange",
             state=MainMenu.EXCHANGE,
             when=F["is_referral_enable"],
+        ),
+    ),
+    Row(
+        Start(
+            text=I18nFormat("btn-menu-partner"),
+            id="partner",
+            state=UserPartner.MAIN,
+            when=F["is_partner"],
         ),
     ),
     Row(

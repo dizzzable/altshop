@@ -15,6 +15,7 @@ from src.core.utils.formatters import (
     i18n_format_traffic_limit,
 )
 from src.infrastructure.database.models.dto import UserDto
+from src.services.partner import PartnerService
 from src.services.plan import PlanService
 from src.services.referral import ReferralService
 from src.services.settings import SettingsService
@@ -31,6 +32,7 @@ async def menu_getter(
     subscription_service: FromDishka[SubscriptionService],
     settings_service: FromDishka[SettingsService],
     referral_service: FromDishka[ReferralService],
+    partner_service: FromDishka[PartnerService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     plan = await plan_service.get_trial_plan()
@@ -59,6 +61,10 @@ async def menu_getter(
     referral_settings = await settings_service.get_referral_settings()
     is_points_reward = referral_settings.reward.is_points
 
+    # Проверяем, является ли пользователь партнером
+    partner = await partner_service.get_partner_by_user(user.telegram_id)
+    is_partner = partner is not None and partner.is_active
+
     base_data = {
         "user_id": str(user.telegram_id),
         "user_name": user.name,
@@ -71,6 +77,7 @@ async def menu_getter(
         "is_points_reward": is_points_reward,
         "subscriptions_count": subscriptions_count,
         "count": devices_count,  # For btn-menu-devices
+        "is_partner": is_partner,
     }
 
     subscription = user.current_subscription

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Optional
 
 from pydantic import Field, SecretStr
@@ -6,6 +7,7 @@ from src.core.constants import T_ME
 from src.core.enums import (
     AccessMode,
     Currency,
+    PartnerLevel,
     PointsExchangeType,
     ReferralAccrualStrategy,
     ReferralLevel,
@@ -206,6 +208,139 @@ class ReferralSettingsDto(TrackableDto):
         return plan_id in self.eligible_plan_ids
 
 
+class PartnerSettingsDto(TrackableDto):
+    """Настройки партнерской программы."""
+    enabled: bool = False  # Включена ли партнерская программа
+    
+    # Проценты для каждого уровня
+    level1_percent: Decimal = Decimal("10.0")  # 10% с прямых рефералов
+    level2_percent: Decimal = Decimal("3.0")   # 3% с рефералов 2 уровня
+    level3_percent: Decimal = Decimal("1.0")   # 1% с рефералов 3 уровня
+    
+    # Настройки комиссий и налогов
+    tax_percent: Decimal = Decimal("6.0")  # НДС или налог (для самозанятых 6%)
+    
+    # Комиссии платежных систем (для информирования)
+    yookassa_commission: Decimal = Decimal("3.5")  # Комиссия YooKassa
+    telegram_stars_commission: Decimal = Decimal("30.0")  # Комиссия Telegram Stars
+    cryptopay_commission: Decimal = Decimal("1.0")  # Комиссия CryptoPay
+    heleket_commission: Decimal = Decimal("1.0")  # Комиссия Heleket
+    pal24_commission: Decimal = Decimal("5.0")  # Комиссия Pal24
+    wata_commission: Decimal = Decimal("3.0")  # Комиссия WATA
+    platega_commission: Decimal = Decimal("3.5")  # Комиссия Platega
+    
+    # Минимальная сумма для вывода (в копейках)
+    min_withdrawal_amount: int = 50000  # 500 рублей
+    
+    # Автоматический расчет или ручной
+    auto_calculate_commission: bool = True
+    
+    @property
+    def is_enabled(self) -> bool:
+        """Алиас для enabled (для совместимости)."""
+        return self.enabled
+    
+    @property
+    def min_withdrawal(self) -> Decimal:
+        """Минимальная сумма для вывода в рублях (конвертация из копеек)."""
+        return Decimal(self.min_withdrawal_amount) / 100
+    
+    def get_level_percent(self, level: PartnerLevel) -> Decimal:
+        """Получить процент для уровня."""
+        match level:
+            case PartnerLevel.LEVEL_1:
+                return self.level1_percent
+            case PartnerLevel.LEVEL_2:
+                return self.level2_percent
+            case PartnerLevel.LEVEL_3:
+                return self.level3_percent
+        return Decimal("0")
+    
+    def calculate_partner_earning(
+        self,
+        payment_amount: int,
+        level: PartnerLevel,
+        gateway_commission: Decimal = Decimal("0"),
+    ) -> int:
+        """
+        Рассчитать заработок партнера с учетом комиссий.
+        
+        Args:
+            payment_amount: Сумма оплаты в копейках
+            level: Уровень партнера
+            gateway_commission: Комиссия платежной системы в процентах
+            
+        Returns:
+            Заработок партнера в копейках
+        """
+        percent = self.get_level_percent(level)
+        
+        if self.auto_calculate_commission:
+            # Вычитаем комиссию платежной системы из суммы
+            net_amount = Decimal(payment_amount) * (100 - gateway_commission) / 100
+            # Вычитаем налог
+            net_amount = net_amount * (100 - self.tax_percent) / 100
+        else:
+            net_amount = Decimal(payment_amount)
+        
+        # Считаем процент партнера
+        earning = int(net_amount * percent / 100)
+        return max(0, earning)
+    
+    def get_gateway_commission(self, gateway_type: str) -> Decimal:
+        """Получить комиссию платежной системы."""
+        commissions = {
+            "YOOKASSA": self.yookassa_commission,
+            "TELEGRAM_STARS": self.telegram_stars_commission,
+            "CRYPTOPAY": self.cryptopay_commission,
+            "HELEKET": self.heleket_commission,
+            "PAL24": self.pal24_commission,
+            "WATA": self.wata_commission,
+            "PLATEGA": self.platega_commission,
+        }
+        return commissions.get(gateway_type, Decimal("0"))
+    
+    def calculate_net_earning_info(
+        self,
+        payment_amount: int,
+        gateway_type: str,
+    ) -> dict:
+        """
+        Рассчитать подробную информацию о чистом заработке.
+        Полезно для отображения в админке.
+        """
+        gateway_commission = self.get_gateway_commission(gateway_type)
+        amount_decimal = Decimal(payment_amount)
+        
+        gateway_fee = amount_decimal * gateway_commission / 100
+        after_gateway = amount_decimal - gateway_fee
+        
+        tax_fee = after_gateway * self.tax_percent / 100
+        net_amount = after_gateway - tax_fee
+        
+        level1_earning = int(net_amount * self.level1_percent / 100)
+        level2_earning = int(net_amount * self.level2_percent / 100)
+        level3_earning = int(net_amount * self.level3_percent / 100)
+        total_partner_expense = level1_earning + level2_earning + level3_earning
+        
+        return {
+            "payment_amount": payment_amount,
+            "gateway_commission_percent": gateway_commission,
+            "gateway_fee": int(gateway_fee),
+            "tax_percent": self.tax_percent,
+            "tax_fee": int(tax_fee),
+            "net_amount": int(net_amount),
+            "level1_percent": self.level1_percent,
+            "level1_earning": level1_earning,
+            "level2_percent": self.level2_percent,
+            "level2_earning": level2_earning,
+            "level3_percent": self.level3_percent,
+            "level3_earning": level3_earning,
+            "total_partner_expense": total_partner_expense,
+            "owner_profit": int(net_amount) - total_partner_expense,
+        }
+
+
 class SettingsDto(TrackableDto):
     id: Optional[int] = Field(default=None, frozen=True)
 
@@ -223,6 +358,7 @@ class SettingsDto(TrackableDto):
     system_notifications: SystemNotificationDto = SystemNotificationDto()
 
     referral: ReferralSettingsDto = ReferralSettingsDto()
+    partner: PartnerSettingsDto = PartnerSettingsDto()
 
     @property
     def channel_has_username(self) -> bool:

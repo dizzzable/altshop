@@ -406,6 +406,48 @@ msg-referral-max-exchange-points =
     Enter -1 to remove the limit.
 
 # RemnaShop
+msg-user-partner-balance =
+    <b>💰 Adjust partner balance</b>
+
+    <b>Current balance: { $current_balance }</b>
+
+    Select a button or enter a custom amount (in rubles) to add or subtract.
+
+msg-partner-withdrawals-list =
+    <b>📝 Withdrawal Requests</b>
+
+    List of withdrawal requests from partners. Select a request to view details and process.
+
+msg-partner-withdraw-confirm =
+    <b>📝 Confirm Withdrawal Request</b>
+
+    <blockquote>
+    • <b>Amount</b>: { $amount }
+    • <b>Fee</b>: { $fee } ({ $fee_percent }%)
+    • <b>You will receive</b>: { $net_amount }
+    </blockquote>
+
+    <i>⚠️ After confirmation, your request will be sent for administrator review. Funds will be transferred after approval.</i>
+
+msg-partner-withdrawal-details =
+    <b>📝 Withdrawal Request</b>
+
+    <blockquote>
+    • <b>Partner ID</b>: { $partner_id }
+    • <b>Amount</b>: { $amount } ₽
+    • <b>Status</b>: { $status ->
+        [pending] ⏳ Pending
+        [completed] ✅ Completed
+        [rejected] 🚫 Rejected
+        [canceled] ❌ Canceled
+        *[other] { $status }
+    }
+    • <b>Created</b>: { $created_at }
+    • <b>Payment details</b>: { $payment_details }
+    </blockquote>
+
+    Select an action:
+
 # Banners
 msg-banners-main =
     <b>🖼️ Banner Management</b>

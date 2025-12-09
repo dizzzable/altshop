@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any, cast
 
 from aiogram_dialog import DialogManager
@@ -9,7 +10,7 @@ from remnawave.models import GetAllInternalSquadsResponseDto
 
 from src.core.config import AppConfig
 from src.core.constants import DATETIME_FORMAT
-from src.core.enums import UserRole
+from src.core.enums import PartnerAccrualStrategy, PartnerLevel, PartnerRewardType, UserRole
 from src.core.i18n.keys import ByteUnitKey
 from src.core.utils.formatters import (
     i18n_format_bytes_to_unit,
@@ -19,6 +20,7 @@ from src.core.utils.formatters import (
     i18n_format_traffic_limit,
 )
 from src.infrastructure.database.models.dto import UserDto
+from src.services.partner import PartnerService
 from src.services.plan import PlanService
 from src.services.remnawave import RemnawaveService
 from src.services.settings import SettingsService
@@ -35,6 +37,7 @@ async def user_getter(
     user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     settings_service: FromDishka[SettingsService],
+    partner_service: FromDishka[PartnerService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     settings = await settings_service.get_referral_settings()
@@ -50,6 +53,10 @@ async def user_getter(
     subscription = target_user.current_subscription
     all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
     subscriptions_count = len(all_subscriptions)
+    
+    # Проверяем партнерский статус
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    is_partner = partner is not None and partner.is_active
 
     data: dict[str, Any] = {
         "user_id": str(target_user.telegram_id),
@@ -68,6 +75,9 @@ async def user_getter(
         "is_trial": False,
         "has_subscription": subscription is not None,
         "subscriptions_count": subscriptions_count,
+        # Партнерская программа
+        "is_partner": is_partner,
+        "partner_balance": partner.balance_rub if partner else 0,
     }
 
     if subscription:
@@ -537,3 +547,279 @@ async def role_getter(
 
     roles = [role for role in UserRole if role != target_user.role]
     return {"roles": roles}
+
+
+@inject
+async def partner_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    settings_service: FromDishka[SettingsService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Getter для управления партнеркой пользователя."""
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    settings = await settings_service.get()
+    partner_settings = settings.partner
+    
+    if partner:
+        statistics = await partner_service.get_partner_statistics(partner)
+        referrals = await partner_service.get_partner_referrals(partner.id)
+        
+        return {
+            "is_partner": True,
+            "is_active": partner.is_active,
+            "balance": partner.balance_rub,
+            "total_earned": partner.total_earned_rub,
+            "total_withdrawn_rubles": partner.total_withdrawn_rub,
+            "referrals_count": partner.referrals_count,
+            # Переменные для шаблона msg-user-partner
+            "level1_count": partner.referrals_count,
+            "level2_count": partner.level2_referrals_count,
+            "level3_count": partner.level3_referrals_count,
+            "total_referrals": partner.total_referrals,
+            "level1_earned": statistics.get("level1_earnings", 0) / 100,
+            "level2_earned": statistics.get("level2_earnings", 0) / 100,
+            "level3_earned": statistics.get("level3_earnings", 0) / 100,
+            "level_1_percent": partner_settings.level1_percent,
+            "level_2_percent": partner_settings.level2_percent,
+            "level_3_percent": partner_settings.level3_percent,
+            "created_at": partner.created_at.strftime("%d.%m.%Y %H:%M") if partner.created_at else "",
+        }
+    else:
+        return {
+            "is_partner": False,
+            "is_active": False,
+            "balance": 0,
+            "total_earned": 0,
+            "total_withdrawn_rubles": 0,
+            "referrals_count": 0,
+            "level1_count": 0,
+            "level2_count": 0,
+            "level3_count": 0,
+            "total_referrals": 0,
+            "level1_earned": 0,
+            "level2_earned": 0,
+            "level3_earned": 0,
+            "level_1_percent": partner_settings.level1_percent,
+            "level_2_percent": partner_settings.level2_percent,
+            "level_3_percent": partner_settings.level3_percent,
+            "created_at": "",
+        }
+
+
+@inject
+async def partner_balance_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Getter для управления балансом партнера."""
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        raise ValueError(f"Partner for user '{target_telegram_id}' not found")
+    
+    # Форматируем варианты изменения баланса (в рублях)
+    formatted_amounts = [
+        {
+            "operation": "+" if value > 0 else "",
+            "amount": value,
+        }
+        for value in [100, -100, 500, -500, 1000, -1000, 5000, -5000]
+    ]
+    
+    return {
+        "current_balance": partner.balance_rub,
+        "total_earned": partner.total_earned_rub,
+        "total_withdrawn": partner.total_withdrawn_rub,
+        "amounts": formatted_amounts,
+    }
+
+
+@inject
+async def partner_settings_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    settings_service: FromDishka[SettingsService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Getter для индивидуальных настроек партнера."""
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        raise ValueError(f"Partner for user '{target_telegram_id}' not found")
+    
+    # Получаем глобальные настройки для отображения
+    settings = await settings_service.get()
+    partner_settings = settings.partner
+    
+    # Индивидуальные настройки
+    ind = partner.individual_settings
+    
+    # Определяем текущие значения
+    if ind.use_global_settings:
+        current_l1_percent = partner_settings.level1_percent
+        current_l2_percent = partner_settings.level2_percent
+        current_l3_percent = partner_settings.level3_percent
+        current_strategy = "global"
+        current_reward_type = "global"
+    else:
+        current_l1_percent = ind.level1_percent if ind.level1_percent is not None else partner_settings.level1_percent
+        current_l2_percent = ind.level2_percent if ind.level2_percent is not None else partner_settings.level2_percent
+        current_l3_percent = ind.level3_percent if ind.level3_percent is not None else partner_settings.level3_percent
+        current_strategy = ind.accrual_strategy.value
+        current_reward_type = ind.reward_type.value
+    
+    return {
+        "use_global_settings": ind.use_global_settings,
+        "use_global": ind.use_global_settings,  # для FTL шаблона
+        "accrual_strategy": current_strategy,
+        "reward_type": current_reward_type,
+        # Текущие проценты
+        "level1_percent": current_l1_percent,
+        "level2_percent": current_l2_percent,
+        "level3_percent": current_l3_percent,
+        # Индивидуальные значения (None если используются глобальные)
+        "ind_level1_percent": ind.level1_percent,
+        "ind_level2_percent": ind.level2_percent,
+        "ind_level3_percent": ind.level3_percent,
+        # Фиксированные суммы
+        "level1_fixed": ind.level1_fixed_amount / 100 if ind.level1_fixed_amount else 0,
+        "level2_fixed": ind.level2_fixed_amount / 100 if ind.level2_fixed_amount else 0,
+        "level3_fixed": ind.level3_fixed_amount / 100 if ind.level3_fixed_amount else 0,
+        # Глобальные проценты для справки
+        "global_level1_percent": partner_settings.level1_percent,
+        "global_level2_percent": partner_settings.level2_percent,
+        "global_level3_percent": partner_settings.level3_percent,
+        # Флаги для UI
+        "is_first_payment_only": not ind.use_global_settings and ind.accrual_strategy == PartnerAccrualStrategy.ON_FIRST_PAYMENT,
+        "is_fixed_amount": not ind.use_global_settings and ind.reward_type == PartnerRewardType.FIXED_AMOUNT,
+    }
+
+
+async def partner_accrual_strategy_getter(
+    dialog_manager: DialogManager,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Getter для выбора стратегии начисления."""
+    strategies = [
+        {
+            "value": PartnerAccrualStrategy.ON_EACH_PAYMENT.value,
+            "name": "С каждой оплаты реферала",
+        },
+        {
+            "value": PartnerAccrualStrategy.ON_FIRST_PAYMENT.value,
+            "name": "Только при первой оплате реферала",
+        },
+    ]
+    
+    return {"strategies": strategies}
+
+
+async def partner_reward_type_getter(
+    dialog_manager: DialogManager,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Getter для выбора типа вознаграждения."""
+    reward_types = [
+        {
+            "value": PartnerRewardType.PERCENT.value,
+            "name": "Процент от суммы оплаты",
+        },
+        {
+            "value": PartnerRewardType.FIXED_AMOUNT.value,
+            "name": "Фиксированная сумма",
+        },
+    ]
+    
+    return {"reward_types": reward_types}
+
+
+@inject
+async def partner_percent_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    settings_service: FromDishka[SettingsService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Getter для настройки индивидуальных процентов."""
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        raise ValueError(f"Partner for user '{target_telegram_id}' not found")
+    
+    settings = await settings_service.get()
+    partner_settings = settings.partner
+    
+    ind = partner.individual_settings
+    
+    # Варианты процентов
+    percentages = [
+        {"value": p, "label": f"{p}%"}
+        for p in [1, 2, 3, 5, 7, 10, 15, 20, 25, 30]
+    ]
+    
+    return {
+        "percentages": percentages,
+        "current_level1": ind.level1_percent if ind.level1_percent is not None else partner_settings.level1_percent,
+        "current_level2": ind.level2_percent if ind.level2_percent is not None else partner_settings.level2_percent,
+        "current_level3": ind.level3_percent if ind.level3_percent is not None else partner_settings.level3_percent,
+        "global_level1": partner_settings.level1_percent,
+        "global_level2": partner_settings.level2_percent,
+        "global_level3": partner_settings.level3_percent,
+    }
+
+
+@inject
+async def partner_fixed_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Getter для настройки фиксированных сумм."""
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        raise ValueError(f"Partner for user '{target_telegram_id}' not found")
+    
+    ind = partner.individual_settings
+    
+    # Варианты фиксированных сумм (в рублях)
+    amounts = [
+        {"value": a, "label": f"{a} ₽"}
+        for a in [10, 25, 50, 100, 150, 200, 300, 500]
+    ]
+    
+    return {
+        "amounts": amounts,
+        "current_level1": ind.level1_fixed_amount / 100 if ind.level1_fixed_amount else 0,
+        "current_level2": ind.level2_fixed_amount / 100 if ind.level2_fixed_amount else 0,
+        "current_level3": ind.level3_fixed_amount / 100 if ind.level3_fixed_amount else 0,
+    }

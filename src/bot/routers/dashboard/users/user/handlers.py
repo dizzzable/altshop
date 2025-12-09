@@ -1,4 +1,5 @@
 from datetime import timedelta
+from decimal import Decimal
 from typing import Union
 from uuid import UUID
 
@@ -17,16 +18,19 @@ from src.bot.keyboards import get_contact_support_keyboard
 from src.bot.states import DashboardUser
 from src.core.config import AppConfig
 from src.core.constants import USER_KEY
-from src.core.enums import SubscriptionStatus, UserRole
+from src.core.enums import PartnerAccrualStrategy, PartnerRewardType, SubscriptionStatus, UserRole
+from src.core.utils.validators import is_double_click
 from src.core.utils.formatters import format_user_log as log
 from src.core.utils.message_payload import MessagePayload
 from src.core.utils.time import datetime_now
-from src.core.utils.validators import is_double_click, parse_int
+from src.core.utils.validators import is_double_click, parse_decimal, parse_int
 from src.infrastructure.database.models.dto import UserDto
+from src.infrastructure.database.models.dto.partner import PartnerIndividualSettingsDto
 from src.infrastructure.database.models.dto.plan import PlanSnapshotDto
 from src.infrastructure.database.models.dto.subscription import SubscriptionDto
 from src.infrastructure.taskiq.tasks.redirects import redirect_to_main_menu_task
 from src.services.notification import NotificationService
+from src.services.partner import PartnerService
 from src.services.plan import PlanService
 from src.services.remnawave import RemnawaveService
 from src.services.subscription import SubscriptionService
@@ -1014,3 +1018,680 @@ async def on_subscription_duration_select(
 
     logger.info(f"{log(user)} Set plan '{selected_plan_id}' for user '{target_telegram_id}'")
     await dialog_manager.switch_to(state=DashboardUser.MAIN)
+
+
+
+# ==================
+# PARTNER HANDLERS
+# ==================
+
+
+@inject
+async def on_partner(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Переход к управлению партнеркой пользователя."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    await dialog_manager.switch_to(state=DashboardUser.PARTNER)
+
+
+@inject
+async def on_partner_create(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Создание партнера для пользователя."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    if is_double_click(dialog_manager, key="partner_create_confirm", cooldown=5):
+        partner = await partner_service.create_partner(target_user)
+        
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-created"),
+        )
+        logger.info(f"{log(user)} Created partner for user '{target_telegram_id}'")
+        return
+
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(i18n_key="ntf-double-click-confirm"),
+    )
+
+
+@inject
+async def on_partner_toggle(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Переключение статуса партнера."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    updated = await partner_service.toggle_partner_status(partner.id)
+    
+    if updated:
+        status = "activated" if updated.is_active else "deactivated"
+        logger.info(f"{log(user)} Partner for user '{target_telegram_id}' {status}")
+
+
+@inject
+async def on_partner_delete(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Удаление партнера (деактивация)."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    if is_double_click(dialog_manager, key="partner_delete_confirm", cooldown=10):
+        await partner_service.deactivate_partner(partner.id)
+        
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-deactivated"),
+        )
+        logger.info(f"{log(user)} Deactivated partner for user '{target_telegram_id}'")
+        await dialog_manager.switch_to(state=DashboardUser.MAIN)
+        return
+
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(i18n_key="ntf-double-click-confirm"),
+    )
+
+
+@inject
+async def on_partner_balance(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Переход к управлению балансом партнера."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    await dialog_manager.switch_to(state=DashboardUser.PARTNER_BALANCE)
+
+
+@inject
+async def on_partner_balance_select(
+    callback: CallbackQuery,
+    widget: Select[int],
+    dialog_manager: DialogManager,
+    selected_amount: int,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Изменение баланса партнера по выбору из списка."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    # Сумма в копейках (selected_amount в рублях * 100)
+    amount_kopecks = selected_amount * 100
+    
+    new_balance = partner.balance + amount_kopecks
+    
+    if new_balance < 0:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-partner-balance-insufficient",
+                i18n_kwargs={"operation": "SUB"},
+            ),
+        )
+        return
+
+    updated = await partner_service.adjust_partner_balance(
+        partner_id=partner.id,
+        amount=amount_kopecks,
+        admin_telegram_id=user.telegram_id,
+        reason=f"Admin adjustment via dashboard",
+    )
+    
+    if updated:
+        operation = "added" if selected_amount > 0 else "subtracted"
+        logger.info(
+            f"{log(user)} {operation.capitalize()} {abs(selected_amount)} RUB "
+            f"to partner balance for user '{target_telegram_id}'"
+        )
+
+
+@inject
+async def on_partner_balance_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Обработка ввода суммы для изменения баланса партнера."""
+    dialog_manager.show_mode = ShowMode.EDIT
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    number = parse_int(message.text)
+
+    if number is None:
+        logger.warning(f"{log(user)} Invalid partner balance input: '{message.text}'")
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-user-invalid-number"),
+        )
+        return
+
+    # Сумма в копейках (number в рублях * 100)
+    amount_kopecks = number * 100
+    
+    new_balance = partner.balance + amount_kopecks
+    
+    if new_balance < 0:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-partner-balance-insufficient",
+                i18n_kwargs={"operation": "SUB"},
+            ),
+        )
+        return
+
+    updated = await partner_service.adjust_partner_balance(
+        partner_id=partner.id,
+        amount=amount_kopecks,
+        admin_telegram_id=user.telegram_id,
+        reason=f"Admin adjustment via dashboard",
+    )
+    
+    if updated:
+        operation = "added" if number > 0 else "subtracted"
+        logger.info(
+            f"{log(user)} {operation.capitalize()} {abs(number)} RUB "
+            f"to partner balance for user '{target_telegram_id}'"
+        )
+
+
+@inject
+async def on_partner_settings(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Переход к индивидуальным настройкам партнера."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    await dialog_manager.switch_to(state=DashboardUser.PARTNER_SETTINGS)
+
+
+@inject
+async def on_partner_use_global_toggle(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Переключить использование глобальных настроек."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    # Переключаем use_global_settings
+    new_settings = PartnerIndividualSettingsDto(
+        use_global_settings=not partner.individual_settings.use_global_settings,
+        accrual_strategy=partner.individual_settings.accrual_strategy,
+        reward_type=partner.individual_settings.reward_type,
+        level1_percent=partner.individual_settings.level1_percent,
+        level2_percent=partner.individual_settings.level2_percent,
+        level3_percent=partner.individual_settings.level3_percent,
+        level1_fixed_amount=partner.individual_settings.level1_fixed_amount,
+        level2_fixed_amount=partner.individual_settings.level2_fixed_amount,
+        level3_fixed_amount=partner.individual_settings.level3_fixed_amount,
+    )
+    
+    updated = await partner_service.update_partner_individual_settings(
+        partner_id=partner.id,
+        settings=new_settings,
+    )
+    
+    if updated:
+        status = "disabled" if new_settings.use_global_settings else "enabled"
+        logger.info(
+            f"{log(user)} Partner '{partner.id}' individual settings {status}"
+        )
+
+
+@inject
+async def on_partner_accrual_strategy_select(
+    callback: CallbackQuery,
+    widget: Select[str],
+    dialog_manager: DialogManager,
+    selected_strategy: str,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Выбор стратегии начисления."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    # Обновляем стратегию начисления
+    new_settings = PartnerIndividualSettingsDto(
+        use_global_settings=False,  # При выборе стратегии отключаем глобальные
+        accrual_strategy=PartnerAccrualStrategy(selected_strategy),
+        reward_type=partner.individual_settings.reward_type,
+        level1_percent=partner.individual_settings.level1_percent,
+        level2_percent=partner.individual_settings.level2_percent,
+        level3_percent=partner.individual_settings.level3_percent,
+        level1_fixed_amount=partner.individual_settings.level1_fixed_amount,
+        level2_fixed_amount=partner.individual_settings.level2_fixed_amount,
+        level3_fixed_amount=partner.individual_settings.level3_fixed_amount,
+    )
+    
+    updated = await partner_service.update_partner_individual_settings(
+        partner_id=partner.id,
+        settings=new_settings,
+    )
+    
+    if updated:
+        logger.info(
+            f"{log(user)} Partner '{partner.id}' accrual strategy changed to '{selected_strategy}'"
+        )
+    
+    await dialog_manager.switch_to(state=DashboardUser.PARTNER_SETTINGS)
+
+
+@inject
+async def on_partner_reward_type_select(
+    callback: CallbackQuery,
+    widget: Select[str],
+    dialog_manager: DialogManager,
+    selected_type: str,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Выбор типа вознаграждения."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    # Обновляем тип вознаграждения
+    new_settings = PartnerIndividualSettingsDto(
+        use_global_settings=False,  # При выборе типа отключаем глобальные
+        accrual_strategy=partner.individual_settings.accrual_strategy,
+        reward_type=PartnerRewardType(selected_type),
+        level1_percent=partner.individual_settings.level1_percent,
+        level2_percent=partner.individual_settings.level2_percent,
+        level3_percent=partner.individual_settings.level3_percent,
+        level1_fixed_amount=partner.individual_settings.level1_fixed_amount,
+        level2_fixed_amount=partner.individual_settings.level2_fixed_amount,
+        level3_fixed_amount=partner.individual_settings.level3_fixed_amount,
+    )
+    
+    updated = await partner_service.update_partner_individual_settings(
+        partner_id=partner.id,
+        settings=new_settings,
+    )
+    
+    if updated:
+        logger.info(
+            f"{log(user)} Partner '{partner.id}' reward type changed to '{selected_type}'"
+        )
+    
+    await dialog_manager.switch_to(state=DashboardUser.PARTNER_SETTINGS)
+
+
+@inject
+async def on_partner_percent_level_select(
+    callback: CallbackQuery,
+    widget: Select[str],
+    dialog_manager: DialogManager,
+    selected_item: str,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Выбор процента для уровня."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    # Формат: "level:percent" например "1:10"
+    level_str, percent_str = selected_item.split(":")
+    level = int(level_str)
+    percent = Decimal(percent_str)
+    
+    # Обновляем процент для конкретного уровня
+    new_settings = PartnerIndividualSettingsDto(
+        use_global_settings=False,
+        accrual_strategy=partner.individual_settings.accrual_strategy,
+        reward_type=partner.individual_settings.reward_type,
+        level1_percent=percent if level == 1 else partner.individual_settings.level1_percent,
+        level2_percent=percent if level == 2 else partner.individual_settings.level2_percent,
+        level3_percent=percent if level == 3 else partner.individual_settings.level3_percent,
+        level1_fixed_amount=partner.individual_settings.level1_fixed_amount,
+        level2_fixed_amount=partner.individual_settings.level2_fixed_amount,
+        level3_fixed_amount=partner.individual_settings.level3_fixed_amount,
+    )
+    
+    updated = await partner_service.update_partner_individual_settings(
+        partner_id=partner.id,
+        settings=new_settings,
+    )
+    
+    if updated:
+        logger.info(
+            f"{log(user)} Partner '{partner.id}' level {level} percent changed to {percent}%"
+        )
+
+
+@inject
+async def on_partner_percent_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Ввод процента вручную (формат: уровень процент, например '1 15')."""
+    dialog_manager.show_mode = ShowMode.EDIT
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    # Парсим ввод: "уровень процент"
+    parts = message.text.split() if message.text else []
+    
+    if len(parts) != 2:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-invalid-percent-format"),
+        )
+        return
+    
+    try:
+        level = int(parts[0])
+        percent = Decimal(parts[1])
+        
+        if level not in [1, 2, 3]:
+            raise ValueError("Invalid level")
+        
+        if percent < 0 or percent > 100:
+            raise ValueError("Invalid percent")
+    except (ValueError, TypeError):
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-invalid-percent-format"),
+        )
+        return
+    
+    # Обновляем процент для конкретного уровня
+    new_settings = PartnerIndividualSettingsDto(
+        use_global_settings=False,
+        accrual_strategy=partner.individual_settings.accrual_strategy,
+        reward_type=partner.individual_settings.reward_type,
+        level1_percent=percent if level == 1 else partner.individual_settings.level1_percent,
+        level2_percent=percent if level == 2 else partner.individual_settings.level2_percent,
+        level3_percent=percent if level == 3 else partner.individual_settings.level3_percent,
+        level1_fixed_amount=partner.individual_settings.level1_fixed_amount,
+        level2_fixed_amount=partner.individual_settings.level2_fixed_amount,
+        level3_fixed_amount=partner.individual_settings.level3_fixed_amount,
+    )
+    
+    updated = await partner_service.update_partner_individual_settings(
+        partner_id=partner.id,
+        settings=new_settings,
+    )
+    
+    if updated:
+        logger.info(
+            f"{log(user)} Partner '{partner.id}' level {level} percent changed to {percent}%"
+        )
+
+
+@inject
+async def on_partner_fixed_level_select(
+    callback: CallbackQuery,
+    widget: Select[str],
+    dialog_manager: DialogManager,
+    selected_item: str,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Выбор фиксированной суммы для уровня."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    # Формат: "level:amount" например "1:100" (amount в рублях)
+    level_str, amount_str = selected_item.split(":")
+    level = int(level_str)
+    amount_rub = int(amount_str)
+    amount_kopecks = amount_rub * 100
+    
+    # Обновляем фиксированную сумму для конкретного уровня
+    new_settings = PartnerIndividualSettingsDto(
+        use_global_settings=False,
+        accrual_strategy=partner.individual_settings.accrual_strategy,
+        reward_type=partner.individual_settings.reward_type,
+        level1_percent=partner.individual_settings.level1_percent,
+        level2_percent=partner.individual_settings.level2_percent,
+        level3_percent=partner.individual_settings.level3_percent,
+        level1_fixed_amount=amount_kopecks if level == 1 else partner.individual_settings.level1_fixed_amount,
+        level2_fixed_amount=amount_kopecks if level == 2 else partner.individual_settings.level2_fixed_amount,
+        level3_fixed_amount=amount_kopecks if level == 3 else partner.individual_settings.level3_fixed_amount,
+    )
+    
+    updated = await partner_service.update_partner_individual_settings(
+        partner_id=partner.id,
+        settings=new_settings,
+    )
+    
+    if updated:
+        logger.info(
+            f"{log(user)} Partner '{partner.id}' level {level} fixed amount changed to {amount_rub} RUB"
+        )
+
+
+@inject
+async def on_partner_fixed_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    partner_service: FromDishka[PartnerService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Ввод фиксированной суммы вручную (формат: уровень сумма, например '1 150')."""
+    dialog_manager.show_mode = ShowMode.EDIT
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    
+    partner = await partner_service.get_partner_by_user(target_telegram_id)
+    
+    if not partner:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-not-found"),
+        )
+        return
+
+    # Парсим ввод: "уровень сумма"
+    parts = message.text.split() if message.text else []
+    
+    if len(parts) != 2:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-invalid-amount-format"),
+        )
+        return
+    
+    try:
+        level = int(parts[0])
+        amount_rub = int(parts[1])
+        
+        if level not in [1, 2, 3]:
+            raise ValueError("Invalid level")
+        
+        if amount_rub < 0:
+            raise ValueError("Invalid amount")
+    except (ValueError, TypeError):
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-partner-invalid-amount-format"),
+        )
+        return
+    
+    amount_kopecks = amount_rub * 100
+    
+    # Обновляем фиксированную сумму для конкретного уровня
+    new_settings = PartnerIndividualSettingsDto(
+        use_global_settings=False,
+        accrual_strategy=partner.individual_settings.accrual_strategy,
+        reward_type=partner.individual_settings.reward_type,
+        level1_percent=partner.individual_settings.level1_percent,
+        level2_percent=partner.individual_settings.level2_percent,
+        level3_percent=partner.individual_settings.level3_percent,
+        level1_fixed_amount=amount_kopecks if level == 1 else partner.individual_settings.level1_fixed_amount,
+        level2_fixed_amount=amount_kopecks if level == 2 else partner.individual_settings.level2_fixed_amount,
+        level3_fixed_amount=amount_kopecks if level == 3 else partner.individual_settings.level3_fixed_amount,
+    )
+    
+    updated = await partner_service.update_partner_individual_settings(
+        partner_id=partner.id,
+        settings=new_settings,
+    )
+    
+    if updated:
+        logger.info(
+            f"{log(user)} Partner '{partner.id}' level {level} fixed amount changed to {amount_rub} RUB"
+        )

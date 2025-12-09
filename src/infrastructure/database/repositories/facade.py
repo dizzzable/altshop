@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .broadcast import BroadcastRepository
+from .partner import PartnerRepository
 from .payment_gateway import PaymentGatewayRepository
 from .plan import PlanRepository
 from .promocode import PromocodeRepository
@@ -15,6 +16,7 @@ class RepositoriesFacade:
     session: AsyncSession
 
     gateways: PaymentGatewayRepository
+    partners: PartnerRepository
     plans: PlanRepository
     promocodes: PromocodeRepository
     subscriptions: SubscriptionRepository
@@ -28,6 +30,7 @@ class RepositoriesFacade:
         self.session = session
 
         self.gateways = PaymentGatewayRepository(session)
+        self.partners = PartnerRepository(session)
         self.plans = PlanRepository(session)
         self.promocodes = PromocodeRepository(session)
         self.subscriptions = SubscriptionRepository(session)

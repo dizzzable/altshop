@@ -13,6 +13,7 @@ from src.core.enums import MiddlewareEventType, SystemNotificationType
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.database.models.dto import UserDto
 from src.services.notification import NotificationService
+from src.services.partner import PartnerService
 from src.services.referral import ReferralService
 from src.services.user import UserService
 
@@ -46,12 +47,20 @@ class UserMiddleware(EventTypedMiddleware):
         config: AppConfig = await container.get(AppConfig)
         user_service: UserService = await container.get(UserService)
         referral_service: ReferralService = await container.get(ReferralService)
+        partner_service: PartnerService = await container.get(PartnerService)
         user: Optional[UserDto] = await user_service.get(telegram_id=aiogram_user.id)
         is_new_user = user is None
 
         if user is None:
             user = await user_service.create(aiogram_user)
             referrer = await referral_service.get_referrer_by_event(event, user.telegram_id)
+            
+            # Обрабатываем партнерского реферала если пришёл по реферальной ссылке
+            if referrer and referrer.referral_code:
+                await partner_service.handle_new_user_referral(
+                    user=user,
+                    referrer_code=referrer.referral_code,
+                )
 
             base_i18n_kwargs = {
                 "user_id": str(user.telegram_id),
