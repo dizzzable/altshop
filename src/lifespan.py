@@ -21,6 +21,7 @@ from src.infrastructure.taskiq.tasks.notifications import (
     send_system_notification_task,
 )
 from src.infrastructure.taskiq.tasks.updates import check_bot_update
+from src.services.backup import BackupService
 from src.services.command import CommandService
 from src.services.payment_gateway import PaymentGatewayService
 from src.services.remnawave import RemnawaveService
@@ -45,6 +46,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         access_mode = await settings_service.get_access_mode()
 
     await startup_container.close()
+
+    # Запуск автоматических бэкапов
+    backup_service: BackupService = await container.get(BackupService)
+    await backup_service.start_auto_backup()
 
     allowed_updates = dispatcher.resolve_used_update_types()
     webhook_info: WebhookInfo = await webhook_service.setup(allowed_updates)
@@ -117,6 +122,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
     yield
+
+    # Остановка автоматических бэкапов
+    await backup_service.stop_auto_backup()
 
     await send_system_notification_task.kiq(
         ntf_type=SystemNotificationType.BOT_LIFETIME,

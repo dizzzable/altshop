@@ -13,7 +13,7 @@ from loguru import logger
 
 from src.bot.keyboards import get_user_keyboard
 from src.bot.states import Subscription
-from src.core.constants import MAX_SUBSCRIPTIONS_PER_USER, PURCHASE_PREFIX, USER_KEY
+from src.core.constants import PURCHASE_PREFIX, USER_KEY
 from src.core.enums import DeviceType, PaymentGatewayType, PromocodeRewardType, PurchaseType, SubscriptionStatus
 from src.core.utils.adapter import DialogDataAdapter
 from src.core.utils.formatters import format_user_log as log
@@ -85,29 +85,40 @@ async def _create_payment_and_get_data(
     # Check subscription limit for NEW purchases
     if purchase_type == PurchaseType.NEW and subscription_service:
         from src.core.enums import SubscriptionStatus
+        from src.services.settings import SettingsService  # noqa: PLC0415
+        from dishka import AsyncContainer  # noqa: PLC0415
+        
         existing_subscriptions = await subscription_service.get_all_by_user(user.telegram_id)
         active_count = len([
             s for s in existing_subscriptions
             if s.status != SubscriptionStatus.DELETED
         ])
-        # Check if adding new subscriptions would exceed the limit
-        subscription_count = plan.subscription_count
-        if active_count + subscription_count > MAX_SUBSCRIPTIONS_PER_USER:
-            logger.warning(
-                f"{log(user)} Would exceed max subscriptions limit. "
-                f"Current: {active_count}, Requested: {subscription_count}, Max: {MAX_SUBSCRIPTIONS_PER_USER}"
-            )
-            await notification_service.notify_user(
-                user=user,
-                payload=MessagePayload(
-                    i18n_key="ntf-subscription-limit-exceeded",
-                    i18n_kwargs={
-                        "current": str(active_count),
-                        "max": str(MAX_SUBSCRIPTIONS_PER_USER),
-                    },
-                ),
-            )
-            return None
+        
+        # Получаем лимит подписок для пользователя
+        container: AsyncContainer = dialog_manager.middleware_data["dishka_container"]
+        settings_service = await container.get(SettingsService)
+        max_subscriptions = await settings_service.get_max_subscriptions_for_user(user)
+        
+        # -1 означает безлимит
+        if max_subscriptions != -1:
+            # Check if adding new subscriptions would exceed the limit
+            subscription_count = plan.subscription_count
+            if active_count + subscription_count > max_subscriptions:
+                logger.warning(
+                    f"{log(user)} Would exceed max subscriptions limit. "
+                    f"Current: {active_count}, Requested: {subscription_count}, Max: {max_subscriptions}"
+                )
+                await notification_service.notify_user(
+                    user=user,
+                    payload=MessagePayload(
+                        i18n_key="ntf-subscription-limit-exceeded",
+                        i18n_kwargs={
+                            "current": str(active_count),
+                            "max": str(max_subscriptions),
+                        },
+                    ),
+                )
+                return None
 
     transaction_plan = PlanSnapshotDto.from_plan(plan, duration.days)
     

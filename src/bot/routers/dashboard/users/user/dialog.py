@@ -33,6 +33,7 @@ from .getters import (
     give_access_getter,
     give_subscription_getter,
     internal_squads_getter,
+    max_subscriptions_getter,
     partner_accrual_strategy_getter,
     partner_balance_getter,
     partner_fixed_getter,
@@ -66,6 +67,10 @@ from .handlers import (
     on_give_access,
     on_give_subscription,
     on_internal_squad_select,
+    on_max_subscriptions,
+    on_max_subscriptions_input,
+    on_max_subscriptions_select,
+    on_max_subscriptions_use_global_toggle,
     on_partner,
     on_partner_accrual_strategy_select,
     on_partner_balance,
@@ -176,6 +181,12 @@ user = Window(
             text=I18nFormat("btn-user-partner", is_partner=F["is_partner"]),
             id="partner",
             on_click=on_partner,
+            when=F["can_edit"],
+        ),
+        Button(
+            text=I18nFormat("btn-user-max-subscriptions"),
+            id="max_subscriptions",
+            on_click=on_max_subscriptions,
             when=F["can_edit"],
         ),
     ),
@@ -999,6 +1010,43 @@ partner_settings_fixed = Window(
 )
 
 
+# Настройка индивидуального лимита подписок
+max_subscriptions = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-max-subscriptions"),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-max-subscriptions-use-global", use_global=F["use_global"]),
+            id="use_global_toggle",
+            on_click=on_max_subscriptions_use_global_toggle,
+        ),
+    ),
+    Group(
+        Select(
+            text=Format("{item[label]}"),
+            id="max_subscriptions_select",
+            item_id_getter=lambda item: item["value"],
+            items="limits",
+            type_factory=int,
+            on_click=on_max_subscriptions_select,
+        ),
+        width=3,
+        when=~F["use_global"],
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.MAIN,
+        ),
+    ),
+    MessageInput(func=on_max_subscriptions_input),
+    IgnoreUpdate(),
+    state=DashboardUser.MAX_SUBSCRIPTIONS,
+    getter=max_subscriptions_getter,
+)
+
+
 router = Dialog(
     user,
     subscription,
@@ -1025,4 +1073,5 @@ router = Dialog(
     partner_settings_reward,
     partner_settings_percent,
     partner_settings_fixed,
+    max_subscriptions,
 )

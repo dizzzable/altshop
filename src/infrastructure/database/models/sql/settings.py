@@ -10,6 +10,7 @@ from src.infrastructure.database.models.dto import (
     SystemNotificationDto,
     UserNotificationDto,
 )
+from src.infrastructure.database.models.dto.settings import MultiSubscriptionSettingsDto
 
 from .base import BaseSql
 
@@ -65,5 +66,11 @@ class Settings(BaseSql):
     partner: Mapped[PartnerSettingsDto] = mapped_column(
         JSON,
         default=lambda: PartnerSettingsDto().model_dump(mode="json"),
+        nullable=False,
+    )
+
+    multi_subscription: Mapped[MultiSubscriptionSettingsDto] = mapped_column(
+        JSON,
+        default=lambda: MultiSubscriptionSettingsDto().model_dump(mode="json"),
         nullable=False,
     )

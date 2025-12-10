@@ -1,6 +1,6 @@
 FROM python:3.12-slim-bookworm
 
-WORKDIR /opt/remnashop
+WORKDIR /opt/altshop
 
 COPY pyproject.toml .
 COPY uv.lock .
@@ -9,12 +9,12 @@ COPY docker-entrypoint.sh .
 RUN pip install --no-cache-dir uv && uv sync --frozen
 
 ENV UVICORN_RELOAD_ENABLED=true
-ENV PATH="/opt/remnashop/.venv/bin:$PATH"
+ENV PATH="/opt/altshop/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/opt/remnashop
+ENV PYTHONPATH=/opt/altshop
 
 COPY ./src ./src
-COPY ./assets /opt/remnashop/assets.default
+COPY ./assets /opt/altshop/assets.default
 
 # Convert CRLF to LF (in case file was copied from Windows) and make executable
 RUN sed -i 's/\r$//' ./docker-entrypoint.sh && chmod +x ./docker-entrypoint.sh

@@ -1,5 +1,6 @@
 from . import (
     access,
+    backup,
     broadcast,
     dialog,
     importer,
@@ -13,6 +14,7 @@ from . import (
 __all__ = [
     "dialog",
     "access",
+    "backup",
     "broadcast",
     "importer",
     "promocodes",

@@ -12,6 +12,7 @@ from src.bot.routers.extra.error import on_lost_context
 from . import dashboard, extra, menu, subscription
 from .dashboard import (
     access,
+    backup,
     broadcast,
     importer,
     promocodes,
@@ -45,6 +46,7 @@ def setup_routers(router: Router) -> None:
         dashboard.dialog.router,
         statistics.dialog.router,
         access.dialog.router,
+        backup.dialog.router,
         broadcast.dialog.router,
         promocodes.dialog.router,
         #
@@ -55,6 +57,7 @@ def setup_routers(router: Router) -> None:
         remnashop.notifications.dialog.router,
         remnashop.plans.dialog.router,
         remnashop.partner.dialog.router,
+        remnashop.multisubscription.dialog.router,
         #
         remnawave.dialog.router,
         #

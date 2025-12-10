@@ -11,7 +11,8 @@ from src.core.enums import AccessMode, Currency, SystemNotificationType, UserNot
 from src.core.storage.key_builder import build_key
 from src.core.utils.types import AnyNotification
 from src.infrastructure.database import UnitOfWork
-from src.infrastructure.database.models.dto import PartnerSettingsDto, ReferralSettingsDto, SettingsDto
+from src.infrastructure.database.models.dto import PartnerSettingsDto, ReferralSettingsDto, SettingsDto, UserDto
+from src.infrastructure.database.models.dto.settings import MultiSubscriptionSettingsDto
 from src.infrastructure.database.models.sql import Settings
 from src.infrastructure.redis import RedisRepository
 from src.infrastructure.redis.cache import redis_cache
@@ -66,6 +67,9 @@ class SettingsService(BaseService):
 
         if settings.partner.changed_data:
             settings.partner = settings.partner
+
+        if settings.multi_subscription.changed_data:
+            settings.multi_subscription = settings.multi_subscription
 
         changed_data = settings.prepare_changed_data()
         db_updated_settings = await self.uow.repository.settings.update(**changed_data)
@@ -187,6 +191,52 @@ class SettingsService(BaseService):
     async def is_partner_enabled(self) -> bool:
         settings = await self.get()
         return settings.partner.enabled
+
+    #
+
+    async def get_multi_subscription_settings(self) -> MultiSubscriptionSettingsDto:
+        """Получить настройки мультиподписок."""
+        settings = await self.get()
+        return settings.multi_subscription
+
+    async def is_multi_subscription_enabled(self) -> bool:
+        """Проверить, включены ли мультиподписки глобально."""
+        settings = await self.get()
+        return settings.multi_subscription.enabled
+
+    async def get_max_subscriptions_for_user(self, user: UserDto) -> int:
+        """
+        Получить максимальное количество подписок для пользователя.
+        
+        Приоритет:
+        1. Индивидуальная настройка пользователя (если установлена)
+        2. Глобальная настройка из settings
+        
+        Возвращает:
+        - -1 = безлимитно
+        - >0 = конкретный лимит
+        """
+        # Если у пользователя установлен индивидуальный лимит
+        if user.max_subscriptions is not None:
+            if user.max_subscriptions == -1:
+                logger.debug(f"User '{user.telegram_id}' has unlimited subscriptions (individual setting)")
+                return -1
+            logger.debug(f"User '{user.telegram_id}' has individual limit: {user.max_subscriptions}")
+            return user.max_subscriptions
+        
+        # Иначе используем глобальную настройку
+        settings = await self.get()
+        
+        if not settings.multi_subscription.enabled:
+            # Мультиподписки отключены - только 1 подписка
+            logger.debug(f"Multi-subscription disabled, user '{user.telegram_id}' limited to 1")
+            return 1
+        
+        logger.debug(
+            f"User '{user.telegram_id}' uses global limit: "
+            f"{settings.multi_subscription.default_max_subscriptions}"
+        )
+        return settings.multi_subscription.default_max_subscriptions
 
     #
 

@@ -85,7 +85,7 @@ btn-menu-exchange-type-choice = { $available ->
         *[OTHER] { $type }
         }
     }
-btn-menu-support = � Поддержка
+btn-menu-support = 🆘 Поддержка
 btn-menu-dashboard = 🛠 Панель управления
 
 
@@ -308,6 +308,23 @@ btn-remnashop-notifications = 🔔 Уведомления
 btn-remnashop-banners = 🖼️ Баннеры
 btn-remnashop-logs = 📄 Логи
 btn-remnashop-audit = 🔍 Аудит
+btn-remnashop-multi-subscription = 📦 Мультиподписка
+
+# Multi Subscription
+btn-multi-subscription-toggle = { $is_enabled ->
+    [1] 🟢 Включена
+    *[0] 🔴 Выключена
+    }
+btn-multi-subscription-max = 🔢 Макс. подписок ({ $default_max ->
+    [-1] ∞
+    *[other] { $default_max }
+    })
+
+btn-user-max-subscriptions = 📦 Лимит подписок
+btn-user-max-subscriptions-use-global = { $use_global ->
+    [1] 🔘 Глобальные настройки
+    *[0] ⚪ Индивидуальные настройки
+    }
 
 # Banners
 btn-banner-item = 🖼️ { $name }
@@ -701,3 +718,16 @@ btn-partner-referral-item = { $level ->
     [3] 3️⃣
     *[OTHER] { $level }
     } { $username } - { $total_earned }
+
+
+# Backup System
+btn-remnashop-backup = 💾 Бэкапы
+btn-backup-create = ➕ Создать бэкап
+btn-backup-list = 📦 Список бэкапов
+btn-backup-settings = ⚙️ Настройки
+btn-backup-restore = 🔄 Восстановить
+btn-backup-restore-clear = ⚠️ Восстановить (очистить)
+btn-backup-delete = 🗑️ Удалить
+btn-backup-restore-confirm = ✅ Да, восстановить
+btn-backup-delete-confirm = ✅ Да, удалить
+btn-cancel = ❌ Отмена

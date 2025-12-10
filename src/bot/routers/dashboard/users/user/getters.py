@@ -823,3 +823,49 @@ async def partner_fixed_getter(
         "current_level2": ind.level2_fixed_amount / 100 if ind.level2_fixed_amount else 0,
         "current_level3": ind.level3_fixed_amount / 100 if ind.level3_fixed_amount else 0,
     }
+
+
+@inject
+async def max_subscriptions_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    settings_service: FromDishka[SettingsService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Getter для настройки индивидуального лимита подписок пользователя."""
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    # Получаем глобальные настройки
+    settings = await settings_service.get()
+    multi_sub = settings.multi_subscription
+    
+    # Определяем текущее значение
+    if target_user.max_subscriptions is not None:
+        current_max = target_user.max_subscriptions
+        use_global = False
+    else:
+        current_max = multi_sub.default_max_subscriptions
+        use_global = True
+    
+    # Варианты лимитов
+    limits = [
+        {"value": 1, "label": "1"},
+        {"value": 2, "label": "2"},
+        {"value": 3, "label": "3"},
+        {"value": 5, "label": "5"},
+        {"value": 10, "label": "10"},
+        {"value": -1, "label": "∞"},
+    ]
+    
+    return {
+        "use_global": use_global,
+        "current_max": current_max,
+        "global_max": multi_sub.default_max_subscriptions,
+        "multi_subscription_enabled": multi_sub.enabled,
+        "limits": limits,
+        "is_unlimited": current_max == -1,
+    }

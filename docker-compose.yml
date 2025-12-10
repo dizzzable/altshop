@@ -1,8 +1,8 @@
 services:
-  remnawave-nginx:
+  altshop-nginx:
     image: nginx:1.28
-    container_name: remnawave-nginx
-    hostname: remnawave-nginx
+    container_name: altshop-nginx
+    hostname: altshop-nginx
     restart: always
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -14,12 +14,12 @@ services:
     networks:
       - remnawave-network
     depends_on:
-      - remnashop
+      - altshop
 
-  remnashop-db:
+  altshop-db:
     image: postgres:17
-    container_name: "remnashop-db"
-    hostname: remnashop-db
+    container_name: "altshop-db"
+    hostname: altshop-db
     restart: unless-stopped
 
     env_file:
@@ -31,7 +31,7 @@ services:
       - TZ=UTC
     
     volumes:
-      - remnashop-db-data:/var/lib/postgresql/data
+      - altshop-db-data:/var/lib/postgresql/data
     networks:
       - remnawave-network
 
@@ -42,16 +42,16 @@ services:
       retries: 3
     
 
-  remnashop-redis:
+  altshop-redis:
     image: valkey/valkey:9-alpine
-    container_name: "remnashop-redis"
-    hostname: remnashop-redis
+    container_name: "altshop-redis"
+    hostname: altshop-redis
     restart: unless-stopped
 
     command: [ "--requirepass", "${REDIS_PASSWORD}" ]
 
     volumes:
-      - remnashop-redis-data:/data
+      - altshop-redis-data:/data
 
     networks:
       - remnawave-network
@@ -63,14 +63,14 @@ services:
       retries: 3
     
 
-  remnashop:
-    &remnashop
+  altshop:
+    &altshop
     build:
       context: .
       dockerfile: Dockerfile.local
-    image: remnashop:local
-    container_name: "remnashop"
-    hostname: remnashop
+    image: altshop:local
+    container_name: "altshop"
+    hostname: altshop
     restart: unless-stopped
 
     env_file:
@@ -79,23 +79,23 @@ services:
       RESET_ASSETS: "${RESET_ASSETS:-false}"
 
     depends_on:
-        remnashop-db:
+        altshop-db:
           condition: service_healthy
-        remnashop-redis:
+        altshop-redis:
           condition: service_healthy
 
     volumes:
-      - ./logs:/opt/remnashop/logs
-      - ./assets:/opt/remnashop/assets
+      - ./logs:/opt/altshop/logs
+      - ./assets:/opt/altshop/assets
 
     networks:
       - remnawave-network
     
 
-  remnashop-taskiq-worker:
-    image: remnashop:local
-    container_name: "remnashop-taskiq-worker"
-    hostname: remnashop-taskiq-worker
+  altshop-taskiq-worker:
+    image: altshop:local
+    container_name: "altshop-taskiq-worker"
+    hostname: altshop-taskiq-worker
     restart: unless-stopped
     command: taskiq worker src.infrastructure.taskiq.worker:worker
       --tasks-pattern src/infrastructure/taskiq/tasks -fsd
@@ -106,25 +106,25 @@ services:
       RESET_ASSETS: "${RESET_ASSETS:-false}"
 
     depends_on:
-        remnashop:
+        altshop:
           condition: service_started
-        remnashop-redis:
+        altshop-redis:
           condition: service_healthy
-        remnashop-db:
+        altshop-db:
           condition: service_healthy
 
     volumes:
-      - ./logs:/opt/remnashop/logs
-      - ./assets:/opt/remnashop/assets
+      - ./logs:/opt/altshop/logs
+      - ./assets:/opt/altshop/assets
 
     networks:
       - remnawave-network
 
 
-  remnashop-taskiq-scheduler:
-    image: remnashop:local
-    container_name: "remnashop-taskiq-scheduler"
-    hostname: remnashop-taskiq-scheduler
+  altshop-taskiq-scheduler:
+    image: altshop:local
+    container_name: "altshop-taskiq-scheduler"
+    hostname: altshop-taskiq-scheduler
     restart: unless-stopped
     command: taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
       --tasks-pattern src/infrastructure/taskiq/tasks -fsd
@@ -135,16 +135,16 @@ services:
       RESET_ASSETS: "${RESET_ASSETS:-false}"
 
     depends_on:
-        remnashop:
+        altshop:
           condition: service_started
-        remnashop-redis:
+        altshop-redis:
           condition: service_healthy
-        remnashop-db:
+        altshop-db:
           condition: service_healthy
 
     volumes:
-      - ./logs:/opt/remnashop/logs
-      - ./assets:/opt/remnashop/assets
+      - ./logs:/opt/altshop/logs
+      - ./assets:/opt/altshop/assets
 
     networks:
       - remnawave-network
@@ -152,17 +152,14 @@ services:
 
 networks:
   remnawave-network:
-    name: remnawave-network 
-    driver: bridge 
-    external: false
+    name: remnawave-network
+    external: true
 
 volumes:
-  remnashop-db-data:
-    name: remnashop-db-data
+  altshop-db-data:
+    name: altshop-db-data
     driver: local
-    external: false
     
-  remnashop-redis-data:
-    name: remnashop-redis-data
+  altshop-redis-data:
+    name: altshop-redis-data
     driver: local
-    external: false

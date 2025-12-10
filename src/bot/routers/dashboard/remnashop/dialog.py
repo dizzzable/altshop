@@ -7,9 +7,11 @@ from src.bot.keyboards import main_menu_button
 from src.bot.routers.extra.test import show_dev_popup
 from src.bot.states import (
     Dashboard,
+    DashboardBackup,
     DashboardRemnashop,
     RemnashopBanners,
     RemnashopGateways,
+    RemnashopMultiSubscription,
     RemnashopNotifications,
     RemnashopPartner,
     RemnashopPlans,
@@ -85,6 +87,11 @@ remnashop = Window(
             id="banners",
             state=RemnashopBanners.MAIN,
         ),
+        Start(
+            text=I18nFormat("btn-remnashop-multi-subscription"),
+            id="multi_subscription",
+            state=RemnashopMultiSubscription.MAIN,
+        ),
     ),
     Row(
         Button(
@@ -96,6 +103,13 @@ remnashop = Window(
             text=I18nFormat("btn-remnashop-audit"),
             id="audit",
             on_click=show_dev_popup,
+        ),
+    ),
+    Row(
+        Start(
+            text=I18nFormat("btn-remnashop-backup"),
+            id="backup",
+            state=DashboardBackup.MAIN,
         ),
     ),
     Row(

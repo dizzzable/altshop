@@ -341,6 +341,17 @@ class PartnerSettingsDto(TrackableDto):
         }
 
 
+class MultiSubscriptionSettingsDto(TrackableDto):
+    """Настройки мультиподписок."""
+    enabled: bool = True  # Глобально разрешены ли мультиподписки
+    default_max_subscriptions: int = 5  # Максимум подписок по умолчанию (1 = только одна)
+    
+    @property
+    def is_single_subscription_mode(self) -> bool:
+        """Режим одной подписки (мультиподписки отключены и лимит = 1)."""
+        return not self.enabled or self.default_max_subscriptions == 1
+
+
 class SettingsDto(TrackableDto):
     id: Optional[int] = Field(default=None, frozen=True)
 
@@ -359,6 +370,7 @@ class SettingsDto(TrackableDto):
 
     referral: ReferralSettingsDto = ReferralSettingsDto()
     partner: PartnerSettingsDto = PartnerSettingsDto()
+    multi_subscription: MultiSubscriptionSettingsDto = MultiSubscriptionSettingsDto()
 
     @property
     def channel_has_username(self) -> bool:
