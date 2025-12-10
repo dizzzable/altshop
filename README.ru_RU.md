@@ -208,6 +208,23 @@ cd altshop/ALTSHOP
 
 ```bash
 cp .env.example .env
+```
+
+Сгенерируйте секретные ключи, выполнив следующие команды:
+
+```bash
+# Генерация защищенных ключей
+sed -i "s|^APP_CRYPT_KEY=.*|APP_CRYPT_KEY=$(openssl rand -base64 32 | tr -d '\n')|" .env && \
+sed -i "s|^BOT_SECRET_TOKEN=.*|BOT_SECRET_TOKEN=$(openssl rand -hex 64 | tr -d '\n')|" .env
+
+# Генерация паролей
+sed -i "s|^DATABASE_PASSWORD=.*|DATABASE_PASSWORD=$(openssl rand -hex 24 | tr -d '\n')|" .env && \
+sed -i "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$(openssl rand -hex 24 | tr -d '\n')|" .env
+```
+
+Теперь откройте файл `.env` и обновите переменные:
+
+```bash
 nano .env
 ```
 

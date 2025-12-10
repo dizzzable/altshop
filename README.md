@@ -208,6 +208,23 @@ Copy the example file and edit it:
 
 ```bash
 cp .env.example .env
+```
+
+Generate secure keys by running the following commands:
+
+```bash
+# Generate secure keys
+sed -i "s|^APP_CRYPT_KEY=.*|APP_CRYPT_KEY=$(openssl rand -base64 32 | tr -d '\n')|" .env && \
+sed -i "s|^BOT_SECRET_TOKEN=.*|BOT_SECRET_TOKEN=$(openssl rand -hex 64 | tr -d '\n')|" .env
+
+# Generate passwords
+sed -i "s|^DATABASE_PASSWORD=.*|DATABASE_PASSWORD=$(openssl rand -hex 24 | tr -d '\n')|" .env && \
+sed -i "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$(openssl rand -hex 24 | tr -d '\n')|" .env
+```
+
+Now, open the `.env` file and update the variables:
+
+```bash
 nano .env
 ```
 
