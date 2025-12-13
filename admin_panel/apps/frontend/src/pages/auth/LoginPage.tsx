@@ -7,13 +7,17 @@ import {
   Alert,
   InputAdornment,
   IconButton,
+  Divider,
+  Typography,
 } from '@mui/material';
-import { Visibility, VisibilityOff } from '@mui/icons-material';
+import { Visibility, VisibilityOff, DeveloperMode } from '@mui/icons-material';
 import { useAuthStore } from '../../stores/authStore';
+
+const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, isLoading, error } = useAuthStore();
+  const { login, devLogin, isLoading, error } = useAuthStore();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -75,6 +79,32 @@ export default function LoginPage() {
       >
         {isLoading ? 'Signing in...' : 'Sign In'}
       </Button>
+      
+      {isDev && (
+        <>
+          <Divider sx={{ my: 3 }}>
+            <Typography variant="body2" color="text.secondary">
+              Development Mode
+            </Typography>
+          </Divider>
+          <Button
+            fullWidth
+            variant="outlined"
+            size="large"
+            startIcon={<DeveloperMode />}
+            onClick={() => {
+              devLogin();
+              navigate('/dashboard');
+            }}
+            sx={{ mt: 1 }}
+          >
+            Dev Login (без пароля)
+          </Button>
+          <Alert severity="info" sx={{ mt: 2 }}>
+            В режиме разработки можно войти с любыми данными или использовать кнопку Dev Login
+          </Alert>
+        </>
+      )}
     </Box>
   );
 }

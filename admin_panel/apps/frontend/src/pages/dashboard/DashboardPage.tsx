@@ -4,10 +4,16 @@ import {
   Grid,
   Typography,
   Paper,
-  LinearProgress,
   CircularProgress,
-  Tooltip,
+  LinearProgress,
+  alpha,
 } from '@mui/material';
+import {
+  Memory as MemoryIcon,
+  Storage as StorageIcon,
+  Speed as SpeedIcon,
+  Timer as TimerIcon,
+} from '@mui/icons-material';
 import api from '../../api/client';
 
 interface CpuMetrics {
@@ -44,9 +50,9 @@ interface SystemMetrics {
 const formatBytes = (bytes: number): string => {
   if (bytes === 0) return '0 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const sizes = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
 const formatUptime = (seconds: number): string => {
@@ -54,83 +60,90 @@ const formatUptime = (seconds: number): string => {
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   
-  const parts = [];
-  if (days > 0) parts.push(`${days}д`);
-  if (hours > 0) parts.push(`${hours}ч`);
-  if (minutes > 0) parts.push(`${minutes}м`);
-  
-  return parts.length > 0 ? parts.join(' ') : '< 1м';
+  if (days > 0) return `${days}д ${hours}ч`;
+  if (hours > 0) return `${hours}ч ${minutes}м`;
+  return `${minutes}м`;
 };
 
-const getProgressColor = (percent: number): 'success' | 'warning' | 'error' => {
-  if (percent < 60) return 'success';
-  if (percent < 85) return 'warning';
-  return 'error';
+const getProgressColor = (percent: number): string => {
+  if (percent < 60) return '#10b981';
+  if (percent < 85) return '#f59e0b';
+  return '#ef4444';
 };
 
 interface MetricCardProps {
   title: string;
-  emoji: string;
   value: string;
-  subValue?: string;
+  subtitle?: string;
   percent: number;
-  tooltip?: string;
+  icon: React.ReactNode;
 }
 
-function MetricCard({ title, emoji, value, subValue, percent, tooltip }: MetricCardProps) {
-  const content = (
-    <Paper
-      sx={{
-        p: 3,
-        bgcolor: 'background.paper',
-        borderRadius: 2,
-        height: '100%',
-        border: '1px solid',
-        borderColor: 'divider',
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h5" sx={{ mr: 1.5 }}>{emoji}</Typography>
-        <Typography variant="h6" color="text.primary" fontWeight={600}>
+function MetricCard({ title, value, subtitle, percent, icon }: MetricCardProps) {
+  const color = getProgressColor(percent);
+  
+  return (
+    <Paper sx={{ p: 2.5, height: '100%' }}>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 2 }}>
+        <Typography variant="body2" color="text.secondary" fontWeight={500}>
           {title}
         </Typography>
+        <Box
+          sx={{
+            width: 40,
+            height: 40,
+            borderRadius: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: `linear-gradient(135deg, ${alpha(color, 0.2)} 0%, ${alpha(color, 0.1)} 100%)`,
+            border: `1px solid ${alpha(color, 0.2)}`,
+            color: color,
+          }}
+        >
+          {icon}
+        </Box>
       </Box>
-      <Typography variant="h3" fontWeight={700} color="text.primary" sx={{ mb: 0.5 }}>
+      
+      <Typography 
+        variant="h4" 
+        fontWeight={700} 
+        sx={{ fontFamily: '"JetBrains Mono", monospace', mb: 0.5 }}
+      >
         {value}
       </Typography>
-      {subValue && (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {subValue}
+      
+      {subtitle && (
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+          {subtitle}
         </Typography>
       )}
-      <Box sx={{ mt: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-          <Typography variant="body2" color="text.secondary">
+      
+      <Box sx={{ mt: 'auto' }}>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+          <Typography variant="caption" color="text.secondary">
             Использовано
           </Typography>
-          <Typography variant="body2" fontWeight={700} color={`${getProgressColor(percent)}.main`}>
-            {percent}%
+          <Typography variant="caption" fontWeight={600} sx={{ color }}>
+            {percent.toFixed(1)}%
           </Typography>
         </Box>
         <LinearProgress
           variant="determinate"
           value={percent}
-          color={getProgressColor(percent)}
           sx={{
-            height: 10,
-            borderRadius: 5,
-            bgcolor: 'action.hover',
+            height: 6,
+            borderRadius: 3,
+            bgcolor: alpha(color, 0.1),
+            '& .MuiLinearProgress-bar': {
+              bgcolor: color,
+              borderRadius: 3,
+            },
           }}
         />
       </Box>
     </Paper>
   );
-
-  return tooltip ? (
-    <Tooltip title={tooltip} arrow placement="top">
-      {content}
-    </Tooltip>
-  ) : content;
 }
 
 export default function DashboardPage() {
@@ -153,168 +166,115 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchMetrics();
-    
-    // Auto-refresh every 5 seconds
     const interval = setInterval(fetchMetrics, 5000);
-    
     return () => clearInterval(interval);
   }, [fetchMetrics]);
+
+  // Mock data for dev mode
+  const isDev = import.meta.env.DEV;
+  const mockMetrics: SystemMetrics = {
+    cpu: { usage: 12.5, cores: 4, model: 'Intel Xeon E5-2680 v4', speed: 2400 },
+    memory: { total: 8589934592, used: 5368709120, free: 3221225472, usagePercent: 62.5 },
+    disk: { total: 107374182400, used: 53687091200, free: 53687091200, usagePercent: 50 },
+    uptime: 864000,
+    platform: 'linux',
+    hostname: 'server-prod',
+    timestamp: new Date().toISOString(),
+  };
+
+  const displayMetrics = isDev && !metrics ? mockMetrics : metrics;
 
   return (
     <Box>
       {/* Header */}
-      <Paper
-        sx={{
-          p: 3,
-          mb: 3,
-          bgcolor: 'background.paper',
-          borderRadius: 2,
-        }}
-      >
-        <Typography variant="h4" fontWeight={600} gutterBottom>
-          🎛 Панель управления
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h4" fontWeight={700} gutterBottom>
+          Панель управления
         </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Мониторинг состояния сервера в реальном времени
+        <Typography variant="body2" color="text.secondary">
+          Мониторинг состояния сервера
         </Typography>
-      </Paper>
+      </Box>
 
-      {/* Server Info Header */}
-      {metrics && (
-        <Paper
-          sx={{
-            p: 2,
-            mb: 3,
-            bgcolor: 'background.paper',
-            borderRadius: 2,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: 2,
-          }}
-        >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Хост</Typography>
-              <Typography variant="body1" fontWeight={600}>{metrics.hostname}</Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Платформа</Typography>
-              <Typography variant="body1" fontWeight={600}>{metrics.platform}</Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Время работы</Typography>
-              <Typography variant="body1" fontWeight={600}>{formatUptime(metrics.uptime)}</Typography>
-            </Box>
+      {/* Server Info */}
+      {displayMetrics && (
+        <Paper sx={{ p: 2, mb: 3, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Хост</Typography>
+            <Typography variant="body2" fontWeight={600}>{displayMetrics.hostname}</Typography>
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Платформа</Typography>
+            <Typography variant="body2" fontWeight={600}>{displayMetrics.platform}</Typography>
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">Uptime</Typography>
+            <Typography variant="body2" fontWeight={600}>{formatUptime(displayMetrics.uptime)}</Typography>
+          </Box>
+          <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 1 }}>
             <Box
               sx={{
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
-                bgcolor: 'success.main',
+                bgcolor: '#10b981',
                 animation: 'pulse 2s infinite',
                 '@keyframes pulse': {
-                  '0%': { opacity: 1 },
-                  '50%': { opacity: 0.5 },
-                  '100%': { opacity: 1 },
+                  '0%, 100%': { opacity: 1 },
+                  '50%': { opacity: 0.4 },
                 },
               }}
             />
-            <Typography variant="body2" color="text.secondary">
-              Обновление каждые 5 сек
+            <Typography variant="caption" color="text.secondary">
+              Обновление: 5 сек
             </Typography>
           </Box>
         </Paper>
       )}
 
-      {/* System Metrics */}
-      {isLoading && !metrics ? (
+      {/* Metrics */}
+      {isLoading && !displayMetrics ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress size={60} />
+          <CircularProgress sx={{ color: '#10b981' }} size={48} />
         </Box>
-      ) : error ? (
-        <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 2 }}>
+      ) : error && !isDev ? (
+        <Paper sx={{ p: 4, textAlign: 'center' }}>
           <Typography variant="h6" color="error" gutterBottom>
             ⚠️ Ошибка загрузки
           </Typography>
           <Typography color="text.secondary">{error}</Typography>
         </Paper>
-      ) : metrics ? (
-        <Grid container spacing={3}>
+      ) : displayMetrics ? (
+        <Grid container spacing={2}>
           <Grid item xs={12} md={4}>
             <MetricCard
               title="Процессор (CPU)"
-              emoji="⚡"
-              value={`${metrics.cpu.usage}%`}
-              subValue={`${metrics.cpu.cores} ядер • ${metrics.cpu.speed} MHz`}
-              percent={metrics.cpu.usage}
-              tooltip={metrics.cpu.model}
+              value={`${displayMetrics.cpu.usage}%`}
+              subtitle={`${displayMetrics.cpu.cores} ядер • ${displayMetrics.cpu.speed} MHz`}
+              percent={displayMetrics.cpu.usage}
+              icon={<SpeedIcon sx={{ fontSize: 20 }} />}
             />
           </Grid>
           <Grid item xs={12} md={4}>
             <MetricCard
               title="Оперативная память"
-              emoji="🧠"
-              value={formatBytes(metrics.memory.used)}
-              subValue={`из ${formatBytes(metrics.memory.total)} • Свободно: ${formatBytes(metrics.memory.free)}`}
-              percent={metrics.memory.usagePercent}
+              value={formatBytes(displayMetrics.memory.used)}
+              subtitle={`из ${formatBytes(displayMetrics.memory.total)}`}
+              percent={displayMetrics.memory.usagePercent}
+              icon={<MemoryIcon sx={{ fontSize: 20 }} />}
             />
           </Grid>
           <Grid item xs={12} md={4}>
             <MetricCard
-              title="Дисковое пространство"
-              emoji="💾"
-              value={formatBytes(metrics.disk.used)}
-              subValue={`из ${formatBytes(metrics.disk.total)} • Свободно: ${formatBytes(metrics.disk.free)}`}
-              percent={metrics.disk.usagePercent}
+              title="Диск"
+              value={formatBytes(displayMetrics.disk.used)}
+              subtitle={`из ${formatBytes(displayMetrics.disk.total)}`}
+              percent={displayMetrics.disk.usagePercent}
+              icon={<StorageIcon sx={{ fontSize: 20 }} />}
             />
           </Grid>
         </Grid>
       ) : null}
-
-      {/* Additional Info */}
-      {metrics && (
-        <Paper sx={{ p: 3, mt: 3, borderRadius: 2 }}>
-          <Typography variant="h6" fontWeight={600} gutterBottom>
-            📊 Детальная информация
-          </Typography>
-          <Grid container spacing={3} sx={{ mt: 1 }}>
-            <Grid item xs={12} md={4}>
-              <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Модель процессора
-                </Typography>
-                <Typography variant="body1" fontWeight={500} sx={{ wordBreak: 'break-word' }}>
-                  {metrics.cpu.model}
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Свободная память
-                </Typography>
-                <Typography variant="body1" fontWeight={500}>
-                  {formatBytes(metrics.memory.free)} из {formatBytes(metrics.memory.total)}
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2 }}>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  Свободное место на диске
-                </Typography>
-                <Typography variant="body1" fontWeight={500}>
-                  {formatBytes(metrics.disk.free)} из {formatBytes(metrics.disk.total)}
-                </Typography>
-              </Box>
-            </Grid>
-          </Grid>
-        </Paper>
-      )}
     </Box>
   );
 }
