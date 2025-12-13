@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { api } from '../api/client';
 
+const isDev = import.meta.env.DEV || import.meta.env.MODE === 'development';
+
 interface User {
   id: string;
   username: string;
@@ -16,6 +18,7 @@ interface AuthState {
   isLoading: boolean;
   error: string | null;
   login: (username: string, password: string) => Promise<void>;
+  devLogin: () => void;
   logout: () => void;
   checkAuth: () => Promise<void>;
 }
@@ -31,6 +34,33 @@ export const useAuthStore = create<AuthState>()(
 
       login: async (username: string, password: string) => {
         set({ isLoading: true, error: null });
+        
+        // Dev mode: mock authentication
+        if (isDev) {
+          // Simulate API delay
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          const mockUser: User = {
+            id: 'dev-user-1',
+            username: username || 'dev',
+            role: 'super_admin',
+            telegramId: '123456789',
+          };
+          
+          const mockToken = 'dev-mock-token-' + Date.now();
+          
+          set({
+            token: mockToken,
+            user: mockUser,
+            isAuthenticated: true,
+            isLoading: false,
+          });
+          
+          api.defaults.headers.common['Authorization'] = `Bearer ${mockToken}`;
+          return;
+        }
+        
+        // Production: real API call
         try {
           const response = await api.post('/auth/login', { username, password });
           const { access_token, user } = response.data;
@@ -53,6 +83,29 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
+      devLogin: () => {
+        if (!isDev) return;
+        
+        const mockUser: User = {
+          id: 'dev-user-1',
+          username: 'dev',
+          role: 'super_admin',
+          telegramId: '123456789',
+        };
+        
+        const mockToken = 'dev-mock-token-' + Date.now();
+        
+        set({
+          token: mockToken,
+          user: mockUser,
+          isAuthenticated: true,
+          isLoading: false,
+          error: null,
+        });
+        
+        api.defaults.headers.common['Authorization'] = `Bearer ${mockToken}`;
+      },
+
       logout: () => {
         set({
           token: null,
@@ -69,6 +122,12 @@ export const useAuthStore = create<AuthState>()(
           return;
         }
 
+        // Dev mode: always valid if token exists
+        if (isDev && token.startsWith('dev-mock-token-')) {
+          set({ isAuthenticated: true });
+          return;
+        }
+
         try {
           api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           const response = await api.post('/auth/verify');
@@ -78,7 +137,10 @@ export const useAuthStore = create<AuthState>()(
             get().logout();
           }
         } catch {
-          get().logout();
+          // In dev mode, don't logout on verify error
+          if (!isDev) {
+            get().logout();
+          }
         }
       },
     }),
