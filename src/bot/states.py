@@ -116,6 +116,8 @@ class DashboardUser(StatesGroup):
     MESSAGE = State()
     GIVE_SUBSCRIPTION = State()
     SUBSCRIPTION_DURATION = State()
+    # Лимит подписок пользователя
+    MAX_SUBSCRIPTIONS = State()  # Настройка индивидуального лимита подписок
     # Партнерская программа
     PARTNER = State()  # Управление партнеркой пользователя
     PARTNER_BALANCE = State()  # Управление балансом партнера
@@ -132,6 +134,22 @@ class DashboardRemnashop(StatesGroup):
     MAIN = State()
     ADMINS = State()
     ADVERTISING = State()
+
+
+class DashboardBackup(StatesGroup):
+    """Состояния для управления бэкапами."""
+    MAIN = State()  # Главное окно системы бэкапов
+    LIST = State()  # Список бэкапов
+    MANAGE = State()  # Управление конкретным бэкапом
+    SETTINGS = State()  # Настройки бэкапов
+    RESTORE_CONFIRM = State()  # Подтверждение восстановления
+    DELETE_CONFIRM = State()  # Подтверждение удаления
+
+
+class RemnashopMultiSubscription(StatesGroup):
+    """Настройки мультиподписок в админке."""
+    MAIN = State()  # Главное окно настроек мультиподписок
+    MAX_SUBSCRIPTIONS = State()  # Редактирование максимального количества подписок
 
 
 class RemnashopBanners(StatesGroup):

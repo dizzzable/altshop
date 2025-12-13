@@ -50,6 +50,10 @@ class User(BaseSql, TimestampMixin):
     is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False)
     is_bot_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False)
     is_rules_accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    
+    # Индивидуальный лимит подписок для пользователя
+    # None = использовать глобальную настройку, -1 = безлимит, >0 = конкретный лимит
+    max_subscriptions: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
 
     current_subscription_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("subscriptions.id", ondelete="SET NULL"),

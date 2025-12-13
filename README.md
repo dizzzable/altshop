@@ -151,6 +151,30 @@
 ### 🪄 MiniApp Support
 - ✅ MiniApp support (maposia)
 
+### 💾 Backup System
+- ✅ **Automated backups** — scheduled backups with configurable interval and time
+- ✅ **Manual backup creation** — create backups on demand from admin panel
+- ✅ **Backup restoration** — restore database from any backup with or without clearing existing data
+- ✅ **Backup compression** — gzip compression for smaller file sizes
+- ✅ **Telegram delivery** — automatically send backups to specified Telegram chat/channel
+- ✅ **Backup management** — view, download, and delete backups from admin panel
+- ✅ **Auto-cleanup** — automatically remove old backups (configurable retention count)
+- ✅ **Full database export** — exports all tables including users, subscriptions, transactions, etc.
+
+### 📦 Multi-subscription System
+- ✅ **Multiple subscriptions per user** — users can have multiple active subscriptions simultaneously
+- ✅ **Global settings** — enable/disable multi-subscription system globally
+- ✅ **Default limits** — configurable default maximum subscriptions per user
+- ✅ **Individual limits** — override global limits for specific users
+- ✅ **Unlimited option** — allow unlimited subscriptions (set to -1)
+- ✅ **Per-plan subscription count** — configure how many subscriptions a plan purchase grants
+
+### 🖼️ Banner Management
+- ✅ **Dynamic banners** — upload custom banners for different bot sections
+- ✅ **Locale-specific banners** — different banners for each language
+- ✅ **Multiple formats** — support for JPG, JPEG, PNG, GIF, WEBP
+- ✅ **Easy management** — upload and delete banners from admin panel
+
 ### 🔧 Technical Features
 - ✅ Redis caching for performance
 - ✅ TaskIQ for background tasks and scheduled jobs
@@ -184,6 +208,23 @@ Copy the example file and edit it:
 
 ```bash
 cp .env.example .env
+```
+
+Generate secure keys by running the following commands:
+
+```bash
+# Generate secure keys
+sed -i "s|^APP_CRYPT_KEY=.*|APP_CRYPT_KEY=$(openssl rand -base64 32 | tr -d '\n')|" .env && \
+sed -i "s|^BOT_SECRET_TOKEN=.*|BOT_SECRET_TOKEN=$(openssl rand -hex 64 | tr -d '\n')|" .env
+
+# Generate passwords
+sed -i "s|^DATABASE_PASSWORD=.*|DATABASE_PASSWORD=$(openssl rand -hex 24 | tr -d '\n')|" .env && \
+sed -i "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$(openssl rand -hex 24 | tr -d '\n')|" .env
+```
+
+Now, open the `.env` file and update the variables:
+
+```bash
 nano .env
 ```
 
@@ -307,6 +348,34 @@ BOT_MINI_APP=true
 # Or specify custom URL
 BOT_MINI_APP=https://your-subscription-page.com/
 ```
+
+### Backup System
+
+Configure automated backups in `.env`:
+
+```env
+# Enable automatic backups
+BACKUP_AUTO_ENABLED=true
+
+# Backup interval (in hours)
+BACKUP_INTERVAL_HOURS=24
+
+# Time to run backup (HH:MM format)
+BACKUP_TIME=03:00
+
+# Maximum backups to keep
+BACKUP_MAX_KEEP=7
+
+# Enable compression
+BACKUP_COMPRESSION=true
+
+# Send backups to Telegram
+BACKUP_SEND_ENABLED=true
+BACKUP_SEND_CHAT_ID=your_chat_id
+BACKUP_SEND_TOPIC_ID=optional_topic_id
+```
+
+Backups are stored in `/app/data/backups` by default.
 
 ---
 

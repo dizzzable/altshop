@@ -35,6 +35,9 @@ class BaseUserDto(TrackableDto):
     is_blocked: bool = False
     is_bot_blocked: bool = False
     is_rules_accepted: bool = True
+    
+    # Индивидуальный лимит подписок: None = использовать глобальный, -1 = безлимит, >0 = конкретный лимит
+    max_subscriptions: Optional[int] = None
 
     created_at: Optional[datetime] = Field(default=None, frozen=True)
     updated_at: Optional[datetime] = Field(default=None, frozen=True)

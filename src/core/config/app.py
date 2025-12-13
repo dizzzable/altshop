@@ -9,6 +9,7 @@ from src.core.constants import API_V1, ASSETS_DIR, DOMAIN_REGEX, PAYMENTS_WEBHOO
 from src.core.enums import Locale, PaymentGatewayType
 from src.core.utils.types import LocaleList, StringList
 
+from .backup import BackupConfig
 from .base import BaseConfig
 from .bot import BotConfig
 from .database import DatabaseConfig
@@ -33,6 +34,7 @@ class AppConfig(BaseConfig, env_prefix="APP_"):
     remnawave: RemnawaveConfig = Field(default_factory=RemnawaveConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
+    backup: BackupConfig = Field(default_factory=BackupConfig)
 
     @property
     def banners_dir(self) -> Path:

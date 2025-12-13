@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-ASSETS_CONTAINER_PATH="/opt/remnashop/assets"
-ASSETS_DEFAULT_PATH="/opt/remnashop/assets.default"
+ASSETS_CONTAINER_PATH="/opt/altshop/assets"
+ASSETS_DEFAULT_PATH="/opt/altshop/assets.default"
 ASSETS_BACKUP_PATH="${ASSETS_CONTAINER_PATH}/.bak"
 
 RESET_FLAG="${RESET_ASSETS:-false}"
@@ -51,6 +51,9 @@ else
 fi
 
 
+echo "Creating logs directory"
+mkdir -p /opt/altshop/logs
+
 echo "Migrating database"
 
 if ! alembic -c src/infrastructure/database/alembic.ini upgrade head; then
@@ -63,7 +66,7 @@ echo "Migrations deployed successfully"
 
 if [ "$UVICORN_RELOAD_ENABLED" = "true" ]; then
     echo "Uvicorn will run with reload enabled"
-    UVICORN_RELOAD_ARGS="--reload --reload-dir /opt/remnashop/src --reload-dir /opt/remnashop/assets --reload-include *.ftl"
+    UVICORN_RELOAD_ARGS="--reload --reload-dir /opt/altshop/src --reload-dir /opt/altshop/assets --reload-include *.ftl"
 else
     echo "Uvicorn will run without reload"
 fi

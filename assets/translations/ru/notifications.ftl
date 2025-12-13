@@ -422,6 +422,11 @@ ntf-broadcast-deleted-success =
 
 ntf-trial-unavailable = <i>❌ Пробная подписка временно недоступна.</i>
 
+# Multi Subscription
+ntf-multi-subscription-invalid-value = <i>❌ Некорректное значение. Введите положительное число или -1 для безлимита.</i>
+ntf-multi-subscription-disabled = <i>❌ Мультиподписка отключена. Сначала включите её в настройках RemnaShop.</i>
+ntf-multi-subscription-updated = <i>✅ Настройки мультиподписки обновлены.</i>
+
 # Promocodes
 ntf-promocode-not-found = <i>❌ Промокод не найден.</i>
 ntf-promocode-inactive = <i>❌ Промокод неактивен.</i>
@@ -592,4 +597,40 @@ ntf-event-partner-withdrawal-request =
     <blockquote>
     • <b>Сумма</b>: { $amount }
     • <b>Баланс партнера</b>: { $partner_balance }
+    </blockquote>
+
+# Backup System
+ntf-backup-creating = <i>🔄 Создание бэкапа базы данных...</i>
+ntf-backup-created-success = <i>✅ Бэкап создан успешно!</i>
+
+    <blockquote>
+    { $message }
+    </blockquote>
+
+ntf-backup-created-failed = <i>❌ Ошибка создания бэкапа</i>
+
+    <blockquote>
+    { $message }
+    </blockquote>
+
+ntf-backup-restoring = <i>📥 Восстановление из бэкапа...</i>
+
+    <blockquote>
+    • <b>Файл</b>: <code>{ $filename }</code>
+    • <b>Очистка данных</b>: { $clear_existing ->
+        [true] Да
+        *[false] Нет
+    }
+    </blockquote>
+
+ntf-backup-restored-success = <i>✅ Восстановление завершено!</i>
+
+    <blockquote>
+    { $message }
+    </blockquote>
+
+ntf-backup-restored-failed = <i>❌ Ошибка восстановления</i>
+
+    <blockquote>
+    { $message }
     </blockquote>

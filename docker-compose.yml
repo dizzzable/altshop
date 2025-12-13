@@ -1,8 +1,8 @@
 services:
-  remnawave-nginx:
+  altshop-nginx:
     image: nginx:1.28
-    container_name: remnawave-nginx
-    hostname: remnawave-nginx
+    container_name: altshop-nginx
+    hostname: altshop-nginx
     restart: always
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
@@ -14,12 +14,14 @@ services:
     networks:
       - remnawave-network
     depends_on:
-      - remnashop
+      - altshop
+      # Admin panel использует динамический DNS resolver в nginx,
+      # поэтому не требует жёсткой зависимости
 
-  remnashop-db:
+  altshop-db:
     image: postgres:17
-    container_name: "remnashop-db"
-    hostname: remnashop-db
+    container_name: "altshop-db"
+    hostname: altshop-db
     restart: unless-stopped
 
     env_file:
@@ -30,8 +32,12 @@ services:
       - POSTGRES_DB=${DATABASE_NAME}
       - TZ=UTC
     
+    # Раскомментируйте для доступа с внешних серверов
+    # ports:
+    #   - "5432:5432"
+    
     volumes:
-      - remnashop-db-data:/var/lib/postgresql/data
+      - altshop-db-data:/var/lib/postgresql/data
     networks:
       - remnawave-network
 
@@ -42,35 +48,39 @@ services:
       retries: 3
     
 
-  remnashop-redis:
+  altshop-redis:
     image: valkey/valkey:9-alpine
-    container_name: "remnashop-redis"
-    hostname: remnashop-redis
+    container_name: "altshop-redis"
+    hostname: altshop-redis
     restart: unless-stopped
 
-    command: [ "--requirepass", "${REDIS_PASSWORD}" ]
+    command: [ "--requirepass", "${REDIS_PASSWORD}", "--bind", "0.0.0.0" ]
+
+    # Раскомментируйте для доступа с внешних серверов
+    # ports:
+    #   - "6379:6379"
 
     volumes:
-      - remnashop-redis-data:/data
+      - altshop-redis-data:/data
 
     networks:
       - remnawave-network
 
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD", "valkey-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 3s
       timeout: 10s
       retries: 3
     
 
-  remnashop:
-    &remnashop
+  altshop:
+    &altshop
     build:
       context: .
       dockerfile: Dockerfile.local
-    image: remnashop:local
-    container_name: "remnashop"
-    hostname: remnashop
+    image: altshop:local
+    container_name: "altshop"
+    hostname: altshop
     restart: unless-stopped
 
     env_file:
@@ -79,23 +89,23 @@ services:
       RESET_ASSETS: "${RESET_ASSETS:-false}"
 
     depends_on:
-        remnashop-db:
+        altshop-db:
           condition: service_healthy
-        remnashop-redis:
+        altshop-redis:
           condition: service_healthy
 
     volumes:
-      - ./logs:/opt/remnashop/logs
-      - ./assets:/opt/remnashop/assets
+      - ./logs:/opt/altshop/logs
+      - ./assets:/opt/altshop/assets
 
     networks:
       - remnawave-network
     
 
-  remnashop-taskiq-worker:
-    image: remnashop:local
-    container_name: "remnashop-taskiq-worker"
-    hostname: remnashop-taskiq-worker
+  altshop-taskiq-worker:
+    image: altshop:local
+    container_name: "altshop-taskiq-worker"
+    hostname: altshop-taskiq-worker
     restart: unless-stopped
     command: taskiq worker src.infrastructure.taskiq.worker:worker
       --tasks-pattern src/infrastructure/taskiq/tasks -fsd
@@ -106,25 +116,25 @@ services:
       RESET_ASSETS: "${RESET_ASSETS:-false}"
 
     depends_on:
-        remnashop:
+        altshop:
           condition: service_started
-        remnashop-redis:
+        altshop-redis:
           condition: service_healthy
-        remnashop-db:
+        altshop-db:
           condition: service_healthy
 
     volumes:
-      - ./logs:/opt/remnashop/logs
-      - ./assets:/opt/remnashop/assets
+      - ./logs:/opt/altshop/logs
+      - ./assets:/opt/altshop/assets
 
     networks:
       - remnawave-network
 
 
-  remnashop-taskiq-scheduler:
-    image: remnashop:local
-    container_name: "remnashop-taskiq-scheduler"
-    hostname: remnashop-taskiq-scheduler
+  altshop-taskiq-scheduler:
+    image: altshop:local
+    container_name: "altshop-taskiq-scheduler"
+    hostname: altshop-taskiq-scheduler
     restart: unless-stopped
     command: taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler
       --tasks-pattern src/infrastructure/taskiq/tasks -fsd
@@ -135,34 +145,108 @@ services:
       RESET_ASSETS: "${RESET_ASSETS:-false}"
 
     depends_on:
-        remnashop:
+        altshop:
           condition: service_started
-        remnashop-redis:
+        altshop-redis:
           condition: service_healthy
-        remnashop-db:
+        altshop-db:
           condition: service_healthy
 
     volumes:
-      - ./logs:/opt/remnashop/logs
-      - ./assets:/opt/remnashop/assets
+      - ./logs:/opt/altshop/logs
+      - ./assets:/opt/altshop/assets
 
     networks:
       - remnawave-network
 
 
+  # ========== ADMIN PANEL ==========
+  
+  admin-backend:
+    build:
+      context: ./admin_panel
+      dockerfile: apps/backend/Dockerfile
+    image: admin-backend:local
+    container_name: admin-backend
+    hostname: admin-backend
+    restart: unless-stopped
+    
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_HOST=altshop-db
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=${DATABASE_NAME}
+      - DATABASE_USER=${DATABASE_USER}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - REDIS_HOST=altshop-redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      # RemnaWave API (используем те же переменные что и бот)
+      - REMNAWAVE_HOST=${REMNAWAVE_HOST}
+      - REMNAWAVE_PORT=${REMNAWAVE_PORT}
+      - REMNAWAVE_TOKEN=${REMNAWAVE_TOKEN}
+      - REMNAWAVE_CADDY_TOKEN=${REMNAWAVE_CADDY_TOKEN:-}
+      - REMNAWAVE_COOKIE=${REMNAWAVE_COOKIE:-}
+    
+    depends_on:
+      altshop:
+        condition: service_started
+      altshop-db:
+        condition: service_healthy
+      altshop-redis:
+        condition: service_healthy
+    
+    networks:
+      - remnawave-network
+    
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  admin-frontend:
+    build:
+      context: ./admin_panel
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        - VITE_API_URL=/admin/api
+    image: admin-frontend:local
+    container_name: admin-frontend
+    hostname: admin-frontend
+    restart: unless-stopped
+    
+    depends_on:
+      admin-backend:
+        condition: service_healthy
+    
+    networks:
+      - remnawave-network
+    
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+
 networks:
   remnawave-network:
-    name: remnawave-network 
-    driver: bridge 
-    external: false
+    name: remnawave-network
+    driver: bridge
 
 volumes:
-  remnashop-db-data:
-    name: remnashop-db-data
+  altshop-db-data:
+    name: altshop-db-data
     driver: local
-    external: false
     
-  remnashop-redis-data:
-    name: remnashop-redis-data
+  altshop-redis-data:
+    name: altshop-redis-data
     driver: local
-    external: false

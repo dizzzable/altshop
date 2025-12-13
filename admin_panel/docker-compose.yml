@@ -1,0 +1,54 @@
+services:
+  admin-backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: admin-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_HOST=${DATABASE_HOST:-altshop-db}
+      - DATABASE_PORT=${DATABASE_PORT:-5432}
+      - DATABASE_NAME=${DATABASE_NAME:-altshop}
+      - DATABASE_USER=${DATABASE_USER:-altshop}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - REDIS_HOST=${REDIS_HOST:-altshop-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+    networks:
+      - remnawave-network
+    depends_on:
+      - admin-frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  admin-frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        - VITE_API_URL=/api
+    container_name: admin-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-4080}:4080"
+    networks:
+      - remnawave-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  remnawave-network:
+    # Используем существующую сеть, созданную altshop
+    external: true
+    name: remnawave-network

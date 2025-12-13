@@ -1,0 +1,105 @@
+services:
+  admin-db:
+    image: postgres:15-alpine
+    container_name: admin-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${DATABASE_NAME:-altshop}
+      - POSTGRES_USER=${DATABASE_USER:-altshop}
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+    volumes:
+      - admin-db-data:/var/lib/postgresql/data
+    networks:
+      - admin-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-altshop}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  admin-redis:
+    image: redis:7-alpine
+    container_name: admin-redis
+    restart: unless-stopped
+    networks:
+      - admin-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  admin-backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: admin-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_HOST=admin-db
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=${DATABASE_NAME:-altshop}
+      - DATABASE_USER=${DATABASE_USER:-altshop}
+      - DATABASE_PASSWORD=${DATABASE_PASSWORD}
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      - REDIS_HOST=admin-redis
+      - REDIS_PORT=6379
+    networks:
+      - admin-network
+    depends_on:
+      admin-db:
+        condition: service_healthy
+      admin-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  admin-frontend:
+    build:
+      context: .
+      dockerfile: apps/frontend/Dockerfile
+      args:
+        - VITE_API_URL=/api
+    container_name: admin-frontend
+    restart: unless-stopped
+    ports:
+      - "4080:4080"
+    networks:
+      - admin-network
+    depends_on:
+      - admin-backend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  admin-nginx:
+    image: nginx:alpine
+    container_name: admin-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - admin-network
+    depends_on:
+      - admin-frontend
+      - admin-backend
+
+networks:
+  admin-network:
+    driver: bridge
+
+volumes:
+  admin-db-data:

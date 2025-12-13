@@ -33,6 +33,7 @@ from src.services.notification import NotificationService
 from src.services.partner import PartnerService
 from src.services.plan import PlanService
 from src.services.remnawave import RemnawaveService
+from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 from src.services.transaction import TransactionService
 from src.services.user import UserService
@@ -1695,3 +1696,116 @@ async def on_partner_fixed_input(
         logger.info(
             f"{log(user)} Partner '{partner.id}' level {level} fixed amount changed to {amount_rub} RUB"
         )
+
+
+# ==================
+# MAX SUBSCRIPTIONS HANDLERS
+# ==================
+
+
+@inject
+async def on_max_subscriptions(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    """Переход к настройке индивидуального лимита подписок.
+    
+    Индивидуальная настройка позволяет переопределить глобальный лимит для конкретного пользователя.
+    Работает независимо от того, включена ли мультиподписка глобально.
+    """
+    await dialog_manager.switch_to(state=DashboardUser.MAX_SUBSCRIPTIONS)
+
+
+@inject
+async def on_max_subscriptions_use_global_toggle(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    settings_service: FromDishka[SettingsService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Переключение между индивидуальным и глобальным лимитом подписок."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    if target_user.max_subscriptions is not None:
+        # Переключаем на глобальные настройки (устанавливаем None)
+        target_user.max_subscriptions = None
+        await user_service.update(user=target_user)
+        logger.info(f"{log(user)} Reset max_subscriptions to global for user '{target_telegram_id}'")
+    else:
+        # Переключаем на индивидуальные настройки (устанавливаем текущее глобальное значение)
+        settings = await settings_service.get()
+        target_user.max_subscriptions = settings.multi_subscription.default_max_subscriptions
+        await user_service.update(user=target_user)
+        logger.info(
+            f"{log(user)} Set individual max_subscriptions to "
+            f"{target_user.max_subscriptions} for user '{target_telegram_id}'"
+        )
+
+
+@inject
+async def on_max_subscriptions_select(
+    callback: CallbackQuery,
+    widget: Select[int],
+    dialog_manager: DialogManager,
+    selected_limit: int,
+    user_service: FromDishka[UserService],
+) -> None:
+    """Выбор индивидуального лимита подписок."""
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    target_user.max_subscriptions = selected_limit
+    await user_service.update(user=target_user)
+    
+    limit_display = "∞" if selected_limit == -1 else str(selected_limit)
+    logger.info(
+        f"{log(user)} Set max_subscriptions to {limit_display} for user '{target_telegram_id}'"
+    )
+
+
+@inject
+async def on_max_subscriptions_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    """Ручной ввод индивидуального лимита подписок."""
+    dialog_manager.show_mode = ShowMode.EDIT
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    number = parse_int(message.text)
+
+    if number is None or (number < 1 and number != -1):
+        logger.warning(f"{log(user)} Invalid max_subscriptions input: '{message.text}'")
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-multi-subscription-invalid-value"),
+        )
+        return
+
+    target_user.max_subscriptions = number
+    await user_service.update(user=target_user)
+    
+    limit_display = "∞" if number == -1 else str(number)
+    logger.info(
+        f"{log(user)} Set max_subscriptions to {limit_display} for user '{target_telegram_id}'"
+    )

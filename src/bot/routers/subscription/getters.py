@@ -6,7 +6,6 @@ from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
 
 from src.core.config import AppConfig
-from src.core.constants import MAX_SUBSCRIPTIONS_PER_USER
 from src.core.enums import DeviceType, PurchaseType, SubscriptionStatus
 from src.core.utils.adapter import DialogDataAdapter
 from src.core.utils.formatters import (
@@ -28,6 +27,7 @@ async def subscription_getter(
     dialog_manager: DialogManager,
     user: UserDto,
     subscription_service: FromDishka[SubscriptionService],
+    settings_service: FromDishka[SettingsService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     has_active = bool(user.current_subscription and not user.current_subscription.is_trial)
@@ -38,8 +38,15 @@ async def subscription_getter(
     active_subscriptions = [s for s in all_subscriptions if s.status not in (SubscriptionStatus.DELETED,)]
     active_count = len(active_subscriptions)
     
+    # Get max subscriptions for this specific user (respects individual settings)
+    max_subscriptions = await settings_service.get_max_subscriptions_for_user(user)
+    
     # Check if user can add more subscriptions
-    can_add_subscription = active_count < MAX_SUBSCRIPTIONS_PER_USER
+    # -1 means unlimited
+    if max_subscriptions == -1:
+        can_add_subscription = True
+    else:
+        can_add_subscription = active_count < max_subscriptions
     
     return {
         "has_active_subscription": has_active,
