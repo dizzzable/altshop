@@ -15,8 +15,11 @@ services:
       - remnawave-network
     depends_on:
       - altshop
+<<<<<<< HEAD
       # Admin panel использует динамический DNS resolver в nginx,
       # поэтому не требует жёсткой зависимости
+=======
+>>>>>>> b2511c518cd155f93ab9b32b2bcd9be475c73e64
 
   altshop-db:
     image: postgres:17
@@ -240,7 +243,11 @@ services:
 networks:
   remnawave-network:
     name: remnawave-network
+<<<<<<< HEAD
     driver: bridge
+=======
+    external: true
+>>>>>>> b2511c518cd155f93ab9b32b2bcd9be475c73e64
 
 volumes:
   altshop-db-data:
