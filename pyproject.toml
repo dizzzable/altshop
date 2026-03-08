@@ -1,8 +1,8 @@
 [project]
-name = "remnashop"
-version = "0.0.0"
-description = "This is a Telegram bot for selling VPN subscriptions. It works with Remnawave"
-authors = [{ name = "snoups" }]
+name = "altshop"
+version = "1.0.0"
+description = "Telegram bot, FastAPI API, and React web app for selling VPN subscriptions with Remnawave integration"
+authors = [{ name = "dizzzable" }]
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
@@ -37,8 +37,8 @@ dependencies = [
 ]
 
 [project.urls]
-homepage = "https://t.me/@remna_shop"
-repository = "https://github.com/snoups/remnashop"
+homepage = "https://github.com/dizzzable/altshop"
+repository = "https://github.com/dizzzable/altshop"
 
 [dependency-groups]
 dev = [
