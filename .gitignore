@@ -50,6 +50,8 @@ web-app/react-doctor.latest.txt
 web-app/dist/
 web-app/node_modules/
 web-app/.next/
+!web-app/src/lib/
+!web-app/src/lib/**
 
 # IDE
 .idea/
