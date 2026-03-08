@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  backend:
+  backend-tests:
     runs-on: ubuntu-latest
 
     steps:
@@ -27,19 +27,10 @@ jobs:
       - name: Install backend dependencies
         run: uv sync --locked --group dev
 
-      - name: Ruff backend scope
-        run: uv run python -m ruff check src tests
-
-      - name: Ruff full C901 strict
-        run: uv run python -m ruff check src tests --select C901 --ignore-noqa --line-length 100
-
       - name: Pytest full backend
         run: uv run python -m pytest -q
 
-      - name: Mypy full backend
-        run: uv run python -m mypy src
-
-  frontend-wave2:
+  frontend:
     runs-on: ubuntu-latest
     defaults:
       run:

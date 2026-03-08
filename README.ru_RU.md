@@ -1,7 +1,7 @@
 <div align="center">
   <h1>AltShop</h1>
-  <p><strong>Telegram bot + FastAPI API + React web app for selling VPN subscriptions with Remnawave integration.</strong></p>
-  <p>ENGLISH | <a href="./README.ru_RU.md">РУССКИЙ</a></p>
+  <p><strong>Telegram-бот, FastAPI API и React web app для продажи VPN-подписок с интеграцией Remnawave.</strong></p>
+  <p><a href="./README.md">ENGLISH</a> | РУССКИЙ</p>
   <p>
     <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12" />
     <img src="https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white" alt="FastAPI Backend" />
@@ -12,30 +12,30 @@
   </p>
 </div>
 
-## Overview
+## Что это
 
-AltShop is a production-oriented stack for selling and managing VPN subscriptions. The repository combines:
+AltShop это production-ориентированный стек для продажи и обслуживания VPN-подписок. Репозиторий объединяет:
 
-- a Telegram bot on `aiogram`
-- a FastAPI backend with cookie-based web auth
-- a standalone React/Vite web application
-- PostgreSQL migrations, background jobs, and payment gateway integrations
-- Docker Compose and Nginx deployment contracts for production
+- Telegram-бота на `aiogram`
+- FastAPI backend с cookie-based web auth
+- отдельный React/Vite frontend
+- PostgreSQL migrations, фоновые задачи и payment gateway integrations
+- Docker Compose и Nginx deployment contract для production
 
-The current project surface is documented in [`docs/README.md`](./docs/README.md).
+Актуальная точка входа в документацию находится в [`docs/README.md`](./docs/README.md).
 
-## Highlights
+## Основные возможности
 
-| Area | What is included |
+| Зона | Что есть в проекте |
 | --- | --- |
 | Bot runtime | Telegram bot flows, operator dialogs, access controls, notifications |
-| Web app | React 19 user portal with auth, subscriptions, devices, referral and partner pages |
-| Payments | Multiple payment gateways, webhook handling, quotes and purchase flows |
+| Web app | React 19 портал пользователя: auth, subscriptions, devices, referral и partner страницы |
+| Payments | Несколько payment gateways, webhook handling, quotes и purchase flows |
 | Infrastructure | Docker Compose stack, Nginx reverse proxy, PostgreSQL 17, Valkey 9, Taskiq workers |
-| Configuration | Large `.env` matrix with deployment-ready defaults in [`.env.example`](./.env.example) |
-| Documentation | Canonical architecture, API, config, deployment, and development docs in [`docs/`](./docs) |
+| Configuration | Большая `.env` matrix с готовой базой в [`.env.example`](./.env.example) |
+| Documentation | Канонические документы по architecture, API, config, deployment и development в [`docs/`](./docs) |
 
-## Stack
+## Стек
 
 ### Backend
 
@@ -63,29 +63,29 @@ The current project surface is documented in [`docs/README.md`](./docs/README.md
 - Valkey 9
 - GitHub Actions
 
-## Repository Layout
+## Структура репозитория
 
 ```text
 altshop/
 |-- src/                 backend application code
 |-- web-app/             React/Vite frontend
-|-- assets/              translations and default runtime assets
-|-- nginx/               Nginx config and SSL mount paths
-|-- docs/                canonical and historical documentation
+|-- assets/              translations и default runtime assets
+|-- nginx/               Nginx config и SSL mount paths
+|-- docs/                canonical и historical documentation
 |-- tests/               backend pytest suite
-|-- docker-compose.yml   default deployment contract
+|-- docker-compose.yml   основной deployment contract
 `-- Dockerfile           backend container image
 ```
 
-## Quick Start
+## Быстрый старт
 
-### 1. Prepare environment
+### 1. Подготовить окружение
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in at least:
+Минимально заполнить:
 
 - `APP_DOMAIN`
 - `APP_CRYPT_KEY`
@@ -97,25 +97,25 @@ Fill in at least:
 - `DATABASE_PASSWORD`
 - `REDIS_PASSWORD`
 
-### 2. Place TLS files
+### 2. Положить TLS-файлы
 
 ```text
 nginx/fullchain.pem
 nginx/privkey.key
 ```
 
-### 3. Start the stack
+### 3. Поднять стек
 
 ```bash
 docker compose up --build
 ```
 
-### 4. Check endpoints
+### 4. Проверить точки входа
 
 - `https://<APP_DOMAIN>/webapp/`
 - `https://<APP_DOMAIN>/api/v1/auth/branding`
 
-## Local Development
+## Локальная разработка
 
 ### Backend
 
@@ -134,13 +134,13 @@ npm run type-check
 npm run build
 ```
 
-## Documentation
+## Документация
 
-Start here:
+Стартовая точка:
 
 - [`docs/README.md`](./docs/README.md)
 
-Canonical documents:
+Канонические документы:
 
 - [`docs/01-project-overview.md`](./docs/01-project-overview.md)
 - [`docs/05-api.md`](./docs/05-api.md)
@@ -150,13 +150,13 @@ Canonical documents:
 
 ## CI
 
-GitHub Actions currently runs:
+Сейчас GitHub Actions гоняет:
 
 - backend `pytest`
 - frontend `eslint`
 - frontend `tsc --noEmit`
 - frontend production build
 
-## License
+## Лицензия
 
-MIT. See [`LICENSE`](./LICENSE).
+MIT. См. [`LICENSE`](./LICENSE).

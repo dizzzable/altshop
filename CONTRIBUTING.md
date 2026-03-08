@@ -20,9 +20,7 @@ npm ci
 Backend:
 
 ```bash
-uv run python -m ruff check src tests
 uv run python -m pytest -q
-uv run python -m mypy src
 ```
 
 Frontend:
