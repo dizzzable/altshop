@@ -1,5 +1,12 @@
 # Contributing
 
+## Scope
+
+This GitHub repository is the public runtime and deployment mirror of AltShop.
+
+- internal backend integration tests stay local and are not published here
+- runtime code, deployment files, frontend sources, and canonical docs stay public
+
 ## Setup
 
 Backend:
@@ -17,10 +24,11 @@ npm ci
 
 ## Validation before commit
 
-Backend:
+Public backend checks:
 
 ```bash
-uv run python -m pytest -q
+uv run python -m ruff check src
+uv run python -m mypy src
 ```
 
 Frontend:
@@ -31,6 +39,8 @@ npm run lint
 npm run type-check
 npm run build
 ```
+
+If you work in the private internal workspace, you can also run the local backend `pytest` suite there.
 
 ## Documentation contract
 
@@ -50,5 +60,6 @@ Historical documents under `docs/archive/` are not the source of truth.
 - local logs
 - generated lint/typecheck report dumps
 - frontend build output
+- internal-only QA files such as `tests/` or temporary `mypy-wave*.ini`
 
 The repository-level [`.gitignore`](./.gitignore) already covers these cases; keep it that way.

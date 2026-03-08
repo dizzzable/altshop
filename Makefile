@@ -1,4 +1,5 @@
 ALEMBIC_INI=src/infrastructure/database/alembic.ini
+BACKEND_RUFF_PATHS=src $(if $(wildcard tests),tests,)
 
 .PHONY: backend-sync
 backend-sync:
@@ -6,11 +7,15 @@ backend-sync:
 
 .PHONY: backend-lint
 backend-lint:
-	uv run python -m ruff check src tests
+	uv run python -m ruff check $(BACKEND_RUFF_PATHS)
 
 .PHONY: backend-test
 backend-test:
-	uv run python -m pytest -q
+	@if [ -d tests ]; then \
+		uv run python -m pytest -q; \
+	else \
+		echo "Private backend test suite is not part of the public GitHub mirror."; \
+	fi
 
 .PHONY: backend-typecheck
 backend-typecheck:

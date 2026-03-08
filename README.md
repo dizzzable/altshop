@@ -13,10 +13,14 @@
 </div>
 
 > [!IMPORTANT]
-> The current main branch does not ship a standalone web admin panel in the default runtime stack.
-> Administrative control is built into the Telegram bot dashboard and operator flows.
+> The current `main` branch does not ship a standalone web admin panel in the default runtime stack.
+> Administrative control lives in the Telegram dashboard and operator flows inside the bot.
 
-## Overview
+> [!TIP]
+> If you already know `snoups/remnashop`, the deployment flow here should feel familiar.
+> The environment setup, Docker stack, and Nginx wiring are intentionally close in day-to-day operation.
+
+## ✨ What AltShop Is
 
 AltShop is a production-oriented stack for selling and servicing VPN subscriptions. It combines:
 
@@ -28,33 +32,33 @@ AltShop is a production-oriented stack for selling and servicing VPN subscriptio
 
 The current project surface is documented in [`docs/README.md`](./docs/README.md).
 
-## What The Project Gives You
+## 👥 Who Gets What
 
 | Role | What they get |
 | --- | --- |
-| Service owner | Product catalog, payments, branding, access rules, referral and partner mechanics, backups, analytics, and Remnawave integration |
-| Admin/operator | Telegram dashboard for users, plans, gateways, notifications, broadcasts, branding, partner withdrawals, imports, and backups |
-| Buyer | Telegram and web purchase flows, device management, trial access, promocodes, notifications, referral rewards, partner cabinet, and account recovery |
+| Service owner | Product catalog, branding, access rules, payment gateways, referrals, partner mechanics, backups, and Remnawave sync |
+| Admin/operator | Telegram dashboard for users, plans, gateways, notifications, broadcasts, imports, partner withdrawals, and operational settings |
+| Buyer | Telegram and web purchase flows, trial access, device management, promocodes, referral rewards, partner cabinet, and account recovery |
 
-## Buyer Experience
+## 🛍️ What Buyers Actually Get
 
 After deployment, a customer can:
 
 - sign in through username/password or Telegram auth
-- view access requirements before registration
+- see access requirements before registration
 - accept rules and pass channel gating if enabled
-- open the web cabinet and see subscriptions, transactions, and notifications
-- buy a new subscription, renew an existing one, or purchase an additional one
-- get a trial subscription if the project allows it
-- choose plan, duration, device type, payment method, and payment asset
+- open the web cabinet and view subscriptions, transactions, and notifications
+- buy a new subscription, renew an existing one, or add another one
+- get a trial subscription if your project allows it
+- choose a plan, duration, device type, payment method, and payment asset
 - manage devices, generate connection links, and revoke old devices
-- activate promocodes and view activation history
+- activate promocodes and review activation history
 - link Telegram to a web account
-- verify email, reset password by code or link, and change password from the profile
+- verify email, reset password by code or link, and change password in profile
 - use referral links, referral QR codes, and points exchange flows
 - open the partner cabinet, inspect earnings, and request withdrawals
 
-## Admin And Operator Capabilities
+## 🛠️ What The Admin Side Can Manage
 
 The built-in Telegram dashboard currently covers:
 
@@ -71,29 +75,29 @@ The built-in Telegram dashboard currently covers:
 - branding texts, project name, web title, verification messages, and banners
 - user and system notification toggles
 - broadcasts and audience segmentation
-- backup creation, listing, restore, retention, and Telegram delivery
-- Remnawave integration views and import/sync flows
+- backup creation, restore, retention, and Telegram delivery
+- Remnawave integration views and import or sync flows
 - statistics and operational snapshots
 
-## What Can Be Configured
+## ⚙️ What You Can Configure
 
-### Product And Access
+### 🔐 Access And Product Logic
 
-- public vs invited vs restricted access mode
+- public, invited, purchase-blocked, registration-blocked, or restricted entry mode
 - required rules acceptance
-- required channel subscription
-- default locale and supported locales
+- required Telegram channel subscription
 - single-subscription or multi-subscription mode
+- locale defaults and enabled locales
 
-### Catalog And Pricing
+### 💳 Catalog And Pricing
 
 - plans and durations
-- plan availability and ordering
-- per-gateway pricing behavior
-- default settlement currency
+- plan ordering and availability
 - renew vs additional purchase flows
+- default settlement currency
+- per-gateway pricing behavior
 
-### Payments
+### 💸 Payments
 
 The current codebase supports 14 gateway types:
 
@@ -112,36 +116,36 @@ The current codebase supports 14 gateway types:
 - Wata
 - Platega
 
-`Telegram Stars` is the only gateway enabled by default; the rest must be configured and activated by the operator.
+`Telegram Stars` is the only gateway enabled by default. The others must be configured and activated by the operator.
 
-### Referral And Partner Programs
+### 🎁 Referral And Partner Mechanics
 
 - referral reward type: points or extra days
 - reward strategy and eligible plans
-- points exchange for subscription days, gift subscriptions, discounts, and traffic
+- points exchange into subscription days, gift subscriptions, discounts, and traffic
 - partner level percentages
 - gateway commission model
 - tax percent
 - minimum withdrawal amount
 
-### User-Facing Branding
+### 🎨 Branding And Support Surface
 
 - project name and web title
 - localized verification and recovery messages
 - support username links
 - banners and localized text content
 
-### Infrastructure
+### 🧱 Infrastructure
 
 - web domain and proxy trust rules
 - web auth JWT secret
 - CORS origins
-- SMTP for verify/reset flows
+- SMTP for verify and reset flows
 - backup retention and Telegram backup delivery
 
-## Deployment Checklist
+## 🚀 Production Setup
 
-### 1. Copy environment template
+### 1. Copy the environment template
 
 ```bash
 cp .env.example .env
@@ -167,11 +171,10 @@ At minimum:
 
 For a stable production setup:
 
-- set `APP_ORIGINS` to the real frontend origin list used by the browser
+- set `APP_ORIGINS` to the real frontend origin list used by browsers
 - keep `APP_TRUSTED_PROXY_IPS` aligned with the actual reverse proxy addresses
 - set `WEB_APP_URL` if the frontend is served from a dedicated origin
-- do not set `BOT_MINI_APP=true`
-  use either `false`, an empty value, or the exact web app URL
+- do not set `BOT_MINI_APP=true`; use `false`, an empty value, or the exact web app URL
 
 ### 4. Configure optional flows
 
@@ -200,18 +203,18 @@ docker compose up --build
 - `https://<APP_DOMAIN>/webapp/`
 - `https://<APP_DOMAIN>/api/v1/auth/branding`
 
-### 8. Perform first admin setup in the bot dashboard
+### 8. Complete first operator setup in the bot
 
 Recommended first actions:
 
-1. Review access mode and channel/rules requirements.
+1. Review access mode and channel or rules requirements.
 2. Create or verify plans, durations, and pricing.
 3. Activate and configure payment gateways.
 4. Review branding and support links.
 5. Configure referral and partner settings if you use them.
 6. Check backup settings and notification behavior.
 
-## Runtime Surface
+## 🧩 Runtime Stack
 
 The default Docker stack contains 7 services:
 
@@ -232,7 +235,7 @@ Public surface:
 - `/remnawave` for Remnawave webhook traffic
 - `/payments/*` for payment webhooks
 
-## Repository Layout
+## 🗂️ Public Repository Layout
 
 ```text
 altshop/
@@ -241,30 +244,32 @@ altshop/
 |-- assets/              translations and default runtime assets
 |-- nginx/               Nginx config and TLS mount paths
 |-- docs/                canonical and historical documentation
-|-- tests/               developer-only backend test suite
+|-- scripts/             maintenance and audit helpers
 |-- docker-compose.yml   default deployment contract
 `-- Dockerfile           backend container image
 ```
 
-## Developer-Only Files
+## 🔒 What Stays Local
 
-For deployers and service owners:
+This public GitHub mirror intentionally excludes internal-only QA artifacts.
 
-- `tests/` is not required to run the project in production
-- GitHub Actions and local QA scripts are not required for runtime
+- `tests/` stays local and is not required for runtime deployment
+- temporary `mypy-wave*.ini` files stay local and are not part of the product
+- GitHub Actions here only validates the public frontend surface
 - Ruff configuration lives in [`pyproject.toml`](./pyproject.toml)
 - there is no separate `ruff.ini` in this repository
 
-## Local Development
+## 🧪 Optional Local Development
 
-### Backend
+Public mirror checks:
 
 ```bash
 uv sync --locked --group dev
-uv run python -m pytest -q
+uv run python -m ruff check src
+uv run python -m mypy src
 ```
 
-### Frontend
+Frontend:
 
 ```bash
 cd web-app
@@ -274,7 +279,9 @@ npm run type-check
 npm run build
 ```
 
-## Documentation
+If you work in the private internal workspace, you can additionally run the local backend `pytest` suite there.
+
+## 📚 Documentation
 
 Start here:
 
@@ -290,15 +297,6 @@ Canonical documents:
 - [`docs/09-deployment.md`](./docs/09-deployment.md)
 - [`docs/10-development.md`](./docs/10-development.md)
 
-## CI
-
-GitHub Actions currently runs:
-
-- backend `pytest`
-- frontend `eslint`
-- frontend `tsc --noEmit`
-- frontend production build
-
-## License
+## ⚖️ License
 
 MIT. See [`LICENSE`](./LICENSE).
