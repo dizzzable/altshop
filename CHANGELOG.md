@@ -6,15 +6,22 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-03-08
+
 ### Added
 
-- `CHANGELOG.md` as the canonical release history for future tags
 - automated GitHub Release workflow for semantic-version tags `v*.*.*`
 - reusable release notes template and changelog-driven release note generation
+- `CHANGELOG.md` as the canonical release history for future tags
 
 ### Changed
 
 - documented the release process in contribution and development docs
+
+### Fixed
+
+- frontend CI on GitHub now receives the real `web-app/src/lib` modules instead of missing alias targets
+- the root `.gitignore` no longer hides public frontend runtime modules under the generic `lib/` rule
 
 ## [1.0.0] - 2026-03-08
 
