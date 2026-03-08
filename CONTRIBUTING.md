@@ -42,6 +42,17 @@ npm run build
 
 If you work in the private internal workspace, you can also run the local backend `pytest` suite there.
 
+## Release process
+
+For semantic releases:
+
+1. update the version in `pyproject.toml` and `web-app/package.json`
+2. move release notes from `## [Unreleased]` to a new dated section in `CHANGELOG.md`
+3. create an annotated tag like `v1.0.1`
+4. push `main` and the tag
+
+GitHub Actions will publish the release automatically for tags matching `v*.*.*`, using the changelog entry and the release notes template from `.github/`.
+
 ## Documentation contract
 
 If you change runtime behavior, keep the canonical docs in [`docs/`](./docs) in sync with the code. In practice this usually means updating one or more of:

@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate tag against project versions
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          tag_name = os.environ["TAG_NAME"]
+          version = tag_name.removeprefix("v")
+
+          with Path("pyproject.toml").open("rb") as fh:
+              python_version = tomllib.load(fh)["project"]["version"]
+
+          web_version = json.loads(
+              Path("web-app/package.json").read_text(encoding="utf-8")
+          )["version"]
+
+          if python_version != version:
+              raise SystemExit(
+                  f"pyproject.toml version {python_version!r} does not match tag {tag_name!r}"
+              )
+
+          if web_version != version:
+              raise SystemExit(
+                  f"web-app/package.json version {web_version!r} does not match tag {tag_name!r}"
+              )
+          PY
+
+      - name: Build release notes from changelog
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          python scripts/build_release_notes.py \
+            --version "${TAG_NAME#v}" \
+            --tag "${TAG_NAME}" \
+            --changelog CHANGELOG.md \
+            --template .github/release-template.md \
+            --output release-notes.md
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: AltShop ${{ github.ref_name }}
+          body_path: release-notes.md

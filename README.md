@@ -285,6 +285,7 @@ If you work in the private internal workspace, you can additionally run the loca
 
 Start here:
 
+- [`CHANGELOG.md`](./CHANGELOG.md)
 - [`docs/README.md`](./docs/README.md)
 
 Canonical documents:

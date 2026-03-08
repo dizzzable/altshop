@@ -189,3 +189,18 @@ docker compose up -d --build
 - Для локального frontend dev backend удобнее держать на порту `5000`, потому что туда смотрит Vite proxy.
 - `WEB_APP_JWT_SECRET` нужен уже на этапе локального auth-flow.
 - `make setup-env` в текущем виде ориентирован на BSD или macOS shell и не является переносимым без адаптации.
+
+## Release Workflow
+
+Для будущих релизов используется semver-подход:
+
+1. обновите версии в `pyproject.toml` и `web-app/package.json`
+2. перенесите изменения из `## [Unreleased]` в новый раздел `CHANGELOG.md`
+3. создайте annotated tag вида `v1.0.1`
+4. отправьте `main` и tag в GitHub
+
+Публичный workflow `.github/workflows/release.yml` автоматически:
+
+- проверит совпадение tag с версиями backend и frontend
+- соберет release notes из `CHANGELOG.md`
+- опубликует GitHub Release для tag `v*.*.*`

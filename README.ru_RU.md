@@ -285,6 +285,7 @@ npm run build
 
 Стартовая точка:
 
+- [`CHANGELOG.md`](./CHANGELOG.md)
 - [`docs/README.md`](./docs/README.md)
 
 Канонические документы:
