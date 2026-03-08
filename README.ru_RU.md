@@ -12,110 +12,250 @@
   </p>
 </div>
 
-## Что это
+> [!IMPORTANT]
+> В текущей основной ветке нет отдельной web admin panel в составе стандартного runtime stack.
+> Управление проектом сейчас встроено в Telegram dashboard и operator flows внутри бота.
+
+## Что Это
 
 AltShop это production-ориентированный стек для продажи и обслуживания VPN-подписок. Репозиторий объединяет:
 
 - Telegram-бота на `aiogram`
 - FastAPI backend с cookie-based web auth
 - отдельный React/Vite frontend
-- PostgreSQL migrations, фоновые задачи и payment gateway integrations
-- Docker Compose и Nginx deployment contract для production
+- PostgreSQL, Valkey, Taskiq workers и Nginx
+- интеграцию с Remnawave для жизненного цикла подписок и синхронизации
 
 Актуальная точка входа в документацию находится в [`docs/README.md`](./docs/README.md).
 
-## Основные возможности
+## Что Получает Проект
 
-| Зона | Что есть в проекте |
+| Роль | Что получает |
 | --- | --- |
-| Bot runtime | Telegram bot flows, operator dialogs, access controls, notifications |
-| Web app | React 19 портал пользователя: auth, subscriptions, devices, referral и partner страницы |
-| Payments | Несколько payment gateways, webhook handling, quotes и purchase flows |
-| Infrastructure | Docker Compose stack, Nginx reverse proxy, PostgreSQL 17, Valkey 9, Taskiq workers |
-| Configuration | Большая `.env` matrix с готовой базой в [`.env.example`](./.env.example) |
-| Documentation | Канонические документы по architecture, API, config, deployment и development в [`docs/`](./docs) |
+| Владелец сервиса | Каталог тарифов, платежи, branding, access rules, referral и partner механики, backup, analytics и Remnawave integration |
+| Администратор/оператор | Telegram dashboard для users, plans, gateways, notifications, broadcasts, branding, partner withdrawals, imports и backups |
+| Покупатель подписки | Telegram и web purchase flows, device management, trial access, promocodes, notifications, referral rewards, partner cabinet и account recovery |
 
-## Стек
+## Что Получает Покупатель Подписок
 
-### Backend
+После запуска сервиса пользователь может:
 
-- Python 3.12
-- FastAPI
-- aiogram 3 + aiogram-dialog
-- SQLAlchemy 2 + Alembic
-- asyncpg
-- Taskiq
+- авторизоваться по username/password или через Telegram auth
+- заранее видеть требования к регистрации и доступу
+- принимать правила и проходить channel gating, если он включен
+- открывать web cabinet и видеть подписки, транзакции и уведомления
+- покупать новую подписку, продлевать существующую или докупать дополнительную
+- получать trial subscription, если она разрешена настройками
+- выбирать тариф, длительность, тип устройства, способ оплаты и платежный asset
+- управлять устройствами, генерировать connection link и удалять старые устройства
+- активировать промокоды и смотреть историю активаций
+- привязывать Telegram к web account
+- подтверждать email, восстанавливать пароль по коду или ссылке и менять пароль из профиля
+- пользоваться referral links, referral QR и обменом points
+- открывать partner cabinet, смотреть earnings и отправлять withdrawal requests
 
-### Frontend
+## Что Умеет Панель Управления
 
-- React 19
-- TypeScript 5
-- Vite 7
-- Tailwind CSS 4
-- TanStack Query
-- Zustand
+Сейчас основная админка находится в Telegram dashboard и покрывает:
 
-### Infrastructure
+- access modes: `PUBLIC`, `INVITED`, `PURCHASE_BLOCKED`, `REG_BLOCKED`, `RESTRICTED`
+- принятие правил и обязательную подписку на канал
+- поиск пользователей, recent users, blacklist и подробные user cards
+- изменение подписок и assignment settings
+- настройку plans, durations, prices, availability и squads
+- создание и настройку promocodes
+- активацию payment gateways, ввод credentials, настройку webhook данных, display order и default currency
+- настройку referral program, eligible plans, reward strategy и points exchange
+- настройку partner program: проценты, налоги, комиссии gateway, minimum withdrawal и очередь на review
+- multi-subscription limits
+- branding texts, project name, web title, verification messages и banners
+- user/system notifications
+- broadcasts по сегментам аудитории
+- создание, просмотр, восстановление и отправку backups
+- Remnawave integration views и import/sync flows
+- statistics и operational snapshots
 
-- Docker Compose
-- Nginx
-- PostgreSQL 17
-- Valkey 9
-- GitHub Actions
+## Что Можно Настраивать
 
-## Структура репозитория
+### Доступ И Продуктовая Логика
 
-```text
-altshop/
-|-- src/                 backend application code
-|-- web-app/             React/Vite frontend
-|-- assets/              translations и default runtime assets
-|-- nginx/               Nginx config и SSL mount paths
-|-- docs/                canonical и historical documentation
-|-- tests/               backend pytest suite
-|-- docker-compose.yml   основной deployment contract
-`-- Dockerfile           backend container image
-```
+- режим доступа к сервису
+- обязательное принятие правил
+- обязательную подписку на канал
+- базовую локаль и список поддерживаемых локалей
+- single-subscription или multi-subscription mode
 
-## Быстрый старт
+### Каталог И Цены
 
-### 1. Подготовить окружение
+- планы и длительности
+- порядок показа планов
+- доступность тарифов
+- default currency
+- сценарии покупки, продления и дополнительной подписки
+
+### Платежи
+
+В текущем коде поддерживаются 14 gateway types:
+
+- Telegram Stars
+- YooKassa
+- YooMoney
+- Cryptomus
+- Heleket
+- CryptoPay
+- T-Bank
+- Robokassa
+- Stripe
+- Mulenpay
+- CloudPayments
+- Pal24
+- Wata
+- Platega
+
+По умолчанию активен только `Telegram Stars`; остальные gateway нужно явно настроить и включить.
+
+### Referral И Partner Механики
+
+- тип реферальной награды: points или extra days
+- reward strategy и eligible plans
+- exchange points в subscription days, gift subscriptions, discounts и traffic
+- проценты по partner levels
+- модель комиссии платежных систем
+- налоговый процент
+- минимальную сумму на вывод
+
+### Брендинг И Пользовательский Текст
+
+- project name и web title
+- локализованные verification/recovery messages
+- support username links
+- banners и локализованный текст
+
+### Инфраструктура
+
+- домен и доверенные proxy IP
+- JWT secret для web auth
+- CORS origins
+- SMTP для verify/reset flows
+- backup retention и отправку backup в Telegram
+
+## Как Настроить Правильно
+
+### 1. Подготовить `.env`
 
 ```bash
 cp .env.example .env
 ```
 
-Минимально заполнить:
+### 2. Заполнить обязательные секреты
+
+Минимально нужны:
 
 - `APP_DOMAIN`
 - `APP_CRYPT_KEY`
 - `BOT_TOKEN`
 - `BOT_SECRET_TOKEN`
+- `BOT_DEV_ID`
+- `BOT_SUPPORT_USERNAME`
 - `WEB_APP_JWT_SECRET`
 - `REMNAWAVE_TOKEN`
 - `REMNAWAVE_WEBHOOK_SECRET`
 - `DATABASE_PASSWORD`
 - `REDIS_PASSWORD`
 
-### 2. Положить TLS-файлы
+### 3. Правильно настроить web и proxy
+
+Чтобы прод не ломался на auth и IP resolution:
+
+- укажи `APP_ORIGINS` с реальными frontend origins
+- держи `APP_TRUSTED_PROXY_IPS` синхронным с адресами reverse proxy
+- задай `WEB_APP_URL`, если фронтенд живет на отдельном origin
+- не ставь `BOT_MINI_APP=true`
+  используй либо `false`, либо пустое значение, либо точный URL mini app
+
+### 4. Включить опциональные сценарии
+
+Если нужен email verify/reset flow:
+
+- поставь `EMAIL_ENABLED=true`
+- заполни `EMAIL_HOST`
+- заполни `EMAIL_FROM_ADDRESS`
+- добавь SMTP credentials, если это требует провайдер
+
+### 5. Положить TLS-файлы
 
 ```text
 nginx/fullchain.pem
 nginx/privkey.key
 ```
 
-### 3. Поднять стек
+### 6. Поднять стек
 
 ```bash
 docker compose up --build
 ```
 
-### 4. Проверить точки входа
+### 7. Проверить публичные точки входа
 
 - `https://<APP_DOMAIN>/webapp/`
 - `https://<APP_DOMAIN>/api/v1/auth/branding`
 
-## Локальная разработка
+### 8. Сделать первичную настройку в админке бота
+
+Рекомендуемый порядок:
+
+1. Проверить access mode и channel/rules requirements.
+2. Создать или проверить планы, длительности и цены.
+3. Активировать и настроить payment gateways.
+4. Проверить branding и support links.
+5. Настроить referral и partner rules, если они нужны.
+6. Проверить backup и notification behavior.
+
+## Что Входит В Runtime Surface
+
+Стандартный Docker stack содержит 7 сервисов:
+
+- `webapp-build`
+- `altshop-nginx`
+- `altshop-db`
+- `altshop-redis`
+- `altshop`
+- `altshop-taskiq-worker`
+- `altshop-taskiq-scheduler`
+
+Публичная поверхность:
+
+- `/webapp/` для SPA
+- `/assets/` для frontend assets
+- `/api/v1/*` для backend API
+- `/telegram` для Telegram webhook traffic
+- `/remnawave` для Remnawave webhook traffic
+- `/payments/*` для payment webhooks
+
+## Структура Репозитория
+
+```text
+altshop/
+|-- src/                 backend application code
+|-- web-app/             React/Vite frontend
+|-- assets/              translations и default runtime assets
+|-- nginx/               Nginx config и TLS mount paths
+|-- docs/                canonical и historical documentation
+|-- tests/               developer-only backend test suite
+|-- docker-compose.yml   основной deployment contract
+`-- Dockerfile           backend container image
+```
+
+## Что Из Этого Нужно Пользователю Репозитория
+
+Для deployer или владельца сервиса:
+
+- `tests/` не нужны для runtime и не мешают работе продакшена
+- GitHub Actions и локальные QA-команды не нужны для запуска
+- Ruff-конфиг лежит в [`pyproject.toml`](./pyproject.toml)
+- отдельного `ruff.ini` в этом репозитории нет
+
+## Локальная Разработка
 
 ### Backend
 
@@ -144,6 +284,8 @@ npm run build
 
 - [`docs/01-project-overview.md`](./docs/01-project-overview.md)
 - [`docs/05-api.md`](./docs/05-api.md)
+- [`docs/06-bot-dialogs.md`](./docs/06-bot-dialogs.md)
+- [`docs/07-payment-gateways.md`](./docs/07-payment-gateways.md)
 - [`docs/08-configuration.md`](./docs/08-configuration.md)
 - [`docs/09-deployment.md`](./docs/09-deployment.md)
 - [`docs/10-development.md`](./docs/10-development.md)
