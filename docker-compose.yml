@@ -1,0 +1,157 @@
+services:
+  altshop-nginx:
+    image: nginx:1.28
+    container_name: altshop-nginx
+    hostname: altshop-nginx
+    restart: always
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/fullchain.pem:/etc/nginx/ssl/fullchain.pem:ro
+      - ./nginx/privkey.key:/etc/nginx/ssl/privkey.key:ro
+      - ./web-app/dist:/opt/altshop/webapp:ro
+    ports:
+      - "0.0.0.0:${NGINX_HTTPS_PORT:-443}:443"
+    depends_on:
+      webapp-build:
+        condition: service_completed_successfully
+    networks:
+      - remnawave-network
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/run/nginx.pid"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  altshop-db:
+    image: postgres:17
+    container_name: "altshop-db"
+    hostname: altshop-db
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_USER=${DATABASE_USER}
+      - POSTGRES_PASSWORD=${DATABASE_PASSWORD}
+      - POSTGRES_DB=${DATABASE_NAME}
+      - TZ=UTC
+    volumes:
+      - altshop-db-data:/var/lib/postgresql/data
+    networks:
+      - remnawave-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 10s
+      retries: 3
+
+  altshop-redis:
+    image: valkey/valkey:9-alpine
+    container_name: "altshop-redis"
+    hostname: altshop-redis
+    restart: unless-stopped
+    command: [ "--requirepass", "${REDIS_PASSWORD}", "--bind", "0.0.0.0" ]
+    volumes:
+      - altshop-redis-data:/data
+    networks:
+      - remnawave-network
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 3
+
+  altshop:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: altshop
+    container_name: "altshop"
+    hostname: altshop
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "127.0.0.1:5000:5000"
+    environment:
+      RESET_ASSETS: "${RESET_ASSETS:-false}"
+      UVICORN_RELOAD_ENABLED: "false"
+    depends_on:
+      altshop-nginx:
+        condition: service_healthy
+      altshop-db:
+        condition: service_healthy
+      altshop-redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/opt/altshop/logs
+      - ./assets:/opt/altshop/assets
+      - ./web-app/dist:/opt/altshop/webapp
+    networks:
+      - remnawave-network
+
+  altshop-taskiq-worker:
+    image: altshop
+    container_name: "altshop-taskiq-worker"
+    hostname: altshop-taskiq-worker
+    restart: unless-stopped
+    command: taskiq worker src.infrastructure.taskiq.worker:worker --tasks-pattern src/infrastructure/taskiq/tasks -fsd
+    env_file:
+      - .env
+    environment:
+      RESET_ASSETS: "${RESET_ASSETS:-false}"
+    depends_on:
+      altshop:
+        condition: service_started
+    volumes:
+      - ./logs:/opt/altshop/logs
+      - ./assets:/opt/altshop/assets
+    networks:
+      - remnawave-network
+
+  altshop-taskiq-scheduler:
+    image: altshop
+    container_name: "altshop-taskiq-scheduler"
+    hostname: altshop-taskiq-scheduler
+    restart: unless-stopped
+    command: taskiq scheduler src.infrastructure.taskiq.scheduler:scheduler --tasks-pattern src/infrastructure/taskiq/tasks -fsd
+    env_file:
+      - .env
+    environment:
+      RESET_ASSETS: "${RESET_ASSETS:-false}"
+    depends_on:
+      altshop:
+        condition: service_started
+    volumes:
+      - ./logs:/opt/altshop/logs
+      - ./assets:/opt/altshop/assets
+    networks:
+      - remnawave-network
+
+  # Web App build service - собирает React приложение при запуске
+  webapp-build:
+    image: node:20-alpine
+    container_name: altshop-webapp-build
+    hostname: altshop-webapp-build
+    restart: "no"
+    working_dir: /app
+    volumes:
+      - ./web-app:/app
+      - webapp-node-modules:/app/node_modules
+      - ./web-app/dist:/app/dist
+    command: sh -c "npm ci --legacy-peer-deps && npm run build"
+    networks:
+      - remnawave-network
+
+
+networks:
+  remnawave-network:
+    name: remnawave-network
+    external: false
+
+volumes:
+  altshop-db-data:
+    name: altshop-db-data
+  altshop-redis-data:
+    name: altshop-redis-data
+  webapp-node-modules:
+    name: altshop-webapp-node-modules

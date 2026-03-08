@@ -1,0 +1,294 @@
+from typing import Optional
+
+from aiogram.fsm.state import State, StatesGroup
+
+
+class MainMenu(StatesGroup):
+    MAIN = State()
+    DEVICES = State()
+    CONNECT_DEVICE = State()  # Выбор устройства для подключения
+    CONNECT_DEVICE_URL = State()  # Показ URL выбранного устройства
+    INVITE = State()
+    INVITE_ABOUT = State()
+    INVITE_REFERRALS = State()
+    EXCHANGE = State()  # Экран обмена - показывает баллы и доступные типы обмена
+    EXCHANGE_SELECT_TYPE = State()  # Выбор типа обмена
+    EXCHANGE_POINTS = State()  # Выбор подписки для обмена баллов на дни
+    EXCHANGE_POINTS_CONFIRM = State()  # Подтверждение обмена баллов на дни
+    EXCHANGE_GIFT = State()  # Обмен на подарочную подписку
+    EXCHANGE_GIFT_SELECT_PLAN = State()  # Выбор плана для подарочной подписки
+    EXCHANGE_GIFT_CONFIRM = State()  # Подтверждение обмена на подарочную подписку
+    EXCHANGE_GIFT_SUCCESS = State()  # Успешный обмен - показ промокода
+    EXCHANGE_DISCOUNT = State()  # Обмен на скидку
+    EXCHANGE_DISCOUNT_CONFIRM = State()  # Подтверждение обмена на скидку
+    EXCHANGE_TRAFFIC = State()  # Обмен на трафик - выбор подписки
+    EXCHANGE_TRAFFIC_CONFIRM = State()  # Подтверждение обмена на трафик
+
+
+class Notification(StatesGroup):
+    CLOSE = State()
+
+
+class Subscription(StatesGroup):
+    MAIN = State()
+    MY_SUBSCRIPTIONS = State()
+    SUBSCRIPTION_DETAILS = State()
+    CONFIRM_DELETE = State()
+    PROMOCODE = State()
+    PROMOCODE_SELECT_SUBSCRIPTION = State()  # Выбор подписки для добавления дней от промокода
+    PROMOCODE_CONFIRM_NEW = State()  # Подтверждение создания новой подписки от промокода
+    SELECT_SUBSCRIPTION_FOR_RENEW = State()  # Выбор подписки для продления (множественный выбор)
+    CONFIRM_RENEW_SELECTION = State()  # Подтверждение выбранных подписок для продления
+    PLANS = State()
+    DURATION = State()
+    DEVICE_TYPE = State()
+    PAYMENT_METHOD = State()
+    PAYMENT_ASSET = State()
+    CONFIRM = State()
+    SUCCESS = State()
+    FAILED = State()
+    TRIAL = State()
+
+
+class Dashboard(StatesGroup):
+    MAIN = State()
+
+
+class DashboardStatistics(StatesGroup):
+    MAIN = State()
+
+
+class DashboardBroadcast(StatesGroup):
+    MAIN = State()
+    LIST = State()
+    VIEW = State()
+    PLAN = State()
+    SEND = State()
+    CONTENT = State()
+    BUTTONS = State()
+    PROMOCODE = State()
+
+
+class DashboardPromocodes(StatesGroup):
+    MAIN = State()
+    LIST = State()
+    CONFIGURATOR = State()
+    CODE = State()
+    TYPE = State()
+    AVAILABILITY = State()
+    REWARD = State()
+    LIFETIME = State()
+    ACTIVATION_LIMIT = State()
+    ALLOWED_USERS = State()
+    ALLOWED_USERS_RESULTS = State()
+    PLAN_FILTER = State()
+    PLAN = State()  # Выбор плана для промокода типа "Подписка"
+    DURATION = State()  # Выбор длительности плана для промокода
+
+
+class DashboardAccess(StatesGroup):
+    MAIN = State()
+    CONDITIONS = State()
+    RULES = State()
+    CHANNEL = State()
+
+
+class DashboardUsers(StatesGroup):
+    MAIN = State()
+    SEARCH = State()
+    SEARCH_RESULTS = State()
+    RECENT_REGISTERED = State()
+    RECENT_ACTIVITY = State()
+    BLACKLIST = State()
+    REFERRALS = State()
+
+
+class DashboardUser(StatesGroup):
+    MAIN = State()
+    SUBSCRIPTION = State()
+    ASSIGN_PLAN = State()
+    TRAFFIC_LIMIT = State()
+    DEVICE_LIMIT = State()
+    EXPIRE_TIME = State()
+    SQUADS = State()
+    INTERNAL_SQUADS = State()
+    EXTERNAL_SQUADS = State()
+    DEVICES_LIST = State()
+    DISCOUNT = State()
+    PURCHASE_DISCOUNT = State()
+    POINTS = State()
+    STATISTICS = State()
+    ROLE = State()
+    TRANSACTIONS_LIST = State()
+    TRANSACTION = State()
+    GIVE_ACCESS = State()
+    MESSAGE = State()
+    GIVE_SUBSCRIPTION = State()
+    SUBSCRIPTION_DURATION = State()
+    REFERRALS = State()
+    # Лимит подписок пользователя
+    MAX_SUBSCRIPTIONS = State()  # Настройка индивидуального лимита подписок
+    # Партнерская программа
+    PARTNER = State()  # Управление партнеркой пользователя
+    PARTNER_BALANCE = State()  # Управление балансом партнера
+    PARTNER_SETTINGS = State()  # Индивидуальные настройки партнера
+    PARTNER_SETTINGS_ACCRUAL = State()  # Выбор стратегии начисления
+    PARTNER_SETTINGS_REWARD = State()  # Выбор типа вознаграждения
+    PARTNER_SETTINGS_PERCENT = State()  # Настройка индивидуальных процентов
+    PARTNER_SETTINGS_FIXED = State()  # Настройка фиксированных сумм
+    PARTNER_WITHDRAWALS = State()  # Список заявок на вывод
+    PARTNER_WITHDRAWAL = State()  # Детали заявки на вывод
+
+
+class DashboardRemnashop(StatesGroup):
+    MAIN = State()
+    ADMINS = State()
+    ADVERTISING = State()
+
+
+class DashboardBackup(StatesGroup):
+    """Состояния для управления бэкапами."""
+
+    MAIN = State()  # Главное окно системы бэкапов
+    LIST = State()  # Список бэкапов
+    MANAGE = State()  # Управление конкретным бэкапом
+    SETTINGS = State()  # Настройки бэкапов
+    RESTORE_CONFIRM = State()  # Подтверждение восстановления
+    DELETE_CONFIRM = State()  # Подтверждение удаления
+
+
+class RemnashopMultiSubscription(StatesGroup):
+    """Настройки мультиподписок в админке."""
+
+    MAIN = State()  # Главное окно настроек мультиподписок
+    MAX_SUBSCRIPTIONS = State()  # Редактирование максимального количества подписок
+
+
+class RemnashopBanners(StatesGroup):
+    MAIN = State()
+    SELECT_BANNER = State()
+    UPLOAD_BANNER = State()
+    CONFIRM_DELETE = State()
+
+
+class RemnashopReferral(StatesGroup):
+    MAIN = State()
+    LEVEL = State()
+    REWARD = State()
+    REWARD_TYPE = State()
+    ACCRUAL_STRATEGY = State()
+    REWARD_STRATEGY = State()
+    ELIGIBLE_PLANS = State()
+    # Настройки обмена баллов
+    POINTS_EXCHANGE = State()
+    POINTS_PER_DAY = State()
+    MIN_EXCHANGE_POINTS = State()
+    MAX_EXCHANGE_POINTS = State()
+    # Настройки типов обмена
+    EXCHANGE_TYPES = State()  # Список типов обмена с переключателями
+    EXCHANGE_TYPE_SETTINGS = State()  # Настройки конкретного типа обмена
+    EXCHANGE_TYPE_COST = State()  # Стоимость в баллах
+    EXCHANGE_TYPE_MIN = State()  # Минимум баллов
+    EXCHANGE_TYPE_MAX = State()  # Максимум баллов
+    EXCHANGE_GIFT_PLAN = State()  # Выбор плана для подарочной подписки
+    EXCHANGE_GIFT_DURATION = State()  # Длительность подарочной подписки
+    EXCHANGE_DISCOUNT_MAX = State()  # Максимальный процент скидки
+    EXCHANGE_TRAFFIC_MAX = State()  # Максимум ГБ трафика
+
+
+# Настройки партнерской программы в админке
+class RemnashopPartner(StatesGroup):
+    MAIN = State()  # Главное окно настроек
+    LEVEL_PERCENTS = State()  # Настройка процентов по уровням
+    LEVEL_1_PERCENT = State()  # Процент для 1 уровня
+    LEVEL_2_PERCENT = State()  # Процент для 2 уровня
+    LEVEL_3_PERCENT = State()  # Процент для 3 уровня
+    TAX_SETTINGS = State()  # Настройки налогов
+    TAX_PERCENT = State()  # Процент налога
+    GATEWAY_FEES = State()  # Комиссии платежных систем
+    GATEWAY_FEE_EDIT = State()  # Редактирование комиссии ПС
+    MIN_WITHDRAWAL = State()  # Минимальная сумма вывода
+    WITHDRAWALS_LIST = State()  # Список запросов на вывод
+    WITHDRAWAL_DETAILS = State()  # Детали запроса на вывод
+
+
+class RemnashopGateways(StatesGroup):
+    MAIN = State()
+    SETTINGS = State()
+    FIELD = State()
+    CURRENCY = State()
+    PLACEMENT = State()
+
+
+class RemnashopNotifications(StatesGroup):
+    MAIN = State()
+    USER = State()
+    SYSTEM = State()
+
+
+class RemnashopBranding(StatesGroup):
+    MAIN = State()
+    EDIT = State()
+
+
+class RemnashopPlans(StatesGroup):
+    MAIN = State()
+    CONFIGURATOR = State()
+    NAME = State()
+    DESCRIPTION = State()
+    TAG = State()
+    TYPE = State()
+    AVAILABILITY = State()
+    TRAFFIC = State()
+    DEVICES = State()
+    DURATIONS = State()
+    DURATION_ADD = State()
+    PRICES = State()
+    PRICE = State()
+    ALLOWED = State()
+    SQUADS = State()
+    INTERNAL_SQUADS = State()
+    EXTERNAL_SQUADS = State()
+
+
+class DashboardRemnawave(StatesGroup):
+    MAIN = State()
+    USERS = State()
+    HOSTS = State()
+    NODES = State()
+    INBOUNDS = State()
+
+
+class DashboardImporter(StatesGroup):
+    MAIN = State()
+    FROM_XUI = State()
+    SYNC = State()
+    SQUADS = State()
+    IMPORT_COMPLETED = State()
+    SYNC_COMPLETED = State()
+    ASSIGN_PLAN = State()
+
+
+# Клиентский интерфейс партнера
+class UserPartner(StatesGroup):
+    CURRENCY = State()
+    MAIN = State()  # Главное окно партнерки
+    REFERRALS = State()  # Список рефералов
+    EARNINGS = State()  # История начислений
+    WITHDRAW = State()  # Запрос на вывод
+    WITHDRAW_CONFIRM = State()  # Подтверждение вывода
+    WITHDRAW_HISTORY = State()  # История выводов
+
+
+def state_from_string(state_str: str, sep: Optional[str] = ":") -> Optional[State]:
+    try:
+        group_name, state_name = state_str.split(":")[:2]
+        group_cls = globals().get(group_name)
+        if group_cls is None:
+            return None
+        state_obj = getattr(group_cls, state_name, None)
+        if not isinstance(state_obj, State):
+            return None
+        return state_obj
+    except (ValueError, AttributeError):
+        return None

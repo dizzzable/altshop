@@ -1,0 +1,16 @@
+{
+  "$schema": "https://unpkg.com/@hey-api/openapi-ts@0.57.0/dist/json-schema.json",
+  "input": "http://localhost:5000/openapi.json",
+  "output": "src/generated",
+  "client": "axios",
+  "useOptions": true,
+  "services": {
+    "include": "^.*",
+    "asClass": true
+  },
+  "types": {
+    "include": "^.*"
+  },
+  "enums": false,
+  "exportCore": true
+}

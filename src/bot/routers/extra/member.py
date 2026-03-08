@@ -1,0 +1,35 @@
+from aiogram import Router
+from aiogram.filters import JOIN_TRANSITION, LEAVE_TRANSITION, ChatMemberUpdatedFilter
+from aiogram.types import ChatMemberUpdated
+from dishka import FromDishka
+from dishka.integrations.aiogram import inject as aiogram_inject
+from loguru import logger
+
+from src.core.utils.formatters import format_user_log as log
+from src.infrastructure.database.models.dto import UserDto
+from src.services.user import UserService
+
+# For only ChatType.PRIVATE (app/bot/filters/private.py)
+router = Router(name=__name__)
+
+
+@router.my_chat_member(ChatMemberUpdatedFilter(JOIN_TRANSITION))
+@aiogram_inject
+async def on_unblocked(
+    member: ChatMemberUpdated,
+    user: UserDto,
+    user_service: FromDishka[UserService],
+) -> None:
+    logger.info(f"{log(user)} Bot unblocked")
+    await user_service.set_bot_blocked(user=user, blocked=False)
+
+
+@router.my_chat_member(ChatMemberUpdatedFilter(LEAVE_TRANSITION))
+@aiogram_inject
+async def on_blocked(
+    member: ChatMemberUpdated,
+    user: UserDto,
+    user_service: FromDishka[UserService],
+) -> None:
+    logger.info(f"{log(user)} Bot blocked")
+    await user_service.set_bot_blocked(user=user, blocked=True)

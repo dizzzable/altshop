@@ -1,0 +1,60 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.log
+logs/
+.env
+.env.*
+!.env.example
+
+# Deployment secrets
+nginx/*.pem
+nginx/*.key
+
+# Local generated reports
+.mypy-full.txt
+.ruff_*.json
+.ruff_*.txt
+web-app/react-doctor.latest.json
+web-app/react-doctor.latest.txt
+
+# Web App
+web-app/dist/
+web-app/node_modules/
+web-app/.next/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

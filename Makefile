@@ -1,0 +1,68 @@
+ALEMBIC_INI=src/infrastructure/database/alembic.ini
+
+.PHONY: backend-sync
+backend-sync:
+	uv sync --locked --group dev
+
+.PHONY: backend-lint
+backend-lint:
+	uv run python -m ruff check src tests
+
+.PHONY: backend-test
+backend-test:
+	uv run python -m pytest -q
+
+.PHONY: backend-typecheck
+backend-typecheck:
+	uv run python -m mypy src
+
+.PHONY: backend-check
+backend-check: backend-lint backend-test backend-typecheck
+
+.PHONY: backend-audit
+backend-audit: backend-check backend-legacy-report
+
+.PHONY: backend-legacy-report
+backend-legacy-report:
+	uv run python scripts/backend_audit_report.py
+
+.PHONY: setup-env
+setup-env:
+	@sed -i '' "s|^APP_CRYPT_KEY=.*|APP_CRYPT_KEY=$(shell openssl rand -base64 32 | tr -d '\n')|" .env
+	@sed -i '' "s|^BOT_SECRET_TOKEN=.*|BOT_SECRET_TOKEN=$(shell openssl rand -hex 64 | tr -d '\n')|" .env
+	@sed -i '' "s|^DATABASE_PASSWORD=.*|DATABASE_PASSWORD=$(shell openssl rand -hex 24 | tr -d '\n')|" .env
+	@sed -i '' "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=$(shell openssl rand -hex 24 | tr -d '\n')|" .env
+	@echo "Secrets updated. Check your .env file"
+
+.PHONY: migration
+migration:
+	uv run alembic -c $(ALEMBIC_INI) revision --autogenerate
+
+.PHONY: migrate
+migrate:
+	uv run alembic -c $(ALEMBIC_INI) upgrade head
+
+.PHONY: downgrade
+downgrade:
+	@if [ -z "$(rev)" ]; then \
+		echo "No revision specified. Downgrading by 1 step."; \
+		uv run alembic -c $(ALEMBIC_INI) downgrade -1; \
+	else \
+		uv run alembic -c $(ALEMBIC_INI) downgrade $(rev); \
+	fi
+
+.PHONY: run-local
+run-local:
+	@docker compose -f docker-compose.local.yml up --build
+	@docker compose logs -f
+	
+.PHONY: run-prod
+run-prod:
+	@docker compose -f docker-compose.prod.external.yml up --build
+	@docker compose logs -f
+
+# .PHONY: run-dev
+# run-dev:
+# 	@docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# 	@docker compose logs -f
+

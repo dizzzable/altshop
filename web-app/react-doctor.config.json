@@ -1,0 +1,10 @@
+{
+  "ignore": {
+    "rules": [
+      "knip/types",
+      "react-doctor/prefer-useReducer",
+      "react-doctor/no-cascading-set-state",
+      "react-doctor/no-giant-component"
+    ]
+  }
+}
