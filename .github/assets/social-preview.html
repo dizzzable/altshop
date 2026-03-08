@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AltShop Social Preview</title>
+    <style>
+      :root {
+        --bg-1: #08111f;
+        --bg-2: #13233c;
+        --bg-3: #1d3a68;
+        --accent-1: #22c55e;
+        --accent-2: #38bdf8;
+        --accent-3: #f97316;
+        --text: #f8fafc;
+        --muted: rgba(226, 232, 240, 0.86);
+        --panel: rgba(9, 18, 32, 0.74);
+        --stroke: rgba(148, 163, 184, 0.18);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        width: 1280px;
+        height: 640px;
+        overflow: hidden;
+        font-family: "Segoe UI", "Bahnschrift", "Trebuchet MS", sans-serif;
+        background:
+          radial-gradient(circle at 12% 14%, rgba(56, 189, 248, 0.24), transparent 30%),
+          radial-gradient(circle at 88% 18%, rgba(249, 115, 22, 0.26), transparent 26%),
+          radial-gradient(circle at 72% 82%, rgba(34, 197, 94, 0.22), transparent 28%),
+          linear-gradient(145deg, var(--bg-1) 0%, var(--bg-2) 48%, var(--bg-3) 100%);
+        color: var(--text);
+      }
+
+      .frame {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        padding: 54px 58px;
+      }
+
+      .grid {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+        background-size: 64px 64px;
+        mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.35));
+      }
+
+      .halo {
+        position: absolute;
+        border-radius: 999px;
+        filter: blur(14px);
+        opacity: 0.8;
+      }
+
+      .halo.one {
+        inset: 88px auto auto 910px;
+        width: 240px;
+        height: 240px;
+        background: rgba(249, 115, 22, 0.2);
+      }
+
+      .halo.two {
+        inset: auto auto 42px 760px;
+        width: 310px;
+        height: 180px;
+        background: rgba(56, 189, 248, 0.18);
+      }
+
+      .panel {
+        position: absolute;
+        inset: 34px 36px 34px 36px;
+        border: 1px solid var(--stroke);
+        border-radius: 32px;
+        background: linear-gradient(180deg, rgba(5, 10, 20, 0.26), rgba(5, 10, 20, 0.08));
+        backdrop-filter: blur(8px);
+      }
+
+      .content {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: 1.35fr 0.95fr;
+        gap: 28px;
+        height: 100%;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 18px;
+        border: 1px solid rgba(56, 189, 248, 0.26);
+        border-radius: 999px;
+        background: rgba(6, 14, 25, 0.58);
+        color: var(--muted);
+        font-size: 18px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, var(--accent-2), #14b8a6);
+        box-shadow: 0 0 18px rgba(56, 189, 248, 0.7);
+      }
+
+      h1 {
+        margin: 28px 0 18px;
+        max-width: 680px;
+        font-size: 72px;
+        line-height: 0.95;
+        letter-spacing: -0.04em;
+      }
+
+      .lead {
+        max-width: 620px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 28px;
+        line-height: 1.36;
+      }
+
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin-top: 34px;
+      }
+
+      .chip {
+        padding: 12px 18px;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 999px;
+        background: rgba(8, 16, 30, 0.7);
+        font-size: 20px;
+        color: #e2e8f0;
+      }
+
+      .stats {
+        align-self: end;
+        display: grid;
+        gap: 16px;
+        padding: 24px;
+        border: 1px solid var(--stroke);
+        border-radius: 28px;
+        background: var(--panel);
+        box-shadow: 0 24px 80px rgba(2, 6, 23, 0.38);
+      }
+
+      .stat {
+        display: grid;
+        gap: 8px;
+        padding: 18px 20px;
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(10, 18, 32, 0.72));
+        border: 1px solid rgba(148, 163, 184, 0.14);
+      }
+
+      .label {
+        color: #94a3b8;
+        font-size: 18px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .value {
+        font-size: 34px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+
+      .footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        margin-top: 22px;
+        color: #cbd5e1;
+        font-size: 20px;
+      }
+
+      .accent {
+        color: #fff7ed;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="grid"></div>
+      <div class="halo one"></div>
+      <div class="halo two"></div>
+      <div class="panel"></div>
+      <div class="content">
+        <section>
+          <div class="eyebrow">Production-ready VPN commerce stack</div>
+          <h1>AltShop</h1>
+          <p class="lead">
+            Telegram bot, FastAPI backend, and React web portal for selling VPN subscriptions with
+            Remnawave integration.
+          </p>
+          <div class="chips">
+            <div class="chip">Telegram dashboard</div>
+            <div class="chip">14 payment gateways</div>
+            <div class="chip">Partner & referral flows</div>
+            <div class="chip">Docker + Nginx deploy</div>
+          </div>
+        </section>
+        <aside class="stats">
+          <div class="stat">
+            <div class="label">Control plane</div>
+            <div class="value">Bot admin + web cabinet</div>
+          </div>
+          <div class="stat">
+            <div class="label">Core stack</div>
+            <div class="value">FastAPI, React 19, PostgreSQL, Valkey</div>
+          </div>
+          <div class="stat">
+            <div class="label">Designed for</div>
+            <div class="value">VPN storefronts, operators, resellers</div>
+          </div>
+          <div class="footer">
+            <span>github.com/dizzzable/altshop</span>
+            <span class="accent">v1.0.1</span>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </body>
+</html>

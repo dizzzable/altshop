@@ -3,6 +3,15 @@
   <p><strong>Telegram bot, FastAPI API, and React web app for selling VPN subscriptions with Remnawave integration.</strong></p>
   <p>ENGLISH | <a href="./README.ru_RU.md">РУССКИЙ</a></p>
   <p>
+    <a href="https://github.com/dizzzable/altshop/actions/workflows/ci.yml">
+      <img src="https://img.shields.io/github/actions/workflow/status/dizzzable/altshop/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white" alt="CI status" />
+    </a>
+    <a href="https://github.com/dizzzable/altshop/actions/workflows/release.yml">
+      <img src="https://img.shields.io/github/actions/workflow/status/dizzzable/altshop/release.yml?label=Release&logo=githubactions&logoColor=white" alt="Release status" />
+    </a>
+    <a href="https://github.com/dizzzable/altshop/releases/latest">
+      <img src="https://img.shields.io/github/v/release/dizzzable/altshop?display_name=tag&logo=github" alt="Latest release" />
+    </a>
     <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12" />
     <img src="https://img.shields.io/badge/FastAPI-Backend-009688?logo=fastapi&logoColor=white" alt="FastAPI Backend" />
     <img src="https://img.shields.io/badge/React-19-149ECA?logo=react&logoColor=white" alt="React 19" />
