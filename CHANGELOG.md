@@ -6,6 +6,26 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-03-21
+
+### Added
+
+- archived plan lifecycle controls with self-renew, replacement-on-renew, upgrade targets, and migration support for existing trial plans
+- explicit single-subscription purchase options API and upgrade purchase flow across backend, bot configurator, and web cabinet
+- regression pytest coverage for archived renew policy, upgrade eligibility, historical trial usage, guarded plan deletion, and Remnawave-aware subscription deletion
+
+### Changed
+
+- subscription renewals now follow explicit backend policy instead of allowing free-form plan switching from the web UI
+- plan assignment and DEV plan issuance now allow active archived plans while regular storefront visibility remains limited to public plans
+- web subscription cards and purchase screens now expose upgrade actions, locked renew selection, and archived/upgrade warning banners with localized copy
+
+### Fixed
+
+- trial subscriptions can no longer be re-abused after expiration or deletion because trial usage is now tracked historically
+- deleting a subscription from the web cabinet now deletes the Remnawave profile first, soft-deletes the local record, and switches or clears the current subscription correctly
+- deleted subscriptions are no longer returned in the default web subscription list, so removed cards disappear from the cabinet as expected
+
 ## [1.0.3] - 2026-03-21
 
 ### Added
