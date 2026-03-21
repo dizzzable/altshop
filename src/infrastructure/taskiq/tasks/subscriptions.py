@@ -145,7 +145,6 @@ def _get_device_type(device_types: list[DeviceType], index: int) -> Optional[Dev
 async def _ensure_subscription_limit_guardrail(
     *,
     purchase_type: PurchaseType,
-    has_trial: bool,
     requested_subscription_count: int,
     user: UserDto,
     settings_service: SettingsService,
@@ -167,15 +166,11 @@ async def _ensure_subscription_limit_guardrail(
         [s for s in existing_subscriptions if s.status != SubscriptionStatus.DELETED]
     )
 
-    required_new = requested_subscription_count
-    if purchase_type == PurchaseType.NEW and has_trial:
-        required_new = max(requested_subscription_count - 1, 0)
-
-    if active_count + required_new > max_subscriptions:
+    if active_count + requested_subscription_count > max_subscriptions:
         raise ValueError(
             f"User '{user.telegram_id}' would exceed maximum subscriptions limit "
             f"({max_subscriptions}). Current: {active_count}, "
-            f"Requested new: {required_new}"
+            f"Requested new: {requested_subscription_count}"
         )
 
 
@@ -206,7 +201,7 @@ async def _resolve_created_subscription_url(
     )
 
 
-async def _resolve_updated_trial_subscription_url(
+async def _resolve_updated_subscription_url(
     *,
     updated_user: Any,
     remnawave_service: RemnawaveService,
@@ -221,7 +216,7 @@ async def _resolve_updated_trial_subscription_url(
 
     raise ValueError(
         f"Missing subscription_url for updated RemnaUser '{updated_user.uuid}' "
-        f"(user '{user.telegram_id}', trial upgrade)"
+        f"(user '{user.telegram_id}')"
     )
 
 
@@ -334,6 +329,115 @@ async def _renew_one_subscription(
     )
 
 
+def _uses_same_plan(
+    *,
+    subscription: SubscriptionDto,
+    plan: PlanSnapshotDto,
+) -> bool:
+    if subscription.plan.id > 0 and plan.id > 0:
+        return subscription.plan.id == plan.id
+
+    return (
+        subscription.plan.tag == plan.tag
+        and subscription.plan.type == plan.type
+        and subscription.plan.traffic_limit == plan.traffic_limit
+        and subscription.plan.device_limit == plan.device_limit
+        and subscription.plan.traffic_limit_strategy == plan.traffic_limit_strategy
+        and subscription.plan.internal_squads == plan.internal_squads
+        and subscription.plan.external_squad == plan.external_squad
+    )
+
+
+def _get_requested_single_device_type(device_types: list[DeviceType]) -> Optional[DeviceType]:
+    return _get_device_type(device_types, 0)
+
+
+def _apply_plan_snapshot_to_subscription(
+    *,
+    subscription: SubscriptionDto,
+    plan: PlanSnapshotDto,
+    device_type: Optional[DeviceType] = None,
+) -> None:
+    subscription.traffic_limit = plan.traffic_limit
+    subscription.device_limit = plan.device_limit
+    subscription.internal_squads = plan.internal_squads
+    subscription.external_squad = plan.external_squad
+    subscription.plan = plan.model_copy(deep=True)
+
+    if device_type is not None:
+        subscription.device_type = device_type
+
+
+async def _replace_plan_on_renew(
+    *,
+    subscription: SubscriptionDto,
+    transaction: TransactionDto,
+    user: UserDto,
+    remnawave_service: RemnawaveService,
+    subscription_service: SubscriptionService,
+) -> None:
+    old_expire = subscription.expire_at
+    subscription.expire_at = subscription.expire_at + timedelta(days=transaction.plan.duration)
+    _apply_plan_snapshot_to_subscription(subscription=subscription, plan=transaction.plan)
+
+    updated_user = await remnawave_service.updated_user(
+        user=user,
+        uuid=subscription.user_remna_id,
+        subscription=subscription,
+    )
+    subscription.status = updated_user.status  # type: ignore[assignment]
+    subscription.expire_at = updated_user.expire_at  # type: ignore[assignment]
+    subscription.url = await _resolve_updated_subscription_url(
+        updated_user=updated_user,
+        remnawave_service=remnawave_service,
+        user=user,
+    )
+    await subscription_service.update(subscription)
+    logger.info(
+        f"Renewed archived subscription '{subscription.id}' with replacement plan "
+        f"for user '{user.telegram_id}': {old_expire} -> {subscription.expire_at}"
+    )
+
+
+async def _process_upgrade_purchase(
+    *,
+    subscription: Optional[SubscriptionDto],
+    device_types: list[DeviceType],
+    user: UserDto,
+    plan: PlanSnapshotDto,
+    remnawave_service: RemnawaveService,
+    subscription_service: SubscriptionService,
+) -> None:
+    if not subscription:
+        raise ValueError(f"No subscription found for upgrade for user '{user.telegram_id}'")
+
+    updated_user = await remnawave_service.updated_user(
+        user=user,
+        uuid=subscription.user_remna_id,
+        plan=plan,
+        reset_traffic=True,
+    )
+
+    _apply_plan_snapshot_to_subscription(
+        subscription=subscription,
+        plan=plan,
+        device_type=_get_requested_single_device_type(device_types),
+    )
+    subscription.is_trial = False
+    subscription.status = updated_user.status  # type: ignore[assignment]
+    subscription.expire_at = updated_user.expire_at  # type: ignore[assignment]
+    subscription.url = await _resolve_updated_subscription_url(
+        updated_user=updated_user,
+        remnawave_service=remnawave_service,
+        user=user,
+    )
+    await subscription_service.update(subscription)
+    logger.info(
+        f"Upgraded subscription '{subscription.id}' for user '{user.telegram_id}' "
+        f"to plan '{plan.name}'"
+    )
+
+
 async def _renew_multiple_subscriptions(
     *,
     subscriptions_to_renew: list[SubscriptionDto],
@@ -399,6 +503,20 @@ async def _process_renew_purchase(
     if not subscription:
         raise ValueError(f"No subscription found for renewal for user '{user.telegram_id}'")
 
+    if not _uses_same_plan(subscription=subscription, plan=transaction.plan):
+        logger.info(
+            f"SINGLE RENEWAL WITH REPLACEMENT: Updating subscription '{subscription.id}' "
+            f"for user '{user.telegram_id}' to plan '{transaction.plan.name}'"
+        )
+        await _replace_plan_on_renew(
+            subscription=subscription,
+            transaction=transaction,
+            user=user,
+            remnawave_service=remnawave_service,
+            subscription_service=subscription_service,
+        )
+        return
+
     logger.info(
         f"SINGLE RENEWAL: Renewing subscription '{subscription.id}' "
         f"for user '{user.telegram_id}'"
@@ -412,77 +530,9 @@ async def _process_renew_purchase(
     )
 
 
-async def _process_trial_upgrade_purchase(
-    *,
-    subscription: Optional[SubscriptionDto],
-    requested_subscription_count: int,
-    device_types: list[DeviceType],
-    user: UserDto,
-    plan: PlanSnapshotDto,
-    remnawave_service: RemnawaveService,
-    subscription_service: SubscriptionService,
-) -> None:
-    if not subscription:
-        raise ValueError(f"No trial subscription found for user '{user.telegram_id}'")
-
-    trial_device_type = _get_device_type(device_types, 0)
-    if trial_device_type:
-        logger.info(f"Using device_type '{trial_device_type}' for subscription replacing trial")
-
-    updated_user = await remnawave_service.updated_user(
-        user=user,
-        uuid=subscription.user_remna_id,
-        plan=plan,
-        reset_traffic=True,
-    )
-
-    subscription_url = await _resolve_updated_trial_subscription_url(
-        updated_user=updated_user,
-        remnawave_service=remnawave_service,
-        user=user,
-    )
-
-    subscription.is_trial = False
-    subscription.status = updated_user.status  # type: ignore[assignment]
-    subscription.traffic_limit = plan.traffic_limit
-    subscription.device_limit = plan.device_limit
-    subscription.internal_squads = plan.internal_squads
-    subscription.external_squad = plan.external_squad
-    subscription.expire_at = updated_user.expire_at  # type: ignore[assignment]
-    subscription.url = subscription_url
-    subscription.plan = plan
-    subscription.device_type = trial_device_type
-    await subscription_service.update(subscription)
-
-    logger.debug(f"Updated trial subscription '{subscription.id}' for user '{user.telegram_id}'")
-
-    if requested_subscription_count <= 1:
-        return
-
-    created_subscriptions: list[SubscriptionDto] = []
-    for idx in range(1, requested_subscription_count):
-        device_type = _get_device_type(device_types, idx)
-        created_sub = await _create_subscription_from_panel(
-            idx=idx,
-            user=user,
-            plan=plan,
-            remnawave_service=remnawave_service,
-            subscription_service=subscription_service,
-            device_type=device_type,
-            trial_upgrade=True,
-        )
-        created_subscriptions.append(created_sub)
-
-    logger.info(
-        f"Created {len(created_subscriptions)} extra subscription(s) "
-        f"for user '{user.telegram_id}' after trial upgrade"
-    )
-
-
 async def _process_purchase_pipeline(
     *,
     purchase_type: PurchaseType,
-    has_trial: bool,
     subscription: Optional[SubscriptionDto],
     subscriptions_to_renew: Optional[list[SubscriptionDto]],
     requested_subscription_count: int,
@@ -494,7 +544,7 @@ async def _process_purchase_pipeline(
     subscription_service: SubscriptionService,
     plan_service: PlanService,
 ) -> None:
-    if purchase_type == PurchaseType.NEW and not has_trial:
+    if purchase_type == PurchaseType.NEW:
         await _create_new_or_additional_subscriptions(
             purchase_type=purchase_type,
             requested_subscription_count=requested_subscription_count,
@@ -518,7 +568,7 @@ async def _process_purchase_pipeline(
         )
         return
 
-    if purchase_type == PurchaseType.RENEW and not has_trial:
+    if purchase_type == PurchaseType.RENEW:
         await _process_renew_purchase(
             user=user,
             transaction=transaction,
@@ -530,10 +580,9 @@ async def _process_purchase_pipeline(
         )
         return
 
-    if has_trial:
-        await _process_trial_upgrade_purchase(
+    if purchase_type == PurchaseType.UPGRADE:
+        await _process_upgrade_purchase(
             subscription=subscription,
-            requested_subscription_count=requested_subscription_count,
             device_types=device_types,
             user=user,
             plan=plan,
@@ -620,11 +669,9 @@ async def purchase_subscription_task(
     # Р”Р»СЏ RENEW РЅСѓР¶РЅР° С‚РµРєСѓС‰Р°СЏ РїРѕРґРїРёСЃРєР°
     # NEW/ADDITIONAL create a new subscription, but NEW still checks a trial subscription.
     current_subscription = await subscription_service.get_current(user.telegram_id)
-    has_trial = bool(current_subscription and current_subscription.is_trial)
 
     logger.debug(
-        f"Current subscription: {current_subscription.id if current_subscription else None}, "
-        f"has_trial: {has_trial}"
+        f"Current subscription: {current_subscription.id if current_subscription else None}"
     )
 
     # For RENEW use current subscription only if explicit subscription is not passed.
@@ -635,10 +682,6 @@ async def purchase_subscription_task(
         )
         subscription = current_subscription
 
-    # NEW with trial uses current subscription to replace the trial.
-    if purchase_type == PurchaseType.NEW and has_trial:
-        subscription = current_subscription
-
     device_types = list(transaction.device_types or [])
     requested_subscription_count = _resolve_requested_subscription_count(
         purchase_type=purchase_type,
@@ -647,7 +690,6 @@ async def purchase_subscription_task(
 
     await _ensure_subscription_limit_guardrail(
         purchase_type=purchase_type,
-        has_trial=has_trial,
         requested_subscription_count=requested_subscription_count,
         user=user,
         settings_service=settings_service,
@@ -664,7 +706,6 @@ async def purchase_subscription_task(
     try:
         await _process_purchase_pipeline(
             purchase_type=purchase_type,
-            has_trial=has_trial,
             subscription=subscription,
             subscriptions_to_renew=subscriptions_to_renew,
             requested_subscription_count=requested_subscription_count,

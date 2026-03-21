@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_DOWN
 from datetime import timedelta
+from decimal import ROUND_DOWN, Decimal
 from typing import Any, Awaitable, Callable, Iterable, Sequence
 
 import orjson
@@ -235,7 +235,9 @@ class MarketQuoteService(BaseService):
         return snapshot
 
     async def _collect_asset_quotes(self, asset: CryptoAsset) -> list[tuple[str, Decimal]]:
-        providers: Sequence[tuple[str, Callable[[AsyncClient, CryptoAsset], Awaitable[Decimal | None]]]] = (
+        providers: Sequence[
+            tuple[str, Callable[[AsyncClient, CryptoAsset], Awaitable[Decimal | None]]]
+        ] = (
             ("coinbase", self._fetch_coinbase_quote),
             ("binance", self._fetch_binance_quote),
             ("okx", self._fetch_okx_quote),
@@ -249,7 +251,10 @@ class MarketQuoteService(BaseService):
         )
 
         async with AsyncClient(timeout=Timeout(12.0)) as client:
-            tasks = [self._run_provider(provider, client, asset, fetcher) for provider, fetcher in providers]
+            tasks = [
+                self._run_provider(provider, client, asset, fetcher)
+                for provider, fetcher in providers
+            ]
             results = await asyncio.gather(*tasks)
 
         return [result for result in results if result is not None]
@@ -507,9 +512,10 @@ class MarketQuoteService(BaseService):
     @staticmethod
     def _quote_expires_at() -> str:
         return (
-            datetime_now()
-            + timedelta(seconds=MARKET_QUOTE_TTL_SECONDS)
-        ).replace(microsecond=0).isoformat()
+            (datetime_now() + timedelta(seconds=MARKET_QUOTE_TTL_SECONDS))
+            .replace(microsecond=0)
+            .isoformat()
+        )
 
     @staticmethod
     def _quote_to_cache(snapshot: MarketQuoteSnapshot) -> CachedMarketQuote:
@@ -541,7 +547,9 @@ class MarketQuoteService(BaseService):
         try:
             return CryptoAsset(currency.value)
         except ValueError as exception:
-            raise ValueError(f"Currency '{currency.value}' is not a market crypto asset") from exception
+            raise ValueError(
+                f"Currency '{currency.value}' is not a market crypto asset"
+            ) from exception
 
     @staticmethod
     def _median(values: Sequence[Decimal]) -> Decimal:

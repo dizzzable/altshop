@@ -104,7 +104,9 @@ async def branding_main_getter(
     return {
         "project_name": _truncate_preview(str(branding.project_name), max_length=32),
         "web_title": _truncate_preview(str(branding.web_title), max_length=32),
-        "bot_menu_button_text": _truncate_preview(str(branding.bot_menu_button_text), max_length=32),
+        "bot_menu_button_text": _truncate_preview(
+            str(branding.bot_menu_button_text), max_length=32
+        ),
         "tg_preview_ru": _truncate_preview(
             _render_localized_preview(
                 settings_service=settings_service,

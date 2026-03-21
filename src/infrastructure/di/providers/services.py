@@ -29,6 +29,7 @@ from src.services.subscription import SubscriptionService
 from src.services.subscription_device import SubscriptionDeviceService
 from src.services.subscription_portal import SubscriptionPortalService
 from src.services.subscription_purchase import SubscriptionPurchaseService
+from src.services.subscription_purchase_policy import SubscriptionPurchasePolicyService
 from src.services.subscription_runtime import SubscriptionRuntimeService
 from src.services.subscription_trial import SubscriptionTrialService
 from src.services.telegram_link import TelegramLinkService
@@ -64,6 +65,9 @@ class ServicesProvider(Provider):
     subscription_device_service = provide(source=SubscriptionDeviceService, scope=Scope.REQUEST)
     subscription_portal_service = provide(source=SubscriptionPortalService, scope=Scope.REQUEST)
     subscription_purchase_service = provide(source=SubscriptionPurchaseService, scope=Scope.REQUEST)
+    subscription_purchase_policy_service = provide(
+        source=SubscriptionPurchasePolicyService, scope=Scope.REQUEST
+    )
     subscription_runtime_service = provide(source=SubscriptionRuntimeService, scope=Scope.REQUEST)
     subscription_trial_service = provide(source=SubscriptionTrialService, scope=Scope.REQUEST)
     transaction_service = provide(source=TransactionService, scope=Scope.REQUEST)

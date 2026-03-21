@@ -50,8 +50,10 @@ import type {
   Plan,
   PlanDuration,
   PlanPrice,
+  PurchaseType,
   PurchaseQuoteResponse,
   PurchasePaymentSource,
+  SubscriptionPurchaseOptionsResponse,
   TrialEligibilityResponse,
   User,
 } from '@/types'
@@ -82,11 +84,14 @@ type PurchaseText = {
   noPlansTitle: string
   noPlansDesc: string
   titleRenew: string
+  titleUpgrade: string
   titlePurchase: string
   subtitleRenew: string
+  subtitleUpgrade: string
   subtitlePurchase: string
   selectPlanTitle: string
   selectPlanDescRenew: string
+  selectPlanDescUpgrade: string
   selectPlanDescPurchase: string
   noDescription: string
   includes: string
@@ -107,8 +112,13 @@ type PurchaseText = {
   summaryOriginalPrice: string
   summaryDiscount: string
   summaryTotal: string
+  selectionLocked: string
+  archivedReplacementWarning: string
+  upgradeWarning: string
+  legacySourcePlanWarning: string
   processing: string
   proceedRenew: string
+  proceedUpgrade: string
   proceedPayment: string
   openCheckout: string
   quantity: string
@@ -167,6 +177,7 @@ type PurchaseText = {
   trialErrorNoDuration: string
   trialErrorNotTrialPlan: string
   trialErrorPlanNotFound: string
+  trialUpgradeRequired: string
   trialDebugReasonCode: string
   readOnlyNotice: string
 }
@@ -186,11 +197,14 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   noPlansTitle: 'purchase.noPlansTitle',
   noPlansDesc: 'purchase.noPlansDesc',
   titleRenew: 'purchase.titleRenew',
+  titleUpgrade: 'purchase.titleUpgrade',
   titlePurchase: 'purchase.titlePurchase',
   subtitleRenew: 'purchase.subtitleRenew',
+  subtitleUpgrade: 'purchase.subtitleUpgrade',
   subtitlePurchase: 'purchase.subtitlePurchase',
   selectPlanTitle: 'purchase.selectPlanTitle',
   selectPlanDescRenew: 'purchase.selectPlanDescRenew',
+  selectPlanDescUpgrade: 'purchase.selectPlanDescUpgrade',
   selectPlanDescPurchase: 'purchase.selectPlanDescPurchase',
   noDescription: 'purchase.noDescription',
   includes: 'purchase.includes',
@@ -211,8 +225,13 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   summaryOriginalPrice: 'purchase.summaryOriginalPrice',
   summaryDiscount: 'purchase.summaryDiscount',
   summaryTotal: 'purchase.summaryTotal',
+  selectionLocked: 'purchase.selectionLocked',
+  archivedReplacementWarning: 'purchase.archivedReplacementWarning',
+  upgradeWarning: 'purchase.upgradeWarning',
+  legacySourcePlanWarning: 'purchase.legacySourcePlanWarning',
   processing: 'purchase.processing',
   proceedRenew: 'purchase.proceedRenew',
+  proceedUpgrade: 'purchase.proceedUpgrade',
   proceedPayment: 'purchase.proceedPayment',
   openCheckout: 'purchase.openCheckout',
   quantity: 'purchase.quantity',
@@ -271,6 +290,7 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   trialErrorNoDuration: 'purchase.trialErrorNoDuration',
   trialErrorNotTrialPlan: 'purchase.trialErrorNotTrialPlan',
   trialErrorPlanNotFound: 'purchase.trialErrorPlanNotFound',
+  trialUpgradeRequired: 'purchase.trialUpgradeRequired',
   trialDebugReasonCode: 'purchase.trialDebugReasonCode',
   readOnlyNotice: 'purchase.readOnlyNotice',
 }
@@ -279,6 +299,27 @@ function buildPurchaseText(locale: PurchaseLocale): PurchaseText {
   return Object.fromEntries(
     Object.entries(PURCHASE_TEXT_KEYS).map(([field, key]) => [field, translatePurchase(locale, key)])
   ) as PurchaseText
+}
+
+function resolvePurchaseWarning(
+  warningCode: string | null | undefined,
+  text: PurchaseText
+): string | null {
+  if (!warningCode) {
+    return null
+  }
+
+  if (warningCode === 'ARCHIVED_PLAN_REPLACEMENT') {
+    return text.archivedReplacementWarning
+  }
+  if (warningCode === 'UPGRADE_RESETS_EXPIRY') {
+    return text.upgradeWarning
+  }
+  if (warningCode === 'LEGACY_SOURCE_PLAN_UNAVAILABLE') {
+    return text.legacySourcePlanWarning
+  }
+
+  return null
 }
 
 function formatDurationLabel(days: number, text: PurchaseText): string {
@@ -478,18 +519,24 @@ export function PurchasePage() {
   const location = useLocation()
   const queryClient = useQueryClient()
   const { data: accessStatus } = useAccessStatusQuery()
-  const { id: renewIdFromPath } = useParams<{ id: string }>()
+  const { id: subscriptionIdFromPath } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
+  const isUpgradeFlow = location.pathname.endsWith('/upgrade')
 
-  const renewIdsFromQuery = searchParams
-    .getAll('renew')
-    .map((value) => Number(value))
-    .filter((value) => Number.isInteger(value) && value > 0)
-  const renewId = renewIdFromPath ? Number(renewIdFromPath) : null
+  const renewIdsFromQuery = isUpgradeFlow
+    ? []
+    : searchParams
+      .getAll('renew')
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value > 0)
+  const pathSubscriptionId = subscriptionIdFromPath ? Number(subscriptionIdFromPath) : null
+  const renewId = isUpgradeFlow ? null : pathSubscriptionId
+  const upgradeSubscriptionId = isUpgradeFlow ? pathSubscriptionId : null
   const renewTargets = Array.from(
     new Set([...(renewId ? [renewId] : []), ...renewIdsFromQuery])
   )
   const singleRenewId = renewTargets.length === 1 ? renewTargets[0] : null
+  const singleSubscriptionTargetId = upgradeSubscriptionId ?? singleRenewId
 
   const [selectedPlan, setSelectedPlan] = useState<number | null>(null)
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null)
@@ -502,13 +549,28 @@ export function PurchasePage() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
   const [selectedRenewIds] = useState<number[]>(renewTargets.length > 1 ? renewTargets : [])
 
-  const isRenewFlow = renewTargets.length > 0 || selectedRenewIds.length > 0
-  const isNewPurchaseFlow = !isRenewFlow
+  const isRenewFlow = !isUpgradeFlow && (renewTargets.length > 0 || selectedRenewIds.length > 0)
+  const isNewPurchaseFlow = !isRenewFlow && !isUpgradeFlow
+  const purchaseType: PurchaseType = isUpgradeFlow ? 'UPGRADE' : isRenewFlow ? 'RENEW' : 'NEW'
+  const isSingleSubscriptionFlow = singleSubscriptionTargetId !== null
   const isReadOnlyAccess = accessStatus?.access_level === 'read_only'
 
-  const { data: plans = [], isLoading } = useQuery<Plan[]>({
+  const { data: catalogPlans = [], isLoading: isCatalogPlansLoading } = useQuery<Plan[]>({
     queryKey: ['plans', purchaseChannel],
     queryFn: () => api.plans.list(purchaseChannel).then((response) => response.data),
+    enabled: !isSingleSubscriptionFlow,
+  })
+  const { data: singlePurchaseOptions, isLoading: isPurchaseOptionsLoading } = useQuery<SubscriptionPurchaseOptionsResponse>({
+    queryKey: ['subscription-purchase-options', singleSubscriptionTargetId, purchaseType, purchaseChannel],
+    queryFn: () =>
+      api.subscription
+        .purchaseOptions(
+          singleSubscriptionTargetId as number,
+          isUpgradeFlow ? 'UPGRADE' : 'RENEW',
+          purchaseChannel
+        )
+        .then((response) => response.data),
+    enabled: isSingleSubscriptionFlow,
   })
 
   const { data: subscriptions = [] } = useSubscriptionsQuery()
@@ -549,9 +611,22 @@ export function PurchasePage() {
     () => subscriptions.filter((subscription) => renewTargets.includes(subscription.id)),
     [renewTargets, subscriptions]
   )
-  const fallbackRenewPlanId = renewSubscriptions[0]?.plan?.id ?? null
-  const effectivePlanId = selectedPlan ?? (isRenewFlow ? fallbackRenewPlanId : null)
-  const selectedPlanData = plans.find((plan) => plan.id === effectivePlanId)
+  const sourceSubscription = useMemo(
+    () =>
+      singleSubscriptionTargetId !== null
+        ? subscriptions.find((subscription) => subscription.id === singleSubscriptionTargetId) ?? null
+        : null,
+    [singleSubscriptionTargetId, subscriptions]
+  )
+  const availablePlans = useMemo(
+    () => (isSingleSubscriptionFlow ? (singlePurchaseOptions?.plans ?? []) : catalogPlans),
+    [catalogPlans, isSingleSubscriptionFlow, singlePurchaseOptions?.plans]
+  )
+  const isLoading = isSingleSubscriptionFlow ? isPurchaseOptionsLoading : isCatalogPlansLoading
+  const defaultFlowPlanId =
+    (isSingleSubscriptionFlow ? availablePlans[0]?.id : renewSubscriptions[0]?.plan?.id) ?? null
+  const effectivePlanId = selectedPlan ?? (!isNewPurchaseFlow ? defaultFlowPlanId : null)
+  const selectedPlanData = availablePlans.find((plan) => plan.id === effectivePlanId)
   const sortedDurations = useMemo(
     () => (selectedPlanData ? sortDurations(selectedPlanData.durations) : []),
     [selectedPlanData]
@@ -584,28 +659,40 @@ export function PurchasePage() {
   }, [location.pathname, navigate, queryClient, searchParams, text.paymentCompleted, text.paymentFailed])
 
   useEffect(() => {
-    if (!isRenewFlow || selectedPlan || !plans.length) {
+    if (selectedPlan || !availablePlans.length || isNewPurchaseFlow) {
       return
     }
 
-    if (fallbackRenewPlanId && plans.some((plan) => plan.id === fallbackRenewPlanId)) {
-      setSelectedPlan(fallbackRenewPlanId)
+    if (isSingleSubscriptionFlow && singlePurchaseOptions?.selection_locked) {
+      setSelectedPlan(availablePlans[0].id)
       return
     }
 
-    if (plans.length === 1) {
-      setSelectedPlan(plans[0].id)
+    if (defaultFlowPlanId && availablePlans.some((plan) => plan.id === defaultFlowPlanId)) {
+      setSelectedPlan(defaultFlowPlanId)
+      return
     }
-  }, [fallbackRenewPlanId, isRenewFlow, plans, selectedPlan])
+
+    if (availablePlans.length === 1) {
+      setSelectedPlan(availablePlans[0].id)
+    }
+  }, [
+    availablePlans,
+    defaultFlowPlanId,
+    isNewPurchaseFlow,
+    isSingleSubscriptionFlow,
+    selectedPlan,
+    singlePurchaseOptions?.selection_locked,
+  ])
 
   useEffect(() => {
-    if (!isRenewFlow || !selectedPlanData || selectedDuration !== null) {
+    if (isNewPurchaseFlow || !selectedPlanData || selectedDuration !== null) {
       return
     }
 
-    const renewDuration = renewSubscriptions[0]?.plan?.duration
+    const sourceDuration = sourceSubscription?.plan?.duration ?? renewSubscriptions[0]?.plan?.duration
     const matchingDuration = selectedPlanData.durations.find(
-      (duration) => duration.days === renewDuration
+      (duration) => duration.days === sourceDuration
     )
     const fallbackDuration = sortedDurations[0]
 
@@ -617,7 +704,14 @@ export function PurchasePage() {
     if (fallbackDuration) {
       setSelectedDuration(fallbackDuration.days)
     }
-  }, [isRenewFlow, renewSubscriptions, selectedDuration, selectedPlanData, sortedDurations])
+  }, [
+    isNewPurchaseFlow,
+    renewSubscriptions,
+    selectedDuration,
+    selectedPlanData,
+    sortedDurations,
+    sourceSubscription?.plan?.duration,
+  ])
 
   const selectedDurationData = selectedPlanData?.durations.find(
     (duration) => duration.days === selectedDuration
@@ -689,18 +783,12 @@ export function PurchasePage() {
     trialReasonCode === 'TRIAL_TELEGRAM_LINK_REQUIRED'
   const trialEligibilityMessage = resolveTrialEligibilityMessage(trialEligibility, text)
   const effectiveMaxSubscriptions = currentUser?.effective_max_subscriptions ?? null
-  const hasActiveTrial = subscriptions.some(
-    (subscription) => subscription.status !== 'DELETED' && subscription.is_trial
-  )
   const remainingSlots =
     effectiveMaxSubscriptions === null
       ? null
       : Math.max(0, effectiveMaxSubscriptions - activeSubscriptionsCount)
-  const trialUpgradeBonus = isNewPurchaseFlow && hasActiveTrial ? 1 : 0
   const maxPurchasableQuantity =
-    isNewPurchaseFlow && remainingSlots !== null
-      ? remainingSlots + trialUpgradeBonus
-      : null
+    isNewPurchaseFlow && remainingSlots !== null ? remainingSlots : null
   const purchaseBlockedByLimit =
     isNewPurchaseFlow && maxPurchasableQuantity !== null && maxPurchasableQuantity <= 0
   const showQuantitySelector =
@@ -713,7 +801,7 @@ export function PurchasePage() {
   const exceedsPredictedLimit =
     isNewPurchaseFlow
     && effectiveMaxSubscriptions !== null
-    && activeSubscriptionsCount + Math.max(effectiveSubscriptionCount - trialUpgradeBonus, 0) > effectiveMaxSubscriptions
+    && activeSubscriptionsCount + effectiveSubscriptionCount > effectiveMaxSubscriptions
   const noGatewayAvailable =
     Boolean(selectedDurationData) && availableGatewayPrices.length === 0
   const canUsePartnerBalance =
@@ -742,12 +830,13 @@ export function PurchasePage() {
       normalizedQuantity,
       selectedDeviceType,
       singleRenewId,
+      upgradeSubscriptionId,
       selectedRenewIds,
-      isRenewFlow,
+      purchaseType,
     ],
     queryFn: () =>
       api.subscription.quote({
-        purchase_type: isRenewFlow ? 'RENEW' : 'NEW',
+        purchase_type: purchaseType,
         channel: purchaseChannel,
         payment_source: paymentSource,
         plan_id: effectivePlanId ?? undefined,
@@ -760,9 +849,12 @@ export function PurchasePage() {
           isNewPurchaseFlow && selectedDeviceType
             ? Array.from({ length: normalizedQuantity }, () => selectedDeviceType)
             : undefined,
-        renew_subscription_id: isRenewFlow ? singleRenewId || undefined : undefined,
+        renew_subscription_id:
+          purchaseType === 'NEW'
+            ? undefined
+            : upgradeSubscriptionId || singleRenewId || undefined,
         renew_subscription_ids:
-          isRenewFlow && selectedRenewIds.length > 1 ? selectedRenewIds : undefined,
+          purchaseType === 'RENEW' && selectedRenewIds.length > 1 ? selectedRenewIds : undefined,
       }).then((response) => response.data),
     enabled: purchaseQuoteEnabled,
     retry: false,
@@ -790,6 +882,26 @@ export function PurchasePage() {
       (!requiresPaymentAsset || selectedPaymentAsset) &&
       selectedQuote
   )
+  const purchaseWarningMessage =
+    resolvePurchaseWarning(singlePurchaseOptions?.warning_code, text)
+    ?? singlePurchaseOptions?.warning_message
+    ?? null
+  const isPlanSelectionLocked = Boolean(singlePurchaseOptions?.selection_locked)
+  const pageTitle = isUpgradeFlow
+    ? text.titleUpgrade
+    : isRenewFlow
+      ? text.titleRenew
+      : text.titlePurchase
+  const pageSubtitle = isUpgradeFlow
+    ? text.subtitleUpgrade
+    : isRenewFlow
+      ? text.subtitleRenew
+      : text.subtitlePurchase
+  const selectPlanDescription = isUpgradeFlow
+    ? text.selectPlanDescUpgrade
+    : isRenewFlow
+      ? text.selectPlanDescRenew
+      : text.selectPlanDescPurchase
   const trialCard = canShowTrialCard ? (
     <Card className="border-sky-300/25 bg-sky-500/10">
       <CardHeader>
@@ -905,7 +1017,6 @@ export function PurchasePage() {
 
     setIsPurchasing(true)
     try {
-      const purchaseType = isRenewFlow ? 'RENEW' : 'NEW'
       const deviceTypes =
         isNewPurchaseFlow && selectedDeviceType
           ? Array.from({ length: normalizedQuantity }, () => selectedDeviceType)
@@ -923,7 +1034,11 @@ export function PurchasePage() {
       }
 
       let response
-      if (renewId) {
+      if (upgradeSubscriptionId) {
+        response = await api.subscription.upgrade(upgradeSubscriptionId, {
+          ...basePayload,
+        })
+      } else if (renewId) {
         response = await api.subscription.renew(renewId, {
           ...basePayload,
           renew_subscription_ids: selectedRenewIds.length > 1 ? selectedRenewIds : undefined,
@@ -947,7 +1062,7 @@ export function PurchasePage() {
         savePendingPurchaseContext({
           startedAt: new Date().toISOString(),
           purchaseType,
-          renewIds: renewTargets,
+          renewIds: upgradeSubscriptionId ? [upgradeSubscriptionId] : renewTargets,
           planId: effectivePlanId,
           durationDays: selectedDuration,
         })
@@ -1263,21 +1378,22 @@ export function PurchasePage() {
     return <PurchaseSkeleton />
   }
 
-  if (!plans.length) {
+  if (!availablePlans.length) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold">
-            {isRenewFlow ? text.titleRenew : text.titlePurchase}
-          </h1>
-          <p className="text-muted-foreground">
-            {isRenewFlow
-              ? text.subtitleRenew
-              : text.subtitlePurchase}
-          </p>
+          <h1 className="text-3xl font-bold">{pageTitle}</h1>
+          <p className="text-muted-foreground">{pageSubtitle}</p>
         </div>
 
         {trialCard}
+        {purchaseWarningMessage && (
+          <Card className="border-amber-300/25 bg-amber-500/10">
+            <CardContent className="pt-6">
+              <p className="text-sm text-amber-100">{purchaseWarningMessage}</p>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -1294,14 +1410,8 @@ export function PurchasePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">
-          {isRenewFlow ? text.titleRenew : text.titlePurchase}
-        </h1>
-        <p className="text-muted-foreground">
-          {isRenewFlow
-            ? text.subtitleRenew
-            : text.subtitlePurchase}
-        </p>
+        <h1 className="text-3xl font-bold">{pageTitle}</h1>
+        <p className="text-muted-foreground">{pageSubtitle}</p>
       </div>
 
       {isReadOnlyAccess && (
@@ -1313,33 +1423,46 @@ export function PurchasePage() {
       )}
 
       {trialCard}
+      {purchaseWarningMessage && (
+        <Card className="border-amber-300/25 bg-amber-500/10">
+          <CardContent className="space-y-2 pt-6">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
+              <p className="text-sm text-amber-100">{purchaseWarningMessage}</p>
+            </div>
+            {isPlanSelectionLocked && (
+              <p className="text-xs text-amber-200/90">{text.selectionLocked}</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className={cn('grid gap-6', isMobileShell ? 'grid-cols-1' : 'lg:grid-cols-3')}>
         <Card className={cn(!isMobileShell && 'lg:col-span-2')}>
           <CardHeader>
             <CardTitle>{text.selectPlanTitle}</CardTitle>
-            <CardDescription>
-              {isRenewFlow
-                ? text.selectPlanDescRenew
-                : text.selectPlanDescPurchase}
-            </CardDescription>
+            <CardDescription>{selectPlanDescription}</CardDescription>
           </CardHeader>
           <CardContent>
             <RadioGroup
               value={effectivePlanId?.toString()}
               onValueChange={(value) => {
+                if (isPlanSelectionLocked) {
+                  return
+                }
                 setSelectedPlan(Number(value))
                 setSelectedDuration(null)
                 setSelectedGateway(undefined)
               }}
               className="grid gap-4 md:grid-cols-2"
             >
-              {plans.map((plan) => (
+              {availablePlans.map((plan) => (
                 <label
                   key={plan.id}
                   htmlFor={`plan-${plan.id}`}
                   className={cn(
-                    'flex cursor-pointer flex-col gap-4 rounded-lg border p-4 transition-all',
+                    'flex flex-col gap-4 rounded-lg border p-4 transition-all',
+                    isPlanSelectionLocked ? 'cursor-default' : 'cursor-pointer',
                     effectivePlanId === plan.id
                       ? 'border-primary/35 bg-primary/10 ring-1 ring-primary/40'
                       : 'hover:bg-muted/30'
@@ -1398,6 +1521,8 @@ export function PurchasePage() {
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {text.processing}
                   </>
+                ) : isUpgradeFlow ? (
+                  text.proceedUpgrade
                 ) : isRenewFlow ? (
                   text.proceedRenew
                 ) : (
@@ -1539,6 +1664,8 @@ export function PurchasePage() {
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {text.processing}
                   </>
+                ) : isUpgradeFlow ? (
+                  text.proceedUpgrade
                 ) : isRenewFlow ? (
                   text.proceedRenew
                 ) : (
@@ -1581,6 +1708,9 @@ function extractPurchaseError(error: unknown, text: PurchaseText): string {
     }
     if (detail.code === 'PARTNER_BALANCE_PARTNER_INACTIVE') {
       return text.partnerBalancePartnerInactive
+    }
+    if (detail.code === 'TRIAL_UPGRADE_REQUIRED') {
+      return text.trialUpgradeRequired
     }
     if (detail.message) {
       return detail.message

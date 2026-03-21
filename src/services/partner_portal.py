@@ -6,7 +6,13 @@ from typing import Any
 
 from src.api.utils.user_identity import resolve_public_username
 from src.core.config import AppConfig
-from src.core.enums import CryptoAsset, Currency, PartnerAccrualStrategy, PartnerLevel, PartnerRewardType
+from src.core.enums import (
+    CryptoAsset,
+    Currency,
+    PartnerAccrualStrategy,
+    PartnerLevel,
+    PartnerRewardType,
+)
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.database.models.dto import (
     PartnerIndividualSettingsDto,
@@ -189,8 +195,10 @@ class PartnerPortalService:
         settings = await self.partner_service.settings_service.get()
         partner_settings = settings.partner
         min_withdrawal_rub = float(Decimal(partner_settings.min_withdrawal_amount) / Decimal(100))
-        effective_currency = await self.partner_service.settings_service.resolve_partner_balance_currency(
-            current_user
+        effective_currency = (
+            await self.partner_service.settings_service.resolve_partner_balance_currency(
+                current_user
+            )
         )
         min_withdrawal_display = await self._convert_kopecks_to_display(
             partner_settings.min_withdrawal_amount,
@@ -243,7 +251,11 @@ class PartnerPortalService:
             if use_global_settings
             else individual_settings.accrual_strategy
         )
-        balance_display, total_earned_display, total_withdrawn_display = await self._convert_display_bundle(
+        (
+            balance_display,
+            total_earned_display,
+            total_withdrawn_display,
+        ) = await self._convert_display_bundle(
             effective_currency=effective_currency,
             amounts_kopecks=(partner.balance, partner.total_earned, partner.total_withdrawn),
         )
@@ -281,8 +293,7 @@ class PartnerPortalService:
             is_partner=True,
             is_active=partner.is_active,
             can_withdraw=bool(
-                partner.is_active
-                and partner.balance >= partner_settings.min_withdrawal_amount
+                partner.is_active and partner.balance >= partner_settings.min_withdrawal_amount
             ),
             apply_support_url=apply_support_url,
             effective_currency=effective_currency.value,
@@ -313,8 +324,10 @@ class PartnerPortalService:
         page: int,
         limit: int,
     ) -> PartnerReferralsPageSnapshot:
-        effective_currency = await self.partner_service.settings_service.resolve_partner_balance_currency(
-            current_user
+        effective_currency = (
+            await self.partner_service.settings_service.resolve_partner_balance_currency(
+                current_user
+            )
         )
         partner = await self.partner_service.get_partner_by_user(current_user.telegram_id)
         if not partner or not partner.id:
@@ -358,8 +371,10 @@ class PartnerPortalService:
         page: int,
         limit: int,
     ) -> PartnerEarningsPageSnapshot:
-        effective_currency = await self.partner_service.settings_service.resolve_partner_balance_currency(
-            current_user
+        effective_currency = (
+            await self.partner_service.settings_service.resolve_partner_balance_currency(
+                current_user
+            )
         )
         partner = await self.partner_service.get_partner_by_user(current_user.telegram_id)
         if not partner:
@@ -405,8 +420,10 @@ class PartnerPortalService:
         if not partner.is_active:
             raise PartnerPortalWithdrawalDisabledError()
 
-        effective_currency = await self.partner_service.settings_service.resolve_partner_balance_currency(
-            current_user
+        effective_currency = (
+            await self.partner_service.settings_service.resolve_partner_balance_currency(
+                current_user
+            )
         )
         amount_input = self._normalize_display_amount(amount, effective_currency)
         if amount_input <= 0:
@@ -457,8 +474,10 @@ class PartnerPortalService:
         )
 
     async def list_withdrawals(self, *, current_user: UserDto) -> PartnerWithdrawalsSnapshot:
-        effective_currency = await self.partner_service.settings_service.resolve_partner_balance_currency(
-            current_user
+        effective_currency = (
+            await self.partner_service.settings_service.resolve_partner_balance_currency(
+                current_user
+            )
         )
         partner = await self.partner_service.get_partner_by_user(current_user.telegram_id)
         if not partner:
@@ -642,9 +661,7 @@ class PartnerPortalService:
             raise PartnerPortalStateError("Partner withdrawal is missing id")
 
         requested_amount = (
-            float(withdrawal.requested_amount)
-            if withdrawal.requested_amount is not None
-            else None
+            float(withdrawal.requested_amount) if withdrawal.requested_amount is not None else None
         )
         requested_currency = (
             withdrawal.requested_currency.value
@@ -744,11 +761,7 @@ class PartnerPortalService:
                 rounding=ROUND_HALF_UP,
             ),
             rub_per_asset,
-            "+".join(
-                part
-                for part in (asset_quote.source, usd_rub_quote.source)
-                if part
-            ),
+            "+".join(part for part in (asset_quote.source, usd_rub_quote.source) if part),
         )
 
     @staticmethod

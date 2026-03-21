@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import Field
 from remnawave.enums.users import TrafficLimitStrategy
 
-from src.core.enums import Currency, PlanAvailability, PlanType
+from src.core.enums import ArchivedPlanRenewMode, Currency, PlanAvailability, PlanType
 
 from .base import TrackableDto
 
@@ -77,8 +77,10 @@ class PlanDto(TrackableDto):
 
     order_index: int = 0
     is_active: bool = False
+    is_archived: bool = False
     type: PlanType = PlanType.BOTH
     availability: PlanAvailability = PlanAvailability.ALL
+    archived_renew_mode: ArchivedPlanRenewMode = ArchivedPlanRenewMode.SELF_RENEW
 
     name: str = "Default Plan"
     description: Optional[str] = None
@@ -87,6 +89,8 @@ class PlanDto(TrackableDto):
     traffic_limit: int = 100
     device_limit: int = 1
     traffic_limit_strategy: TrafficLimitStrategy = TrafficLimitStrategy.NO_RESET
+    replacement_plan_ids: list[int] = []
+    upgrade_to_plan_ids: list[int] = []
     allowed_user_ids: list[int] = []
     internal_squads: list[UUID] = []
     external_squad: Optional[UUID] = None
@@ -102,6 +106,14 @@ class PlanDto(TrackableDto):
     @property
     def is_unlimited_devices(self) -> bool:
         return self.type not in {PlanType.DEVICES, PlanType.BOTH}
+
+    @property
+    def is_publicly_purchasable(self) -> bool:
+        return self.is_active and not self.is_archived
+
+    @property
+    def is_trial(self) -> bool:
+        return self.availability == PlanAvailability.TRIAL
 
     def get_duration(self, days: int) -> Optional["PlanDurationDto"]:
         return next((d for d in self.durations if d.days == days), None)

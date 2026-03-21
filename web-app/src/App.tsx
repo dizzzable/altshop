@@ -170,6 +170,7 @@ function App() {
                   <Route path="subscription" element={<SubscriptionPage />} />
                   <Route path="subscription/purchase" element={<PurchasePage />} />
                   <Route path="subscription/:id/renew" element={<PurchasePage />} />
+                  <Route path="subscription/:id/upgrade" element={<PurchasePage />} />
                   <Route path="devices" element={<DevicesPage />} />
                   <Route path="referrals" element={<ReferralsPage />} />
                   <Route path="promocodes" element={<PromocodesPage />} />

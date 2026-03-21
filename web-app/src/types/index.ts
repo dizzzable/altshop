@@ -48,12 +48,17 @@ export interface Subscription {
   expire_at: string
   url: string
   device_type: DeviceType | null
+  can_renew: boolean
+  can_upgrade: boolean
+  can_multi_renew: boolean
+  renew_mode: SubscriptionRenewMode | null
   plan: PlanSnapshot
   created_at: string
   updated_at: string
 }
 
 export type SubscriptionStatus = 'ACTIVE' | 'DISABLED' | 'LIMITED' | 'EXPIRED' | 'DELETED'
+export type SubscriptionRenewMode = 'STANDARD' | 'SELF_RENEW' | 'REPLACE_ON_RENEW'
 
 export type DeviceType = 'ANDROID' | 'IPHONE' | 'WINDOWS' | 'MAC' | 'OTHER'
 
@@ -165,7 +170,7 @@ export interface PaymentResult {
   url: string | null
 }
 
-export type PurchaseType = 'NEW' | 'RENEW' | 'ADDITIONAL'
+export type PurchaseType = 'NEW' | 'RENEW' | 'UPGRADE' | 'ADDITIONAL'
 export type PurchaseChannel = 'WEB' | 'TELEGRAM'
 export type PurchasePaymentSource = 'EXTERNAL' | 'PARTNER_BALANCE'
 
@@ -206,6 +211,17 @@ export interface PurchaseQuoteResponse {
   quote_source: string
   quote_expires_at: string
   quote_provider_count: number
+}
+
+export interface SubscriptionPurchaseOptionsResponse {
+  purchase_type: PurchaseType
+  subscription_id: number
+  source_plan_missing: boolean
+  selection_locked: boolean
+  renew_mode: SubscriptionRenewMode | null
+  warning_code: string | null
+  warning_message: string | null
+  plans: Plan[]
 }
 
 export interface TrialEligibilityResponse {

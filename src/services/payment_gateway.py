@@ -43,8 +43,8 @@ from src.infrastructure.database.models.dto import (
     PriceDetailsDto,
     RobokassaGatewaySettingsDto,
     StripeGatewaySettingsDto,
-    TbankGatewaySettingsDto,
     SubscriptionDto,
+    TbankGatewaySettingsDto,
     TransactionDto,
     UserDto,
     WataGatewaySettingsDto,
@@ -180,7 +180,10 @@ class PaymentGatewayService(BaseService):
 
         for db_gateway in db_gateways:
             if db_gateway.type != PaymentGatewayType.PLATEGA:
-                if db_gateway.type == PaymentGatewayType.CRYPTOPAY and db_gateway.currency != Currency.USD:
+                if (
+                    db_gateway.type == PaymentGatewayType.CRYPTOPAY
+                    and db_gateway.currency != Currency.USD
+                ):
                     await self.uow.repository.gateways.update(
                         gateway_id=db_gateway.id,
                         currency=Currency.USD,
@@ -439,6 +442,7 @@ class PaymentGatewayService(BaseService):
         i18n_keys = {
             PurchaseType.NEW: "ntf-event-subscription-new",
             PurchaseType.RENEW: "ntf-event-subscription-renew",
+            PurchaseType.UPGRADE: "ntf-event-subscription-upgrade",
             PurchaseType.ADDITIONAL: "ntf-event-subscription-additional",
         }
         return i18n_keys[purchase_type]
@@ -477,10 +481,7 @@ class PaymentGatewayService(BaseService):
     ) -> tuple[SubscriptionDto | None, list[SubscriptionDto]]:
         transaction_user = self._require_transaction_user(transaction)
         renew_ids = transaction.renew_subscription_ids or []
-        logger.info(
-            f"Multiple renewal detected: {len(renew_ids)} subscriptions "
-            f"(IDs: {renew_ids})"
-        )
+        logger.info(f"Multiple renewal detected: {len(renew_ids)} subscriptions (IDs: {renew_ids})")
         subscriptions_to_renew: list[SubscriptionDto] = []
         for subscription_id in renew_ids:
             candidate = await self.subscription_service.get(subscription_id)
@@ -676,8 +677,7 @@ class PaymentGatewayService(BaseService):
                 discount=new_purchase_discount,
             )
             logger.info(
-                "Consumed purchase discount for user '{}': {}% -> {}% "
-                "(used {}% from payment '{}')",
+                "Consumed purchase discount for user '{}': {}% -> {}% (used {}% from payment '{}')",
                 current_user.telegram_id,
                 current_discount,
                 new_purchase_discount,
@@ -687,8 +687,7 @@ class PaymentGatewayService(BaseService):
             return
 
         logger.info(
-            "Purchase discount unchanged for user '{}': remains {}% "
-            "(used {}% from payment '{}')",
+            "Purchase discount unchanged for user '{}': remains {}% (used {}% from payment '{}')",
             current_user.telegram_id,
             current_discount,
             used_discount,

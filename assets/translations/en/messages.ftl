@@ -2296,3 +2296,20 @@ msg-subscription-payment-asset =
     <b>Select Payment Coin</b>
 
     { msg-subscription-details }
+msg-plan-archived-renew-mode =
+    <b>🔁 Archived renewal mode</b>
+
+    Choose whether this archived plan can be renewed as-is
+    or should be replaced by one of the available plans during renewal.
+
+msg-plan-replacement-plans =
+    <b>🔄 Replacement plans on renewal</b>
+
+    Select which plans can be offered to the user
+    when the archived plan can no longer be renewed directly.
+
+msg-plan-upgrade-plans =
+    <b>⬆️ Upgrade targets</b>
+
+    Select which plans are allowed as upgrade targets
+    from the current plan.

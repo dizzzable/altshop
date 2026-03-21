@@ -690,3 +690,5 @@ ntf-user-web-password-reset-issued =
     Share this password with the user manually. Password change will be required on first login.
 
 ntf-user-web-password-reset-failed = ❌ Failed to reset web password: { $error }
+ntf-plan-delete-blocked = <i>❌ This plan cannot be deleted while it is used by subscriptions or transitions. Archive it instead.</i>
+ntf-plan-validation-error = <i>❌ Plan validation error: { $error }</i>

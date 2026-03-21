@@ -29,6 +29,10 @@ from src.services.subscription_purchase import (
     SubscriptionPurchaseQuoteResult,
     SubscriptionPurchaseResult,
 )
+from src.services.subscription_purchase_policy import (
+    SubscriptionActionPolicy,
+    SubscriptionPurchaseOptionsResult,
+)
 from src.services.subscription_trial import TrialEligibilitySnapshot
 from src.services.user_activity_portal import (
     PromocodeActivationHistoryPageSnapshot,
@@ -132,6 +136,10 @@ class SubscriptionResponse(BaseModel):
     expire_at: str
     url: str
     device_type: str | None
+    can_renew: bool = False
+    can_upgrade: bool = False
+    can_multi_renew: bool = False
+    renew_mode: str | None = None
     plan: dict
     created_at: str
     updated_at: str
@@ -230,6 +238,17 @@ class PurchaseQuoteResponse(BaseModel):
     quote_source: str
     quote_expires_at: str
     quote_provider_count: int
+
+
+class SubscriptionPurchaseOptionsResponse(BaseModel):
+    purchase_type: str
+    subscription_id: int
+    source_plan_missing: bool
+    selection_locked: bool
+    renew_mode: str | None = None
+    warning_code: str | None = None
+    warning_message: str | None = None
+    plans: list[PlanResponse]
 
 
 class TrialEligibilityResponse(BaseModel):
@@ -390,6 +409,7 @@ def _build_plan_response(snapshot: PlanCatalogItemSnapshot) -> PlanResponse:
 def build_subscription_response(
     subscription: SubscriptionDto,
     fallback_user_telegram_id: int | None = None,
+    action_policy: SubscriptionActionPolicy | None = None,
 ) -> SubscriptionResponse:
     """Serialize subscription DTO to API response."""
     user_telegram_id = subscription.user_telegram_id or fallback_user_telegram_id or 0
@@ -415,9 +435,30 @@ def build_subscription_response(
             if subscription.device_type and hasattr(subscription.device_type, "value")
             else subscription.device_type
         ),
+        can_renew=action_policy.can_renew if action_policy else False,
+        can_upgrade=action_policy.can_upgrade if action_policy else False,
+        can_multi_renew=action_policy.can_multi_renew if action_policy else False,
+        renew_mode=action_policy.renew_mode.value
+        if action_policy and action_policy.renew_mode
+        else None,
         plan=subscription.plan.model_dump(mode="json") if subscription.plan else {},
         created_at=subscription.created_at.isoformat() if subscription.created_at else "",
         updated_at=subscription.updated_at.isoformat() if subscription.updated_at else "",
+    )
+
+
+def _build_subscription_purchase_options_response(
+    result: SubscriptionPurchaseOptionsResult,
+) -> SubscriptionPurchaseOptionsResponse:
+    return SubscriptionPurchaseOptionsResponse(
+        purchase_type=result.purchase_type.value,
+        subscription_id=result.subscription_id,
+        source_plan_missing=result.source_plan_missing,
+        selection_locked=result.selection_locked,
+        renew_mode=result.renew_mode.value if result.renew_mode else None,
+        warning_code=result.warning_code,
+        warning_message=result.warning_message,
+        plans=[_build_plan_response(plan) for plan in result.plans],
     )
 
 

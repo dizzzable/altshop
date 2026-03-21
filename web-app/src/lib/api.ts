@@ -17,6 +17,7 @@ import type {
   PromocodeActivateResult,
   PromocodeActivationHistoryResponse,
   PurchaseChannel,
+  PurchaseType,
   PurchaseQuoteResponse,
   PurchaseResponse,
   ReferralExchangeExecuteRequest,
@@ -26,6 +27,7 @@ import type {
   ReferralInfo,
   ReferralListResponse,
   SubscriptionPurchaseRequest,
+  SubscriptionPurchaseOptionsResponse,
   Subscription,
   SubscriptionListResponse,
   TransactionHistoryResponse,
@@ -423,11 +425,23 @@ export const api = {
       apiClient.post<PurchaseResponse>('/subscription/purchase', data),
     quote: (data: SubscriptionPurchaseRequest) =>
       apiClient.post<PurchaseQuoteResponse>('/subscription/quote', data),
+    purchaseOptions: (id: number, purchaseType: Extract<PurchaseType, 'RENEW' | 'UPGRADE'>, channel?: PurchaseChannel) =>
+      apiClient.get<SubscriptionPurchaseOptionsResponse>(`/subscription/${id}/purchase-options`, {
+        params: {
+          purchase_type: purchaseType,
+          ...(channel ? { channel } : {}),
+        },
+      }),
     renew: (
       id: number,
       data: Omit<SubscriptionPurchaseRequest, 'purchase_type' | 'renew_subscription_id'>
     ) =>
       apiClient.post<PurchaseResponse>(`/subscription/${id}/renew`, data),
+    upgrade: (
+      id: number,
+      data: Omit<SubscriptionPurchaseRequest, 'purchase_type' | 'renew_subscription_id'>
+    ) =>
+      apiClient.post<PurchaseResponse>(`/subscription/${id}/upgrade`, data),
     delete: (id: number) => apiClient.delete(`/subscription/${id}`),
     trialEligibility: () =>
       apiClient.get<TrialEligibilityResponse>('/subscription/trial/eligibility'),

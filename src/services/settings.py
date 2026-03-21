@@ -148,7 +148,9 @@ class SettingsService(BaseService):
 
     async def resolve_partner_balance_currency(self, user: UserDto) -> Currency:
         settings = await self.get()
-        resolved = user.partner_balance_currency_override or settings.default_currency or Currency.RUB
+        resolved = (
+            user.partner_balance_currency_override or settings.default_currency or Currency.RUB
+        )
         if resolved == Currency.XTR:
             return Currency.RUB
         return resolved

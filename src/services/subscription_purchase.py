@@ -36,8 +36,8 @@ from src.infrastructure.database.models.dto import (
     UserDto,
 )
 
-from .partner import PartnerService
 from .market_quote import CurrencyConversionQuote, MarketQuoteService
+from .partner import PartnerService
 from .payment_gateway import PaymentGatewayService
 from .plan import PlanService
 from .pricing import PricingService
@@ -48,6 +48,11 @@ from .purchase_gateway_policy import (
 )
 from .settings import SettingsService
 from .subscription import SubscriptionService
+from .subscription_purchase_policy import (
+    SubscriptionActionPolicy,
+    SubscriptionPurchaseOptionsResult,
+    SubscriptionPurchasePolicyService,
+)
 
 PurchaseErrorDetail = str | dict[str, str]
 
@@ -103,6 +108,12 @@ class SubscriptionPurchaseQuoteResult:
     quote_provider_count: int
 
 
+@dataclass(slots=True, frozen=True)
+class ValidatedPurchaseContext:
+    plan: PlanDto
+    source_subscription: SubscriptionDto | None = None
+
+
 class SubscriptionPurchaseService:
     def __init__(
         self,
@@ -111,6 +122,7 @@ class SubscriptionPurchaseService:
         pricing_service: PricingService,
         purchase_access_service: PurchaseAccessService,
         subscription_service: SubscriptionService,
+        subscription_purchase_policy_service: SubscriptionPurchasePolicyService,
         settings_service: SettingsService,
         payment_gateway_service: PaymentGatewayService,
         partner_service: PartnerService,
@@ -121,6 +133,7 @@ class SubscriptionPurchaseService:
         self.pricing_service = pricing_service
         self.purchase_access_service = purchase_access_service
         self.subscription_service = subscription_service
+        self.subscription_purchase_policy_service = subscription_purchase_policy_service
         self.settings_service = settings_service
         self.payment_gateway_service = payment_gateway_service
         self.partner_service = partner_service
@@ -145,7 +158,11 @@ class SubscriptionPurchaseService:
         current_user: UserDto,
     ) -> SubscriptionPurchaseQuoteResult:
         await self.purchase_access_service.assert_can_purchase(current_user)
-        plan = await self._get_valid_purchase_plan(request)
+        validated_context = await self._validate_purchase_context(
+            request=request,
+            current_user=current_user,
+        )
+        plan = validated_context.plan
         _, duration = self._resolve_purchase_duration(request=request, plan=plan)
         effective_multiplier, _ = self._resolve_effective_subscription_count(request=request)
         gateway, gateway_type = await self._resolve_purchase_gateway(request=request)
@@ -153,7 +170,6 @@ class SubscriptionPurchaseService:
             request=request,
             gateway_type=gateway_type,
         )
-        await self._validate_renew_ownership(request=request, current_user=current_user)
         settlement_pricing = await self._calculate_settlement_pricing(
             request=request,
             current_user=current_user,
@@ -204,10 +220,14 @@ class SubscriptionPurchaseService:
         request: SubscriptionPurchaseRequest,
         current_user: UserDto,
     ) -> SubscriptionPurchaseResult:
-        plan = await self._get_valid_purchase_plan(request)
+        validated_context = await self._validate_purchase_context(
+            request=request,
+            current_user=current_user,
+        )
+        plan = validated_context.plan
         duration_days, duration = self._resolve_purchase_duration(request=request, plan=plan)
-        effective_multiplier, effective_subscription_count = self._resolve_effective_subscription_count(
-            request=request
+        effective_multiplier, effective_subscription_count = (
+            self._resolve_effective_subscription_count(request=request)
         )
 
         gateway, gateway_type = await self._resolve_purchase_gateway(request=request)
@@ -215,7 +235,6 @@ class SubscriptionPurchaseService:
             request=request,
             gateway_type=gateway_type,
         )
-        await self._validate_renew_ownership(request=request, current_user=current_user)
         final_price = await self._calculate_settlement_pricing(
             request=request,
             current_user=current_user,
@@ -287,20 +306,333 @@ class SubscriptionPurchaseService:
             current_user=current_user,
         )
 
-    async def _get_valid_purchase_plan(self, request: SubscriptionPurchaseRequest) -> PlanDto:
-        plan_id = self._get_purchase_plan_id(request)
-        plan = await self.plan_service.get(plan_id)
-        if not plan:
+    async def execute_upgrade_alias(
+        self,
+        *,
+        subscription_id: int,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ) -> SubscriptionPurchaseResult:
+        await self.purchase_access_service.assert_can_purchase(current_user)
+        base_subscription = await self.subscription_service.get(subscription_id)
+        if not base_subscription:
             raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.NOT_FOUND,
-                detail="Plan not found",
+                detail="Subscription not found",
             )
-        if not plan.is_active:
+        if base_subscription.user_telegram_id != current_user.telegram_id:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.FORBIDDEN,
+                detail="Access denied to this subscription",
+            )
+
+        upgrade_request = replace(request, purchase_type=PurchaseType.UPGRADE)
+        if not upgrade_request.renew_subscription_id and not upgrade_request.renew_subscription_ids:
+            upgrade_request = replace(upgrade_request, renew_subscription_id=subscription_id)
+
+        return await self._execute_without_access_assert(
+            request=upgrade_request,
+            current_user=current_user,
+        )
+
+    async def get_purchase_options(
+        self,
+        *,
+        subscription_id: int,
+        purchase_type: PurchaseType,
+        current_user: UserDto,
+        channel: PurchaseChannel,
+    ) -> SubscriptionPurchaseOptionsResult:
+        if purchase_type not in {PurchaseType.RENEW, PurchaseType.UPGRADE}:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="purchase_type must be RENEW or UPGRADE",
+            )
+
+        subscription = await self.subscription_service.get(subscription_id)
+        if not subscription:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail="Subscription not found",
+            )
+        if subscription.user_telegram_id != current_user.telegram_id:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.FORBIDDEN,
+                detail="Access denied to this subscription",
+            )
+
+        return await self.subscription_purchase_policy_service.get_purchase_options(
+            current_user=current_user,
+            subscription=subscription,
+            purchase_type=purchase_type,
+            channel=channel,
+        )
+
+    async def get_action_policy(
+        self,
+        *,
+        current_user: UserDto,
+        subscription: SubscriptionDto,
+    ) -> SubscriptionActionPolicy:
+        return await self.subscription_purchase_policy_service.get_action_policy(
+            current_user=current_user,
+            subscription=subscription,
+        )
+
+    async def _validate_purchase_context(
+        self,
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ) -> ValidatedPurchaseContext:
+        if request.purchase_type in {PurchaseType.NEW, PurchaseType.ADDITIONAL}:
+            await self._assert_non_deleted_trial_requires_upgrade(
+                request=request,
+                current_user=current_user,
+            )
+            plan = await self._get_valid_catalog_purchase_plan(
+                request=request,
+                current_user=current_user,
+            )
+            return ValidatedPurchaseContext(plan=plan)
+
+        if request.purchase_type == PurchaseType.RENEW:
+            return await self._validate_renew_purchase_context(
+                request=request,
+                current_user=current_user,
+            )
+
+        if request.purchase_type == PurchaseType.UPGRADE:
+            return await self._validate_upgrade_purchase_context(
+                request=request,
+                current_user=current_user,
+            )
+
+        raise SubscriptionPurchaseError(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=f"Unsupported purchase type: {request.purchase_type}",
+        )
+
+    async def _get_valid_catalog_purchase_plan(
+        self,
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ) -> PlanDto:
+        plan_id = self._get_purchase_plan_id(request)
+        available_plans = await self.plan_service.get_available_plans(current_user)
+        plan = next((candidate for candidate in available_plans if candidate.id == plan_id), None)
+        if not plan:
             raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail="Plan is not available",
             )
         return plan
+
+    async def _validate_renew_purchase_context(
+        self,
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ) -> ValidatedPurchaseContext:
+        renew_ids = self._collect_renew_ids(request)
+        if len(renew_ids) > 1:
+            await self._validate_multi_renew_selection(
+                current_user=current_user,
+                renew_ids=renew_ids,
+            )
+            plan = await self._get_valid_multi_renew_display_plan(
+                request=request,
+                current_user=current_user,
+                renew_ids=renew_ids,
+            )
+            return ValidatedPurchaseContext(plan=plan)
+
+        source_subscription = await self._get_single_owned_subscription(
+            request=request,
+            current_user=current_user,
+        )
+        selection = await self.subscription_purchase_policy_service.build_selection(
+            current_user=current_user,
+            subscription=source_subscription,
+        )
+        candidates = self.subscription_purchase_policy_service.get_purchase_candidates(
+            selection=selection,
+            purchase_type=PurchaseType.RENEW,
+        )
+        selected_plan = self._select_plan_from_candidates(
+            request=request,
+            purchase_type=PurchaseType.RENEW,
+            candidates=candidates,
+        )
+        return ValidatedPurchaseContext(
+            plan=selected_plan,
+            source_subscription=source_subscription,
+        )
+
+    async def _validate_upgrade_purchase_context(
+        self,
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ) -> ValidatedPurchaseContext:
+        if len(self._collect_renew_ids(request)) > 1:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="Upgrade is only available for a single subscription",
+            )
+
+        source_subscription = await self._get_single_owned_subscription(
+            request=request,
+            current_user=current_user,
+        )
+        selection = await self.subscription_purchase_policy_service.build_selection(
+            current_user=current_user,
+            subscription=source_subscription,
+        )
+        candidates = self.subscription_purchase_policy_service.get_purchase_candidates(
+            selection=selection,
+            purchase_type=PurchaseType.UPGRADE,
+        )
+        selected_plan = self._select_plan_from_candidates(
+            request=request,
+            purchase_type=PurchaseType.UPGRADE,
+            candidates=candidates,
+        )
+        return ValidatedPurchaseContext(
+            plan=selected_plan,
+            source_subscription=source_subscription,
+        )
+
+    async def _get_single_owned_subscription(
+        self,
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ) -> SubscriptionDto:
+        renew_ids = self._collect_renew_ids(request)
+        subscription_id = renew_ids[0] if renew_ids else None
+        if subscription_id is None:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="Subscription ID is required",
+            )
+
+        subscription = await self.subscription_service.get(subscription_id)
+        if not subscription:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail="Subscription not found",
+            )
+        if subscription.user_telegram_id != current_user.telegram_id:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.FORBIDDEN,
+                detail="Access denied to this subscription",
+            )
+        return subscription
+
+    async def _validate_multi_renew_selection(
+        self,
+        *,
+        current_user: UserDto,
+        renew_ids: list[int],
+    ) -> None:
+        for renew_id in renew_ids:
+            renew_subscription = await self.subscription_service.get(renew_id)
+            if not renew_subscription:
+                raise SubscriptionPurchaseError(
+                    status_code=HTTPStatus.NOT_FOUND,
+                    detail=f"Subscription {renew_id} not found",
+                )
+            if renew_subscription.user_telegram_id != current_user.telegram_id:
+                raise SubscriptionPurchaseError(
+                    status_code=HTTPStatus.FORBIDDEN,
+                    detail=f"Access denied to subscription {renew_id}",
+                )
+
+            action_policy = await self.subscription_purchase_policy_service.get_action_policy(
+                current_user=current_user,
+                subscription=renew_subscription,
+            )
+            if not action_policy.can_multi_renew:
+                raise SubscriptionPurchaseError(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Subscription {renew_id} is not available for multi-renew",
+                )
+
+    async def _get_valid_multi_renew_display_plan(
+        self,
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+        renew_ids: list[int],
+    ) -> PlanDto:
+        if request.plan_id:
+            return await self._get_valid_catalog_purchase_plan(
+                request=request,
+                current_user=current_user,
+            )
+
+        first_subscription = await self.subscription_service.get(renew_ids[0])
+        if not first_subscription:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.NOT_FOUND,
+                detail=f"Subscription {renew_ids[0]} not found",
+            )
+
+        source_plan_id = getattr(first_subscription.plan, "id", None)
+        if not source_plan_id or source_plan_id <= 0:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="Source plan is not available for multi-renew",
+            )
+
+        source_plan = await self.plan_service.get(source_plan_id)
+        if not source_plan:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="Source plan is not available for multi-renew",
+            )
+        return source_plan
+
+    @staticmethod
+    def _select_plan_from_candidates(
+        *,
+        request: SubscriptionPurchaseRequest,
+        purchase_type: PurchaseType,
+        candidates: tuple[PlanDto, ...],
+    ) -> PlanDto:
+        if not candidates:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=(
+                    "No available renewal options"
+                    if purchase_type == PurchaseType.RENEW
+                    else "No available upgrade options"
+                ),
+            )
+
+        if request.plan_id is None:
+            if len(candidates) == 1:
+                return candidates[0]
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail="Plan ID is required",
+            )
+
+        selected_plan = next(
+            (candidate for candidate in candidates if candidate.id == request.plan_id), None
+        )
+        if not selected_plan:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail=(
+                    "Selected plan is not available for renewal"
+                    if purchase_type == PurchaseType.RENEW
+                    else "Selected plan is not available for upgrade"
+                ),
+            )
+        return selected_plan
 
     @staticmethod
     def _get_purchase_plan_id(request: SubscriptionPurchaseRequest) -> int:
@@ -340,10 +672,13 @@ class SubscriptionPurchaseService:
         *,
         request: SubscriptionPurchaseRequest,
     ) -> tuple[int, int]:
-        if request.purchase_type == PurchaseType.RENEW and request.quantity > 1:
+        if (
+            request.purchase_type in (PurchaseType.RENEW, PurchaseType.UPGRADE)
+            and request.quantity > 1
+        ):
             raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.BAD_REQUEST,
-                detail="Quantity greater than 1 is not supported for renew purchases",
+                detail="Quantity greater than 1 is not supported for renew or upgrade purchases",
             )
 
         effective_multiplier = (
@@ -500,7 +835,6 @@ class SubscriptionPurchaseService:
         renew_ids = self._collect_renew_ids(request)
         if request.purchase_type == PurchaseType.RENEW and len(renew_ids) > 1:
             total_base_price = await self._calculate_multi_renew_base_price(
-                current_user=current_user,
                 duration_days=duration.days,
                 gateway=gateway,
                 renew_ids=renew_ids,
@@ -522,12 +856,10 @@ class SubscriptionPurchaseService:
     async def _calculate_multi_renew_base_price(
         self,
         *,
-        current_user: UserDto,
         duration_days: int,
         gateway: PaymentGatewayDto,
         renew_ids: list[int],
     ) -> Decimal:
-        available_plans = await self.plan_service.get_available_plans(current_user)
         total_price = Decimal("0")
 
         for renew_id in renew_ids:
@@ -538,11 +870,18 @@ class SubscriptionPurchaseService:
                     detail=f"Subscription {renew_id} not found",
                 )
 
-            matched_plan = renew_subscription.find_matching_plan(available_plans)
+            source_plan_id = getattr(renew_subscription.plan, "id", None)
+            if not source_plan_id or source_plan_id <= 0:
+                raise SubscriptionPurchaseError(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail=f"Source plan is unavailable for subscription {renew_id}",
+                )
+
+            matched_plan = await self.plan_service.get(source_plan_id)
             if not matched_plan:
                 raise SubscriptionPurchaseError(
                     status_code=HTTPStatus.BAD_REQUEST,
-                    detail=f"No matching plan available for subscription {renew_id}",
+                    detail=f"Source plan is unavailable for subscription {renew_id}",
                 )
 
             renew_duration = matched_plan.get_duration(duration_days)
@@ -550,8 +889,7 @@ class SubscriptionPurchaseService:
                 raise SubscriptionPurchaseError(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=(
-                        f"Duration {duration_days} days not available for "
-                        f"subscription {renew_id}"
+                        f"Duration {duration_days} days not available for subscription {renew_id}"
                     ),
                 )
 
@@ -679,33 +1017,27 @@ class SubscriptionPurchaseService:
             renew_ids.extend(request.renew_subscription_ids)
         return list(dict.fromkeys(renew_ids))
 
-    async def _validate_renew_ownership(
+    async def _assert_non_deleted_trial_requires_upgrade(
         self,
         *,
         request: SubscriptionPurchaseRequest,
         current_user: UserDto,
     ) -> None:
-        if request.purchase_type != PurchaseType.RENEW:
+        if request.purchase_type not in {PurchaseType.NEW, PurchaseType.ADDITIONAL}:
             return
 
-        renew_ids: list[int] = []
-        if request.renew_subscription_id:
-            renew_ids.append(request.renew_subscription_id)
-        if request.renew_subscription_ids:
-            renew_ids.extend(request.renew_subscription_ids)
-
-        for renew_id in set(renew_ids):
-            renew_subscription = await self.subscription_service.get(renew_id)
-            if not renew_subscription:
-                raise SubscriptionPurchaseError(
-                    status_code=HTTPStatus.NOT_FOUND,
-                    detail=f"Subscription {renew_id} not found",
-                )
-            if renew_subscription.user_telegram_id != current_user.telegram_id:
-                raise SubscriptionPurchaseError(
-                    status_code=HTTPStatus.FORBIDDEN,
-                    detail=f"Access denied to subscription {renew_id}",
-                )
+        existing_subs = await self.subscription_service.get_all_by_user(current_user.telegram_id)
+        if any(
+            subscription.is_trial and not self._is_deleted_subscription(subscription)
+            for subscription in existing_subs
+        ):
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail={
+                    "code": "TRIAL_UPGRADE_REQUIRED",
+                    "message": "An existing trial subscription can only be continued via upgrade",
+                },
+            )
 
     async def _validate_subscription_limit(
         self,
@@ -726,9 +1058,6 @@ class SubscriptionPurchaseService:
         active_count = len(active_subs)
 
         required_new = effective_subscription_count
-        has_trial = any(subscription.is_trial for subscription in active_subs)
-        if request.purchase_type == PurchaseType.NEW and has_trial:
-            required_new = max(effective_subscription_count - 1, 0)
 
         max_subscriptions = await self.settings_service.get_max_subscriptions_for_user(current_user)
         if max_subscriptions < 1:
@@ -999,8 +1328,7 @@ class SubscriptionPurchaseService:
             raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.BAD_GATEWAY,
                 detail=(
-                    f"Payment provider '{gateway_type.value}' rejected the request"
-                    f"{provider_suffix}"
+                    f"Payment provider '{gateway_type.value}' rejected the request{provider_suffix}"
                 ),
             ) from exception
         except Exception as exception:

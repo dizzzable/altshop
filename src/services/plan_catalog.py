@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from src.core.enums import PurchaseChannel
 from src.core.crypto_assets import get_supported_payment_assets
+from src.core.enums import PurchaseChannel
 from src.infrastructure.database.models.dto import (
     PaymentGatewayDto,
     PlanDto,
@@ -77,6 +77,19 @@ class PlanCatalogService:
         channel: PurchaseChannel,
     ) -> list[PlanCatalogItemSnapshot]:
         plans = await self.plan_service.get_available_plans(current_user)
+        return await self.build_items_from_plans(
+            current_user=current_user,
+            channel=channel,
+            plans=plans,
+        )
+
+    async def build_items_from_plans(
+        self,
+        *,
+        current_user: UserDto,
+        channel: PurchaseChannel,
+        plans: list[PlanDto],
+    ) -> list[PlanCatalogItemSnapshot]:
         gateways = filter_gateways_by_channel(
             await self.payment_gateway_service.filter_active(is_active=True),
             channel=channel,

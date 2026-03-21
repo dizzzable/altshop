@@ -7,7 +7,7 @@ from sqlalchemy import ARRAY, BigInteger, Boolean, Enum, ForeignKey, Integer, Nu
 from sqlalchemy import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.core.enums import Currency, PlanAvailability, PlanType
+from src.core.enums import ArchivedPlanRenewMode, Currency, PlanAvailability, PlanType
 
 from .base import BaseSql
 from .timestamp import TimestampMixin
@@ -20,6 +20,7 @@ class Plan(BaseSql, TimestampMixin):
 
     order_index: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     type: Mapped[PlanType] = mapped_column(
         Enum(
             PlanType,
@@ -38,6 +39,16 @@ class Plan(BaseSql, TimestampMixin):
         ),
         nullable=False,
     )
+    archived_renew_mode: Mapped[ArchivedPlanRenewMode] = mapped_column(
+        Enum(
+            ArchivedPlanRenewMode,
+            name="archived_plan_renew_mode",
+            create_constraint=True,
+            validate_strings=True,
+        ),
+        nullable=False,
+        default=ArchivedPlanRenewMode.SELF_RENEW,
+    )
 
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     description: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -54,6 +65,8 @@ class Plan(BaseSql, TimestampMixin):
         ),
         nullable=False,
     )
+    replacement_plan_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer), nullable=False)
+    upgrade_to_plan_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer), nullable=False)
     allowed_user_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), nullable=True)
     internal_squads: Mapped[list[UUID]] = mapped_column(ARRAY(PG_UUID), nullable=False)
     external_squad: Mapped[Optional[UUID]] = mapped_column(ARRAY(PG_UUID), nullable=True)
@@ -64,6 +77,10 @@ class Plan(BaseSql, TimestampMixin):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+
+    @property
+    def is_publicly_purchasable(self) -> bool:
+        return self.is_active and not self.is_archived
 
 
 class PlanDuration(BaseSql):

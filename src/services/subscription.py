@@ -289,7 +289,6 @@ class SubscriptionService(BaseService):
         conditions = and_(
             Subscription.user_telegram_id == user.telegram_id,
             Subscription.is_trial.is_(True),
-            Subscription.status != SubscriptionStatus.DELETED,
         )
 
         count = await self.uow.repository.subscriptions._count(Subscription, conditions)

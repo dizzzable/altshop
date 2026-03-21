@@ -15,14 +15,14 @@ from remnawave.models import GetAllInternalSquadsResponseDto
 
 from src.bot.states import RemnashopPlans
 from src.core.constants import TAG_REGEX, USER_KEY
-from src.core.enums import Currency, PlanAvailability, PlanType
+from src.core.enums import ArchivedPlanRenewMode, Currency, PlanAvailability, PlanType
 from src.core.utils.adapter import DialogDataAdapter
 from src.core.utils.formatters import format_user_log as log
 from src.core.utils.message_payload import MessagePayload
 from src.core.utils.validators import is_double_click, parse_int
 from src.infrastructure.database.models.dto import PlanDto, PlanDurationDto, PlanPriceDto, UserDto
 from src.services.notification import NotificationService
-from src.services.plan import PlanService
+from src.services.plan import PlanDeletionBlockedError, PlanService, PlanValidationError
 from src.services.pricing import PricingService
 from src.services.subscription import SubscriptionService
 from src.services.user import UserService
@@ -85,7 +85,15 @@ async def on_plan_delete(
         raise ValueError("PlanDto not found in dialog data")
 
     if is_double_click(dialog_manager, key=f"delete_confirm_{plan.id}", cooldown=10):
-        await plan_service.delete(plan.id)
+        try:
+            await plan_service.delete(plan.id)
+        except PlanDeletionBlockedError:
+            await notification_service.notify_user(
+                user=user,
+                payload=MessagePayload(i18n_key="ntf-plan-delete-blocked"),
+            )
+            logger.warning(f"{log(user)} Deletion blocked for plan ID '{plan.id}'")
+            return
         await notification_service.notify_user(
             user=user,
             payload=MessagePayload(i18n_key="ntf-plan-deleted-success"),
@@ -301,6 +309,49 @@ async def on_availability_select(
     await dialog_manager.switch_to(state=RemnashopPlans.CONFIGURATOR)
 
 
+async def on_archived_toggle(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    adapter = DialogDataAdapter(dialog_manager)
+    plan = adapter.load(PlanDto)
+
+    if not plan:
+        raise ValueError("PlanDto not found in dialog data")
+
+    plan.is_archived = not plan.is_archived
+    if not plan.is_archived:
+        plan.archived_renew_mode = ArchivedPlanRenewMode.SELF_RENEW
+        plan.replacement_plan_ids = []
+
+    adapter.save(plan)
+    logger.info(f"{log(user)} Successfully toggled archived status to '{plan.is_archived}'")
+
+
+async def on_archived_renew_mode_select(
+    callback: CallbackQuery,
+    widget: Select[ArchivedPlanRenewMode],
+    dialog_manager: DialogManager,
+    selected_mode: ArchivedPlanRenewMode,
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    adapter = DialogDataAdapter(dialog_manager)
+    plan = adapter.load(PlanDto)
+
+    if not plan:
+        raise ValueError("PlanDto not found in dialog data")
+
+    plan.archived_renew_mode = selected_mode
+    if selected_mode != ArchivedPlanRenewMode.REPLACE_ON_RENEW:
+        plan.replacement_plan_ids = []
+
+    adapter.save(plan)
+    logger.info(f"{log(user)} Successfully updated archived renew mode to '{selected_mode}'")
+    await dialog_manager.switch_to(state=RemnashopPlans.CONFIGURATOR)
+
+
 async def on_active_toggle(
     callback: CallbackQuery,
     widget: Button,
@@ -318,6 +369,52 @@ async def on_active_toggle(
     plan.is_active = not plan.is_active
     adapter.save(plan)
     logger.info(f"{log(user)} Successfully toggled plan active status to '{plan.is_active}'")
+
+
+async def on_replacement_plan_select(
+    callback: CallbackQuery,
+    widget: Select[int],
+    dialog_manager: DialogManager,
+    selected_plan_id: int,
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    adapter = DialogDataAdapter(dialog_manager)
+    plan = adapter.load(PlanDto)
+
+    if not plan:
+        raise ValueError("PlanDto not found in dialog data")
+
+    if selected_plan_id in plan.replacement_plan_ids:
+        plan.replacement_plan_ids.remove(selected_plan_id)
+        logger.info(f"{log(user)} Removed replacement plan '{selected_plan_id}'")
+    else:
+        plan.replacement_plan_ids.append(selected_plan_id)
+        logger.info(f"{log(user)} Added replacement plan '{selected_plan_id}'")
+
+    adapter.save(plan)
+
+
+async def on_upgrade_target_select(
+    callback: CallbackQuery,
+    widget: Select[int],
+    dialog_manager: DialogManager,
+    selected_plan_id: int,
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    adapter = DialogDataAdapter(dialog_manager)
+    plan = adapter.load(PlanDto)
+
+    if not plan:
+        raise ValueError("PlanDto not found in dialog data")
+
+    if selected_plan_id in plan.upgrade_to_plan_ids:
+        plan.upgrade_to_plan_ids.remove(selected_plan_id)
+        logger.info(f"{log(user)} Removed upgrade target '{selected_plan_id}'")
+    else:
+        plan.upgrade_to_plan_ids.append(selected_plan_id)
+        logger.info(f"{log(user)} Added upgrade target '{selected_plan_id}'")
+
+    adapter.save(plan)
 
 
 @inject
@@ -740,6 +837,10 @@ def _normalize_plan_limits(plan_dto: PlanDto) -> None:
     if plan_dto.availability != PlanAvailability.ALLOWED:
         plan_dto.allowed_user_ids = []
 
+    if not plan_dto.is_archived:
+        plan_dto.archived_renew_mode = ArchivedPlanRenewMode.SELF_RENEW
+        plan_dto.replacement_plan_ids = []
+
 
 async def _prepare_trial_plan(
     *,
@@ -802,7 +903,18 @@ async def _persist_existing_plan(
     subscription_service: SubscriptionService,
 ) -> bool:
     logger.info(f"{log(user)} Updating existing plan with ID '{plan_dto.id}'")
-    updated_plan = await plan_service.update(plan_dto)
+    try:
+        updated_plan = await plan_service.update(plan_dto)
+    except PlanValidationError as exception:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-plan-validation-error",
+                i18n_kwargs={"error": str(exception)},
+            ),
+        )
+        logger.warning(f"{log(user)} Plan validation failed: {exception}")
+        return False
     if not updated_plan:
         await _notify_plan_message(
             user=user,
@@ -843,7 +955,18 @@ async def _persist_new_plan(
         return False
 
     logger.info(f"{log(user)} Creating new plan with name '{plan_dto.name}'")
-    plan = await plan_service.create(plan_dto)
+    try:
+        plan = await plan_service.create(plan_dto)
+    except PlanValidationError as exception:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-plan-validation-error",
+                i18n_kwargs={"error": str(exception)},
+            ),
+        )
+        logger.warning(f"{log(user)} Plan validation failed: {exception}")
+        return False
     logger.info(f"{log(user)} Plan '{plan.name}' created successfully")
     await _notify_plan_message(
         user=user,

@@ -45,7 +45,6 @@ from src.infrastructure.database.models.dto import (
     PaymentGatewayDto,
     PlanDto,
     PlanDurationDto,
-    PlanSnapshotDto,
     PriceDetailsDto,
     PromocodeDto,
     SubscriptionDto,
@@ -55,16 +54,16 @@ from src.infrastructure.taskiq.tasks.notifications import send_error_notificatio
 from src.services.notification import NotificationService
 from src.services.payment_gateway import PaymentGatewayService
 from src.services.plan import PlanService
-from src.services.purchase_gateway_policy import filter_gateways_by_channel
 from src.services.pricing import PricingService
 from src.services.promocode import PromocodeService
+from src.services.purchase_gateway_policy import filter_gateways_by_channel
 from src.services.settings import SettingsService
+from src.services.subscription import SubscriptionService
 from src.services.subscription_purchase import (
     SubscriptionPurchaseError,
     SubscriptionPurchaseRequest,
     SubscriptionPurchaseService,
 )
-from src.services.subscription import SubscriptionService
 from src.services.user import UserService
 
 PAYMENT_CACHE_KEY = "payment_cache"
@@ -167,7 +166,9 @@ def _clear_payment_selection_state(
 
 
 def _get_selected_device_types(dialog_manager: DialogManager) -> list[DeviceType] | None:
-    selected_devices = cast(list[str], dialog_manager.dialog_data.get(SELECTED_DEVICE_TYPES_KEY, []))
+    selected_devices = cast(
+        list[str], dialog_manager.dialog_data.get(SELECTED_DEVICE_TYPES_KEY, [])
+    )
     if not selected_devices:
         return None
     return [DeviceType(device_type) for device_type in selected_devices]
@@ -220,7 +221,9 @@ def _get_purchase_state(
     dialog_manager: DialogManager,
 ) -> tuple[PurchaseType, int | None, list[int] | None]:
     return (
-        normalize_purchase_type(cast(PurchaseType | str, dialog_manager.dialog_data["purchase_type"])),
+        normalize_purchase_type(
+            cast(PurchaseType | str, dialog_manager.dialog_data["purchase_type"])
+        ),
         cast(Optional[int], dialog_manager.dialog_data.get("renew_subscription_id")),
         cast(Optional[list[int]], dialog_manager.dialog_data.get("renew_subscription_ids")),
     )
@@ -1003,7 +1006,6 @@ async def _notify_promocode_activation_result(
     await dialog_manager.switch_to(Subscription.MAIN)
 
 
-
 async def _create_payment_and_get_data(
     dialog_manager: DialogManager,
     plan: PlanDto,
@@ -1080,7 +1082,6 @@ async def _create_payment_and_get_data(
     )
 
 
-
 @inject
 async def on_purchase_type_select(
     purchase_type: PurchaseType,
@@ -1135,7 +1136,6 @@ async def on_purchase_type_select(
 
     dialog_manager.dialog_data["only_single_plan"] = False
     await dialog_manager.switch_to(state=Subscription.PLANS)
-
 
 
 @inject
@@ -1233,7 +1233,6 @@ async def on_plan_select(
         return
 
     await dialog_manager.switch_to(state=Subscription.DURATION)
-
 
 
 @inject
@@ -1343,7 +1342,6 @@ async def on_payment_method_select(
     # Переходим к подтверждению (выбор устройства уже был сделан ранее для NEW)
 
 
-
 @inject
 async def on_get_subscription(
     callback: CallbackQuery,
@@ -1368,9 +1366,7 @@ async def on_payment_asset_select(
     subscription_purchase_service: FromDishka[SubscriptionPurchaseService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    logger.info(
-        f"{log(user)} Selected payment asset '{selected_payment_asset.value}'"
-    )
+    logger.info(f"{log(user)} Selected payment asset '{selected_payment_asset.value}'")
 
     adapter = DialogDataAdapter(dialog_manager)
     plan = adapter.load(PlanDto)
@@ -1426,7 +1422,6 @@ async def on_subscription_confirm_back(
     dialog_manager: DialogManager,
 ) -> None:
     await dialog_manager.switch_to(Subscription.PAYMENT_ASSET)
-
 
 
 @inject
@@ -2035,9 +2030,7 @@ async def on_device_type_select(
     currency = await settings_service.get_default_currency()
     selected_duration_obj = plan.get_duration(selected_duration)
     if not selected_duration_obj:
-        raise ValueError(
-            f"Duration '{selected_duration}' not found for plan '{plan.id}'"
-        )
+        raise ValueError(f"Duration '{selected_duration}' not found for plan '{plan.id}'")
 
     pricing_currency = _resolve_duration_currency(selected_duration_obj, currency)
     price = pricing_service.calculate(
@@ -2045,7 +2038,7 @@ async def on_device_type_select(
         price=selected_duration_obj.get_price(pricing_currency),
         currency=pricing_currency,
     )
-    dialog_manager.dialog_data['is_free'] = price.is_free
+    dialog_manager.dialog_data["is_free"] = price.is_free
     gateways = await _get_available_purchase_gateways(
         dialog_manager=dialog_manager,
         user=user,

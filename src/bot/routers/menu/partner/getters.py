@@ -361,7 +361,11 @@ async def partner_history_getter(
         display_currency = Currency(item.display_currency)
         amount_text = _format_amount(item.display_amount, display_currency)
         if display_currency != Currency.RUB:
-            amount_text = f"{amount_text} ({_format_amount(Decimal(item.amount) / Decimal('100'), Currency.RUB)})"
+            rub_amount = _format_amount(
+                Decimal(item.amount) / Decimal("100"),
+                Currency.RUB,
+            )
+            amount_text = f"{amount_text} ({rub_amount})"
 
         withdrawals.append(
             {

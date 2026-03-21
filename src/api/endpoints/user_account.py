@@ -28,9 +28,9 @@ from src.core.enums import PurchaseChannel
 from src.infrastructure.database.models.dto import UserDto
 from src.services.email_recovery import EmailRecoveryService
 from src.services.plan_catalog import PlanCatalogService
+from src.services.user import UserService
 from src.services.user_activity_portal import UserActivityPortalService
 from src.services.user_profile import UserProfileService
-from src.services.user import UserService
 from src.services.web_account import WebAccountService
 
 router = APIRouter(prefix="/api/v1", tags=["User API"])

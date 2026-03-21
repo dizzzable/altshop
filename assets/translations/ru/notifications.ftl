@@ -718,3 +718,5 @@ ntf-user-web-password-reset-issued =
     Передайте пароль пользователю вручную. При первом входе потребуется смена пароля.
 
 ntf-user-web-password-reset-failed = ❌ Не удалось сбросить web-пароль: { $error }
+ntf-plan-delete-blocked = <i>❌ План нельзя удалить, пока он используется в подписках или переходах. Переведите его в архив.</i>
+ntf-plan-validation-error = <i>❌ Ошибка валидации плана: { $error }</i>

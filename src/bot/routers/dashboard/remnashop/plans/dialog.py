@@ -20,10 +20,17 @@ from src.bot.keyboards import main_menu_button
 from src.bot.routers.extra.test import show_dev_popup
 from src.bot.states import DashboardRemnashop, RemnashopPlans
 from src.bot.widgets import Banner, I18nFormat, IgnoreUpdate
-from src.core.enums import BannerName, Currency, PlanAvailability, PlanType
+from src.core.enums import (
+    ArchivedPlanRenewMode,
+    BannerName,
+    Currency,
+    PlanAvailability,
+    PlanType,
+)
 
 from .getters import (
     allowed_users_getter,
+    archived_renew_mode_getter,
     availability_getter,
     configurator_getter,
     description_getter,
@@ -35,15 +42,19 @@ from .getters import (
     plans_getter,
     price_getter,
     prices_getter,
+    replacement_plans_getter,
     squads_getter,
     tag_getter,
     traffic_getter,
     type_getter,
+    upgrade_plans_getter,
 )
 from .handlers import (
     on_active_toggle,
     on_allowed_user_input,
     on_allowed_user_remove,
+    on_archived_renew_mode_select,
+    on_archived_toggle,
     on_availability_select,
     on_confirm_plan,
     on_currency_select,
@@ -60,12 +71,14 @@ from .handlers import (
     on_plan_move,
     on_plan_select,
     on_price_input,
+    on_replacement_plan_select,
     on_squads,
     on_strategy_select,
     on_tag_delete,
     on_tag_input,
     on_traffic_input,
     on_type_select,
+    on_upgrade_target_select,
 )
 
 plans = Window(
@@ -124,6 +137,19 @@ configurator = Window(
         ),
     ),
     Row(
+        Button(
+            text=I18nFormat("btn-plan-archived", is_archived=F["is_archived"]),
+            id="archived_toggle",
+            on_click=on_archived_toggle,
+        ),
+        SwitchTo(
+            text=I18nFormat("btn-plan-renew-mode", renew_mode=F["archived_renew_mode"]),
+            id="renew_mode",
+            state=RemnashopPlans.ARCHIVED_RENEW_MODE,
+            when=F["is_archived"],
+        ),
+    ),
+    Row(
         SwitchTo(
             text=I18nFormat("btn-plan-name"),
             id="name",
@@ -179,6 +205,20 @@ configurator = Window(
             id="allowed",
             state=RemnashopPlans.ALLOWED,
             when=F["availability"] == PlanAvailability.ALLOWED,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-plan-replacements", count=F["replacement_count"]),
+            id="replacement_plans",
+            state=RemnashopPlans.REPLACEMENT_PLANS,
+            when=F["is_archived"]
+            & (F["archived_renew_mode"] == ArchivedPlanRenewMode.REPLACE_ON_RENEW),
+        ),
+        SwitchTo(
+            text=I18nFormat("btn-plan-upgrades", count=F["upgrade_count"]),
+            id="upgrade_plans",
+            state=RemnashopPlans.UPGRADE_PLANS,
         ),
     ),
     Row(
@@ -334,6 +374,89 @@ plan_availability = Window(
     IgnoreUpdate(),
     state=RemnashopPlans.AVAILABILITY,
     getter=availability_getter,
+)
+
+plan_archived_renew_mode = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-plan-archived-renew-mode"),
+    Column(
+        Select(
+            text=I18nFormat("btn-plan-renew-mode-choice", mode=F["item"]),
+            id="select_archived_renew_mode",
+            item_id_getter=lambda item: item.value,
+            items="renew_modes",
+            type_factory=ArchivedPlanRenewMode,
+            on_click=on_archived_renew_mode_select,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=RemnashopPlans.CONFIGURATOR,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=RemnashopPlans.ARCHIVED_RENEW_MODE,
+    getter=archived_renew_mode_getter,
+)
+
+plan_replacement_plans = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-plan-replacement-plans"),
+    Column(
+        Select(
+            text=I18nFormat(
+                "btn-plan-transition-choice",
+                name=F["item"]["plan_name"],
+                selected=F["item"]["selected"],
+            ),
+            id="select_replacement_plan",
+            item_id_getter=lambda item: item["plan_id"],
+            items="plans",
+            type_factory=int,
+            on_click=on_replacement_plan_select,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=RemnashopPlans.CONFIGURATOR,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=RemnashopPlans.REPLACEMENT_PLANS,
+    getter=replacement_plans_getter,
+)
+
+plan_upgrade_plans = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-plan-upgrade-plans"),
+    Column(
+        Select(
+            text=I18nFormat(
+                "btn-plan-transition-choice",
+                name=F["item"]["plan_name"],
+                selected=F["item"]["selected"],
+            ),
+            id="select_upgrade_plan",
+            item_id_getter=lambda item: item["plan_id"],
+            items="plans",
+            type_factory=int,
+            on_click=on_upgrade_target_select,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=RemnashopPlans.CONFIGURATOR,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=RemnashopPlans.UPGRADE_PLANS,
+    getter=upgrade_plans_getter,
 )
 
 plan_traffic = Window(
@@ -610,6 +733,7 @@ router = Dialog(
     plan_tag,
     plan_type,
     plan_availability,
+    plan_archived_renew_mode,
     plan_traffic,
     plan_devices,
     plan_durations,
@@ -617,6 +741,8 @@ router = Dialog(
     plan_prices,
     plan_price,
     plan_allowed_users,
+    plan_replacement_plans,
+    plan_upgrade_plans,
     plan_squads,
     plan_internal_squads,
     plan_external_squads,

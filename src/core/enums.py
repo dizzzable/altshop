@@ -106,6 +106,7 @@ class BroadcastAudience(UpperStrEnum):
 class PurchaseType(UpperStrEnum):
     NEW = auto()
     RENEW = auto()
+    UPGRADE = auto()
     ADDITIONAL = auto()
 
 
@@ -286,6 +287,17 @@ class PlanAvailability(UpperStrEnum):
     INVITED = auto()
     ALLOWED = auto()
     TRIAL = auto()
+
+
+class ArchivedPlanRenewMode(UpperStrEnum):
+    SELF_RENEW = auto()
+    REPLACE_ON_RENEW = auto()
+
+
+class SubscriptionRenewMode(UpperStrEnum):
+    STANDARD = auto()
+    SELF_RENEW = auto()
+    REPLACE_ON_RENEW = auto()
 
 
 class PromocodeAvailability(UpperStrEnum):

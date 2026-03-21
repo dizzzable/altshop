@@ -788,3 +788,23 @@ btn-user-assign-plan-choice = { $selected ->
 
 btn-user-reset-web-password = 💥Сброс web-пароля
 btn-subscription-back-payment-asset = Изменить монету
+btn-plan-archived = { $is_archived ->
+    [1] 🗄 Архивный
+    *[0] 🛒 Публичный
+    }
+btn-plan-renew-mode = 🔁 Продление: { $renew_mode ->
+    [SELF_RENEW] Только этот тариф
+    [REPLACE_ON_RENEW] Замена при продлении
+    *[other] { $renew_mode }
+    }
+btn-plan-renew-mode-choice = { $mode ->
+    [SELF_RENEW] Продлевать тот же тариф
+    [REPLACE_ON_RENEW] Заменять на доступный
+    *[other] { $mode }
+    }
+btn-plan-replacements = 🔄 Замены при продлении ({ $count })
+btn-plan-upgrades = ⬆️ Улучшения ({ $count })
+btn-plan-transition-choice = { $selected ->
+    [1] ✅
+    *[0] ◻️
+    } { $name }

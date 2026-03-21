@@ -547,7 +547,7 @@ async def give_subscription_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    plans = await plan_service.get_available_plans(target_user)
+    plans = await plan_service.get_assignable_active_plans()
 
     if not plans:
         raise ValueError("Available plans not found")

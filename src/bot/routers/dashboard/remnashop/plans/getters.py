@@ -8,7 +8,7 @@ from remnawave import RemnawaveSDK
 from remnawave.enums.users import TrafficLimitStrategy
 from remnawave.models import GetAllInternalSquadsResponseDto
 
-from src.core.enums import Currency, PlanAvailability, PlanType
+from src.core.enums import ArchivedPlanRenewMode, Currency, PlanAvailability, PlanType
 from src.core.utils.adapter import DialogDataAdapter
 from src.infrastructure.database.models.dto import PlanDto, PlanDurationDto, PlanPriceDto
 from src.services.plan import PlanService
@@ -27,6 +27,7 @@ async def plans_getter(
             "id": plan.id,
             "name": plan.name,
             "is_active": plan.is_active,
+            "is_archived": plan.is_archived,
         }
         for plan in plans
     ]
@@ -85,6 +86,14 @@ async def configurator_getter(dialog_manager: DialogManager, **kwargs: Any) -> d
         "is_unlimited_devices": getattr(plan, "is_unlimited_devices", False),
         "plan_type": getattr(plan, "type", ""),
         "availability_type": getattr(plan, "availability", ""),
+        "is_archived": getattr(plan, "is_archived", False),
+        "archived_renew_mode": getattr(
+            plan,
+            "archived_renew_mode",
+            ArchivedPlanRenewMode.SELF_RENEW,
+        ),
+        "replacement_count": len(getattr(plan, "replacement_plan_ids", [])),
+        "upgrade_count": len(getattr(plan, "upgrade_to_plan_ids", [])),
     }
 
     data = plan.model_dump() if plan else {}
@@ -129,6 +138,73 @@ async def type_getter(dialog_manager: DialogManager, **kwargs: Any) -> dict[str,
 
 async def availability_getter(dialog_manager: DialogManager, **kwargs: Any) -> dict[str, Any]:
     return {"availability": list(PlanAvailability)}
+
+
+async def archived_renew_mode_getter(
+    dialog_manager: DialogManager,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    return {"renew_modes": list(ArchivedPlanRenewMode)}
+
+
+@inject
+async def replacement_plans_getter(
+    dialog_manager: DialogManager,
+    plan_service: FromDishka[PlanService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    adapter = DialogDataAdapter(dialog_manager)
+    plan = adapter.load(PlanDto)
+
+    if not plan:
+        raise ValueError("PlanDto not found in dialog data")
+
+    available_plans = [
+        candidate
+        for candidate in await plan_service.get_all()
+        if candidate.id is not None
+        and candidate.id != plan.id
+        and candidate.is_publicly_purchasable
+    ]
+    formatted_plans = [
+        {
+            "plan_id": candidate.id,
+            "plan_name": candidate.name,
+            "selected": candidate.id in plan.replacement_plan_ids,
+        }
+        for candidate in available_plans
+    ]
+    return {"plans": formatted_plans}
+
+
+@inject
+async def upgrade_plans_getter(
+    dialog_manager: DialogManager,
+    plan_service: FromDishka[PlanService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    adapter = DialogDataAdapter(dialog_manager)
+    plan = adapter.load(PlanDto)
+
+    if not plan:
+        raise ValueError("PlanDto not found in dialog data")
+
+    available_plans = [
+        candidate
+        for candidate in await plan_service.get_all()
+        if candidate.id is not None
+        and candidate.id != plan.id
+        and candidate.is_publicly_purchasable
+    ]
+    formatted_plans = [
+        {
+            "plan_id": candidate.id,
+            "plan_name": candidate.name,
+            "selected": candidate.id in plan.upgrade_to_plan_ids,
+        }
+        for candidate in available_plans
+    ]
+    return {"plans": formatted_plans}
 
 
 async def traffic_getter(dialog_manager: DialogManager, **kwargs: Any) -> dict[str, Any]:

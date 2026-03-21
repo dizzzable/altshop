@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, cast
 
 from dishka.integrations.fastapi import FromDishka, inject
@@ -9,8 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.contracts.user_subscription import (
     GenerateDeviceRequest,
-    PurchaseQuoteRequest,
     PromocodeActivateRequest,
+    PurchaseQuoteRequest,
     PurchaseRequest,
     SubscriptionAssignmentRequest,
     TrialRequest,
@@ -27,17 +28,19 @@ from src.api.presenters.user_account import (
     GenerateDeviceResponse,
     PromocodeActivateResponse,
     PromocodeActivationHistoryResponse,
-    PurchaseResponse,
     PurchaseQuoteResponse,
+    PurchaseResponse,
     SubscriptionListResponse,
+    SubscriptionPurchaseOptionsResponse,
     SubscriptionResponse,
     TrialEligibilityResponse,
     _build_device_list_response,
     _build_generated_device_response,
     _build_promocode_activation_history_response,
     _build_promocode_activation_response,
-    _build_purchase_response,
     _build_purchase_quote_response,
+    _build_purchase_response,
+    _build_subscription_purchase_options_response,
     _build_trial_eligibility_response,
     _raise_purchase_access_http_error,
     _raise_subscription_device_http_error,
@@ -45,6 +48,7 @@ from src.api.presenters.user_account import (
     _raise_subscription_purchase_http_error,
     build_subscription_response,
 )
+from src.core.enums import PurchaseChannel, PurchaseType, SubscriptionStatus
 from src.infrastructure.database.models.dto import UserDto
 from src.infrastructure.taskiq.tasks.subscriptions import (
     refresh_user_subscriptions_runtime_task,
@@ -87,9 +91,14 @@ async def list_subscriptions(
     current_user: UserDto = Depends(require_web_product_access),
     subscription_service: FromDishka[SubscriptionService] = _DISHKA_DEFAULT,
     subscription_runtime_service: FromDishka[SubscriptionRuntimeService] = _DISHKA_DEFAULT,
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService] = _DISHKA_DEFAULT,
 ) -> SubscriptionListResponse:
     """Get all user subscriptions."""
-    subscriptions = await subscription_service.get_all_by_user(current_user.telegram_id)
+    subscriptions = [
+        subscription
+        for subscription in await subscription_service.get_all_by_user(current_user.telegram_id)
+        if subscription.status != SubscriptionStatus.DELETED
+    ]
 
     async def enqueue_runtime_refresh(subscription_ids: list[int]) -> None:
         await refresh_user_subscriptions_runtime_task.kiq(subscription_ids)
@@ -99,13 +108,53 @@ async def list_subscriptions(
         user_telegram_id=current_user.telegram_id,
         enqueue_runtime_refresh=enqueue_runtime_refresh,
     )
+    action_policies = await asyncio.gather(
+        *(
+            subscription_purchase_service.get_action_policy(
+                current_user=current_user,
+                subscription=subscription,
+            )
+            for subscription in refreshed_subscriptions
+        )
+    )
 
     return SubscriptionListResponse(
         subscriptions=[
-            build_subscription_response(sub, fallback_user_telegram_id=current_user.telegram_id)
-            for sub in refreshed_subscriptions
+            build_subscription_response(
+                sub,
+                fallback_user_telegram_id=current_user.telegram_id,
+                action_policy=policy,
+            )
+            for sub, policy in zip(refreshed_subscriptions, action_policies, strict=False)
         ]
     )
+
+
+@router.get(
+    "/subscription/{subscription_id}/purchase-options",
+    response_model=SubscriptionPurchaseOptionsResponse,
+)
+@inject
+async def get_subscription_purchase_options(
+    subscription_id: int,
+    purchase_type: PurchaseType = Query(..., description="RENEW or UPGRADE"),
+    channel: PurchaseChannel = Query(PurchaseChannel.WEB),
+    current_user: UserDto = Depends(require_web_product_access),
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService] = _DISHKA_DEFAULT,
+) -> SubscriptionPurchaseOptionsResponse:
+    try:
+        result = await subscription_purchase_service.get_purchase_options(
+            subscription_id=subscription_id,
+            purchase_type=purchase_type,
+            current_user=current_user,
+            channel=channel,
+        )
+    except PurchaseAccessError as exception:
+        _raise_purchase_access_http_error(exception)
+    except SubscriptionPurchaseError as exception:
+        _raise_subscription_purchase_http_error(exception)
+
+    return _build_subscription_purchase_options_response(result)
 
 
 @router.get("/subscription/{subscription_id}", response_model=SubscriptionResponse)
@@ -114,6 +163,7 @@ async def get_subscription(
     subscription_id: int,
     current_user: UserDto = Depends(require_web_product_access),
     subscription_portal_service: FromDishka[SubscriptionPortalService] = _DISHKA_DEFAULT,
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService] = _DISHKA_DEFAULT,
 ) -> SubscriptionResponse:
     """Get subscription by ID."""
     try:
@@ -128,10 +178,15 @@ async def get_subscription(
         SubscriptionPortalStateError,
     ) as exception:
         _raise_subscription_portal_http_error(exception)
+    action_policy = await subscription_purchase_service.get_action_policy(
+        current_user=current_user,
+        subscription=refreshed_subscription,
+    )
     return build_subscription_response(
         refreshed_subscription,
         fallback_user_telegram_id=current_user.telegram_id,
-)
+        action_policy=action_policy,
+    )
 
 
 @router.patch("/subscription/{subscription_id}/assignment", response_model=SubscriptionResponse)
@@ -244,6 +299,29 @@ async def renew_subscription(
     """Renew subscription via dedicated endpoint alias."""
     try:
         result = await subscription_purchase_service.execute_renewal_alias(
+            subscription_id=subscription_id,
+            request=_build_subscription_purchase_request(request),
+            current_user=current_user,
+        )
+    except PurchaseAccessError as exception:
+        _raise_purchase_access_http_error(exception)
+    except SubscriptionPurchaseError as exception:
+        _raise_subscription_purchase_http_error(exception)
+
+    return _build_purchase_response(result)
+
+
+@router.post("/subscription/{subscription_id}/upgrade", response_model=PurchaseResponse)
+@inject
+async def upgrade_subscription(
+    subscription_id: int,
+    request: PurchaseRequest,
+    current_user: UserDto = Depends(require_web_product_access),
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService] = _DISHKA_DEFAULT,
+) -> PurchaseResponse:
+    """Upgrade subscription via dedicated endpoint alias."""
+    try:
+        result = await subscription_purchase_service.execute_upgrade_alias(
             subscription_id=subscription_id,
             request=_build_subscription_purchase_request(request),
             current_user=current_user,

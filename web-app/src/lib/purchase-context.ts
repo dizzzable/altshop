@@ -11,7 +11,7 @@ export interface PendingPurchaseContext {
 }
 
 function isValidPurchaseType(value: unknown): value is PurchaseType {
-  return value === 'NEW' || value === 'RENEW' || value === 'ADDITIONAL'
+  return value === 'NEW' || value === 'RENEW' || value === 'UPGRADE' || value === 'ADDITIONAL'
 }
 
 function normalizeRenewIds(value: unknown): number[] {

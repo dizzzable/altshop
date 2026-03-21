@@ -775,3 +775,23 @@ btn-user-assign-plan-choice = { $selected ->
 
 btn-user-reset-web-password = 💥Reset web password
 btn-subscription-back-payment-asset = Change Coin
+btn-plan-archived = { $is_archived ->
+    [1] 🗄 Archived
+    *[0] 🛒 Public
+    }
+btn-plan-renew-mode = 🔁 Renewal: { $renew_mode ->
+    [SELF_RENEW] Same plan only
+    [REPLACE_ON_RENEW] Replace on renew
+    *[other] { $renew_mode }
+    }
+btn-plan-renew-mode-choice = { $mode ->
+    [SELF_RENEW] Renew the same plan
+    [REPLACE_ON_RENEW] Replace with available plan
+    *[other] { $mode }
+    }
+btn-plan-replacements = 🔄 Renew replacements ({ $count })
+btn-plan-upgrades = ⬆️ Upgrade targets ({ $count })
+btn-plan-transition-choice = { $selected ->
+    [1] ✅
+    *[0] ◻️
+    } { $name }

@@ -33,12 +33,13 @@ from src.core.utils.formatters import (
 )
 from src.infrastructure.database.models.dto import (
     PlanDto,
+    PlanDurationDto,
     UserDto,
 )
 from src.services.payment_gateway import PaymentGatewayService
 from src.services.plan import PlanService
-from src.services.purchase_gateway_policy import filter_gateways_by_channel
 from src.services.pricing import PricingService
+from src.services.purchase_gateway_policy import filter_gateways_by_channel
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 
@@ -105,14 +106,20 @@ def _resolve_available_currency(
     return next(iter(available_currencies))
 
 
-def _resolve_duration_currency(duration, preferred_currency: Currency) -> Currency:
+def _resolve_duration_currency(
+    duration: PlanDurationDto,
+    preferred_currency: Currency,
+) -> Currency:
     return _resolve_available_currency(
         available_currencies={price.currency for price in duration.prices},
         preferred_currency=preferred_currency,
     )
 
 
-def _resolve_common_duration_currency(durations: list[Any], preferred_currency: Currency) -> Currency:
+def _resolve_common_duration_currency(
+    durations: list[PlanDurationDto],
+    preferred_currency: Currency,
+) -> Currency:
     if not durations:
         return preferred_currency
 
@@ -544,7 +551,10 @@ async def duration_getter(
                 continue
             pricing_currency = _resolve_common_duration_currency(selected_durations, currency)
             total_price = sum(
-                (selected_duration.get_price(pricing_currency) for selected_duration in selected_durations),
+                (
+                    selected_duration.get_price(pricing_currency)
+                    for selected_duration in selected_durations
+                ),
                 Decimal(0),
             )
             price = pricing_service.calculate(user, total_price, pricing_currency)
@@ -807,10 +817,9 @@ async def confirm_getter(
         plan_service=plan_service,
     )
     gateways = filter_gateways_for_durations(gateways, selected_durations)
-    show_payment_asset_back = (
-        len(get_supported_payment_assets(selected_payment_method)) > 1
-        and bool(selected_payment_asset)
-    )
+    show_payment_asset_back = len(
+        get_supported_payment_assets(selected_payment_method)
+    ) > 1 and bool(selected_payment_asset)
 
     return {
         "purchase_type": purchase_type,
