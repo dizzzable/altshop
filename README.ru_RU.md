@@ -194,25 +194,44 @@ cp .env.example .env
 - заполни `EMAIL_FROM_ADDRESS`
 - добавь SMTP credentials, если это требует провайдер
 
-### 5. Положить TLS-файлы
+### 5. Выпустить TLS-файлы прямо на VPS
 
-```text
-nginx/fullchain.pem
-nginx/privkey.key
-```
-
-### 6. Поднять стек
+Для pull-based production стека рекомендуемый выпуск сертификатов такой:
 
 ```bash
-docker compose up --build
+acme.sh --issue --standalone -d '<domain>' \
+  --key-file /opt/altshop/nginx/remnabot_privkey.key \
+  --fullchain-file /opt/altshop/nginx/remnabot_fullchain.pem
 ```
 
-### 7. Проверить публичные точки входа
+### 6. Один раз открыть GHCR packages
+
+Release workflow публикует два пакета:
+
+- `ghcr.io/dizzzable/altshop-backend`
+- `ghcr.io/dizzzable/altshop-nginx`
+
+Если GitHub создаст их приватными при первой публикации, один раз переведи оба пакета в `Public` в настройках Packages этого репозитория. После этого VPS сможет делать `pull` без `docker login`.
+
+### 7. Обновить и поднять VPS стек
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Доступные production overrides:
+
+- `ALTSHOP_IMAGE_TAG` для pin конкретного backend release вместо `latest`
+- `ALTSHOP_NGINX_IMAGE_TAG` для pin конкретного nginx/web release вместо `latest`
+- `NGINX_SSL_FULLCHAIN_PATH` и `NGINX_SSL_PRIVKEY_PATH`, если сертификаты лежат не в `/opt/altshop/nginx`
+
+### 8. Проверить публичные точки входа
 
 - `https://<APP_DOMAIN>/webapp/`
 - `https://<APP_DOMAIN>/api/v1/auth/branding`
 
-### 8. Сделать первичную настройку в админке бота
+### 9. Сделать первичную настройку в админке бота
 
 Рекомендуемый порядок:
 
@@ -222,6 +241,19 @@ docker compose up --build
 4. Проверить branding и support links.
 5. Настроить referral и partner rules, если они нужны.
 6. Проверить backup и notification behavior.
+
+### Локальный/manual build fallback
+
+Если нужен старый сценарий с локальной сборкой из исходников, продолжай использовать существующий `docker-compose.yml`:
+
+```text
+nginx/fullchain.pem
+nginx/privkey.key
+```
+
+```bash
+docker compose up --build
+```
 
 ## 🧩 Что Входит В Runtime Stack
 

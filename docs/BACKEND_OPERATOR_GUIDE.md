@@ -56,11 +56,17 @@ Notes:
 ## Canonical Deploy Sequence
 
 ```powershell
-docker compose pull
-docker compose up -d --build webapp-build
-docker compose up -d --build altshop altshop-taskiq-worker altshop-taskiq-scheduler altshop-nginx
-docker compose exec altshop-nginx test -f /opt/altshop/webapp/index.html
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml exec altshop-nginx test -f /opt/altshop/webapp/index.html
 ```
+
+Notes:
+
+- `docker-compose.prod.yml` is the canonical VPS deploy contract and pulls release images from GHCR.
+- `APP_DOMAIN` from `.env` is rendered into `server_name` inside `altshop-nginx` at container startup.
+- Certificates are expected on the host at `/opt/altshop/nginx/remnabot_fullchain.pem` and `/opt/altshop/nginx/remnabot_privkey.key` unless overridden via `NGINX_SSL_FULLCHAIN_PATH` and `NGINX_SSL_PRIVKEY_PATH`.
+- After the first release publish, ensure `ghcr.io/dizzzable/altshop-backend` and `ghcr.io/dizzzable/altshop-nginx` are `Public` in GitHub Packages if you want anonymous pulls on the VPS.
 
 Smoke checks:
 

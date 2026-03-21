@@ -1,17 +1,41 @@
 # AltShop Deployment
 
-Проверено по коду: `2026-03-08`
+Проверено по коду: `2026-03-21`
 
 ## Источники истины
 
 - `docker-compose.yml`
+- `docker-compose.prod.yml`
 - `Dockerfile`
+- `nginx/Dockerfile`
 - `docker-entrypoint.sh`
 - `nginx/nginx.conf`
+- `.github/workflows/release.yml`
 
-## Текущий deployment contract
+## Deployment contracts
 
-В репозитории есть один актуальный compose stack на 7 сервисов:
+### VPS / production contract
+
+Канонический production deploy теперь идет через `docker-compose.prod.yml` и release images из GHCR.
+
+| Service | Role | Image | Depends on |
+| --- | --- | --- | --- |
+| `altshop-nginx` | HTTPS termination, раздача `/webapp/`, proxy к backend | `ghcr.io/dizzzable/altshop-nginx` | none |
+| `altshop-db` | PostgreSQL 17 | `postgres:17` | none |
+| `altshop-redis` | Valkey 9 | `valkey/valkey:9-alpine` | none |
+| `altshop` | основной FastAPI + aiogram runtime | `ghcr.io/dizzzable/altshop-backend` | `altshop-nginx` healthy, `altshop-db` healthy, `altshop-redis` healthy |
+| `altshop-taskiq-worker` | фоновые Taskiq workers | `ghcr.io/dizzzable/altshop-backend` | `altshop` started |
+| `altshop-taskiq-scheduler` | Taskiq scheduler | `ghcr.io/dizzzable/altshop-backend` | `altshop` started |
+
+Что важно:
+
+- `webapp-build` в production stack отсутствует, потому что frontend уже встроен в `altshop-nginx` image.
+- `altshop-nginx` получает только TLS-сертификаты с хоста, а не из git.
+- по умолчанию production compose использует `latest`, но поддерживает pin через `ALTSHOP_IMAGE_TAG` и `ALTSHOP_NGINX_IMAGE_TAG`.
+
+### Local/manual build fallback
+
+Существующий `docker-compose.yml` остается build-based fallback для локальной сборки и ручного деплоя из исходников.
 
 | Service | Role | Image/build | Depends on |
 | --- | --- | --- | --- |
@@ -23,23 +47,7 @@
 | `altshop-taskiq-worker` | фоновые Taskiq workers | image `altshop` | `altshop` started |
 | `altshop-taskiq-scheduler` | Taskiq scheduler | image `altshop` | `altshop` started |
 
-Что важно:
-
-- `admin-backend` или иные admin services в текущем `docker-compose.yml` отсутствуют.
-- `webapp-build` является обязательной частью текущего старта, потому что `altshop-nginx` зависит от него через `service_completed_successfully`.
-- `altshop` в текущем compose зависит от healthy Nginx, хотя технически backend сам по себе мог бы стартовать и без него. Документация фиксирует именно текущий contract, а не желаемую архитектуру.
-
-## Порядок старта
-
-Фактическая последовательность контейнеров по `depends_on`:
-
-1. `altshop-db`, `altshop-redis` и `webapp-build` могут стартовать сразу.
-2. `webapp-build` выполняет `npm ci --legacy-peer-deps && npm run build` внутри `./web-app`.
-3. После успешной сборки фронтенда стартует `altshop-nginx`.
-4. После прохождения healthchecks `altshop-db`, `altshop-redis` и `altshop-nginx` стартует `altshop`.
-5. После запуска `altshop` стартуют `altshop-taskiq-worker` и `altshop-taskiq-scheduler`.
-
-## Что делает backend container
+## Что делает backend image
 
 `docker-entrypoint.sh` перед запуском uvicorn:
 
@@ -56,7 +64,7 @@ Compose пробрасывает backend только на loopback:
 
 ## Nginx routing contract
 
-`nginx/nginx.conf` сейчас обслуживает:
+`nginx/nginx.conf` обслуживает:
 
 | Path | Behaviour |
 | --- | --- |
@@ -78,7 +86,7 @@ Compose пробрасывает backend только на loopback:
 - включены TLS, gzip и базовые security headers для SPA;
 - upstream backend разрешается через Docker DNS `127.0.0.11`.
 
-## Подготовка к production запуску
+## Подготовка к production запуску на VPS
 
 ### 1. Подготовить конфигурацию
 
@@ -100,77 +108,86 @@ cp .env.example .env
 - `REMNAWAVE_TOKEN`
 - `REMNAWAVE_WEBHOOK_SECRET`
 
-Подробная env-матрица: [08-configuration.md](08-configuration.md)
+`APP_DOMAIN` из `.env` также используется production nginx image для рендера `server_name` при старте контейнера.
 
-### 2. Подготовить TLS файлы для Nginx
-
-Compose ожидает, что эти файлы уже существуют:
-
-- `nginx/fullchain.pem`
-- `nginx/privkey.key`
-
-Эти пути захардкожены в `docker-compose.yml` и `nginx/nginx.conf`.
-
-### 3. Собрать frontend
+### 2. Выпустить TLS-файлы на хост
 
 ```bash
-docker compose up --build webapp-build
+acme.sh --issue --standalone -d '<domain>' \
+  --key-file /opt/altshop/nginx/remnabot_privkey.key \
+  --fullchain-file /opt/altshop/nginx/remnabot_fullchain.pem
 ```
 
-Этот шаг должен завершиться успешно, чтобы `web-app/dist` был доступен Nginx.
+По умолчанию `docker-compose.prod.yml` ожидает именно эти пути:
 
-### 4. Поднять runtime stack
+- `/opt/altshop/nginx/remnabot_fullchain.pem`
+- `/opt/altshop/nginx/remnabot_privkey.key`
+
+Если на VPS используется другой layout, переопределите:
+
+- `NGINX_SSL_FULLCHAIN_PATH`
+- `NGINX_SSL_PRIVKEY_PATH`
+
+### 3. Один раз проверить visibility GHCR packages
+
+Release workflow публикует:
+
+- `ghcr.io/dizzzable/altshop-backend`
+- `ghcr.io/dizzzable/altshop-nginx`
+
+Если GitHub создал их приватными, переведите оба пакета в `Public`. После этого `docker compose -f docker-compose.prod.yml pull` будет работать без `docker login`.
+
+### 4. Обновить и поднять stack
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-Если нужен более явный порядок:
+Если нужен pin конкретного релиза вместо `latest`, задайте перед запуском:
 
 ```bash
-docker compose up -d --build altshop-db altshop-redis
-docker compose up -d --build altshop-nginx
-docker compose up -d --build altshop altshop-taskiq-worker altshop-taskiq-scheduler
+export ALTSHOP_IMAGE_TAG=1.0.2
+export ALTSHOP_NGINX_IMAGE_TAG=1.0.2
 ```
 
-## Что монтируется в контейнеры
+## Что монтируется в production контейнеры
 
 | Host path / volume | Container path | Used by |
 | --- | --- | --- |
-| `./nginx/nginx.conf` | `/etc/nginx/conf.d/default.conf` | `altshop-nginx` |
-| `./nginx/fullchain.pem` | `/etc/nginx/ssl/fullchain.pem` | `altshop-nginx` |
-| `./nginx/privkey.key` | `/etc/nginx/ssl/privkey.key` | `altshop-nginx` |
-| `./web-app/dist` | `/opt/altshop/webapp` / `/app/dist` | `altshop-nginx`, `webapp-build`, `altshop` |
+| `${NGINX_SSL_FULLCHAIN_PATH:-/opt/altshop/nginx/remnabot_fullchain.pem}` | `/etc/nginx/ssl/fullchain.pem` | `altshop-nginx` |
+| `${NGINX_SSL_PRIVKEY_PATH:-/opt/altshop/nginx/remnabot_privkey.key}` | `/etc/nginx/ssl/privkey.key` | `altshop-nginx` |
 | `./logs` | `/opt/altshop/logs` | `altshop`, worker, scheduler |
 | `./assets` | `/opt/altshop/assets` | `altshop`, worker, scheduler |
 | `altshop-db-data` | `/var/lib/postgresql/data` | `altshop-db` |
 | `altshop-redis-data` | `/data` | `altshop-redis` |
-| `webapp-node-modules` | `/app/node_modules` | `webapp-build` |
 
 ## Проверка после старта
 
 Минимальный набор проверок:
 
 ```bash
-docker compose ps
-docker compose logs --tail=200 altshop
-docker compose logs --tail=200 altshop-nginx
-docker compose logs --tail=200 altshop-taskiq-worker
-docker compose logs --tail=200 altshop-taskiq-scheduler
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs --tail=200 altshop
+docker compose -f docker-compose.prod.yml logs --tail=200 altshop-nginx
+docker compose -f docker-compose.prod.yml logs --tail=200 altshop-taskiq-worker
+docker compose -f docker-compose.prod.yml logs --tail=200 altshop-taskiq-scheduler
+docker compose -f docker-compose.prod.yml exec altshop-nginx nginx -t
+docker compose -f docker-compose.prod.yml exec altshop-nginx test -f /opt/altshop/webapp/index.html
 ```
 
-Проверки по контракту:
+Smoke checks:
 
-- `docker compose ps` показывает `webapp-build` в статусе `Exited (0)`
+- `curl -I https://<APP_DOMAIN>/` возвращает `302` на `/webapp/`
+- `curl -I https://<APP_DOMAIN>/webapp/` возвращает `200`
+- `curl -I https://<APP_DOMAIN>/api/v1/auth/access-status` возвращает `401` для неавторизованного запроса, что считается нормой
 - `altshop-nginx` находится в `healthy`
 - `altshop-db` и `altshop-redis` находятся в `healthy`
 - в логах `altshop` нет ошибок `alembic upgrade head`
-- `https://<APP_DOMAIN>/webapp/` открывает SPA
-- `https://<APP_DOMAIN>/api/v1/auth/branding` отвечает через Nginx proxy
 
-## Текущие ограничения
+## Ограничения и замечания
 
-- В репозитории нет актуальных `docker-compose.local.yml` и `docker-compose.prod.external.yml`, поэтому они не являются частью текущего deployment contract.
-- Отдельный admin service в default stack отсутствует.
-- Отдельный health endpoint для backend в документации не фиксируется, потому что в текущем deployment flow compose использует healthchecks только для Nginx, PostgreSQL и Valkey.
-- При изменении frontend-кода нужно заново прогонять `webapp-build`, иначе Nginx продолжит раздавать старый `web-app/dist`.
+- `docker-compose.yml` остается build-based и требует локальной сборки frontend и backend.
+- `docker-compose.prod.yml` рассчитан на image-based VPS deploy через GHCR.
+- сертификаты не должны попадать в git; они живут только на VPS и монтируются в `altshop-nginx`.
+- versioned image tags сохраняются для rollback, даже если production по умолчанию использует `latest`.

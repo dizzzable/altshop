@@ -8,3 +8,7 @@ __pycache__
 .env.*
 .idea
 .vscode
+web-app/node_modules
+web-app/dist
+nginx/*.pem
+nginx/*.key

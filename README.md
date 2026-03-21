@@ -194,25 +194,44 @@ If you want email verification and password recovery:
 - fill `EMAIL_FROM_ADDRESS`
 - add SMTP credentials if required by your provider
 
-### 5. Place TLS files
+### 5. Issue TLS files on the VPS
 
-```text
-nginx/fullchain.pem
-nginx/privkey.key
-```
-
-### 6. Start the stack
+Recommended target paths for the pull-based VPS stack:
 
 ```bash
-docker compose up --build
+acme.sh --issue --standalone -d '<domain>' \
+  --key-file /opt/altshop/nginx/remnabot_privkey.key \
+  --fullchain-file /opt/altshop/nginx/remnabot_fullchain.pem
 ```
 
-### 7. Validate the public surface
+### 6. Make GHCR packages public after the first release
+
+The release workflow publishes:
+
+- `ghcr.io/dizzzable/altshop-backend`
+- `ghcr.io/dizzzable/altshop-nginx`
+
+If GitHub creates them as private packages on the first push, switch both packages to `Public` once in the repository Packages settings. After that, the VPS can pull updates without `docker login`.
+
+### 7. Pull and start the VPS stack
+
+```bash
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Optional production overrides:
+
+- `ALTSHOP_IMAGE_TAG` to pin a backend release instead of `latest`
+- `ALTSHOP_NGINX_IMAGE_TAG` to pin an nginx/web release instead of `latest`
+- `NGINX_SSL_FULLCHAIN_PATH` and `NGINX_SSL_PRIVKEY_PATH` if your certificates live outside `/opt/altshop/nginx`
+
+### 8. Validate the public surface
 
 - `https://<APP_DOMAIN>/webapp/`
 - `https://<APP_DOMAIN>/api/v1/auth/branding`
 
-### 8. Complete first operator setup in the bot
+### 9. Complete first operator setup in the bot
 
 Recommended first actions:
 
@@ -222,6 +241,19 @@ Recommended first actions:
 4. Review branding and support links.
 5. Configure referral and partner settings if you use them.
 6. Check backup settings and notification behavior.
+
+### Local/manual build fallback
+
+If you intentionally deploy from local sources instead of GHCR, keep using the existing build-based stack:
+
+```text
+nginx/fullchain.pem
+nginx/privkey.key
+```
+
+```bash
+docker compose up --build
+```
 
 ## 🧩 Runtime Stack
 
