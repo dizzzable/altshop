@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 
-
 os.environ.setdefault("APP_DOMAIN", "example.com")
 os.environ.setdefault("APP_CRYPT_KEY", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 os.environ.setdefault("APP_LOCALES", "en")

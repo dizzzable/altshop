@@ -12,7 +12,12 @@ from remnawave.exceptions.general import ApiErrorResponse
 
 from src.core.enums import SubscriptionStatus
 from src.core.utils.time import datetime_now
-from src.infrastructure.database.models.dto import PlanDto, PlanSnapshotDto, SubscriptionDto, UserDto
+from src.infrastructure.database.models.dto import (
+    PlanDto,
+    PlanSnapshotDto,
+    SubscriptionDto,
+    UserDto,
+)
 from src.services.plan import PlanDeletionBlockedError, PlanService
 from src.services.subscription import SubscriptionService
 from src.services.subscription_portal import SubscriptionPortalService

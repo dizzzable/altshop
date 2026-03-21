@@ -1,6 +1,40 @@
 from typing import Any
 
 from fluentogram import TranslatorRunner
+from fluentogram.exceptions import KeyNotFoundError
+from loguru import logger
+
+I18N_FALLBACK_PREFIXES = {"btn", "msg", "ntf", "hdr", "frg"}
+
+
+def humanize_i18n_key(key: str) -> str:
+    if not key:
+        return key
+
+    normalized_key = key.replace("_", "-")
+    parts = [part for part in normalized_key.split("-") if part]
+
+    if parts and parts[0] in I18N_FALLBACK_PREFIXES:
+        parts = parts[1:]
+
+    if not parts:
+        return key
+
+    return " ".join(part.capitalize() for part in parts)
+
+
+def safe_i18n_get(i18n: TranslatorRunner, key: str, **kwargs: Any) -> str:
+    if not key:
+        return key
+
+    try:
+        return i18n.get(key, **kwargs)
+    except KeyNotFoundError:
+        fallback = humanize_i18n_key(key)
+        logger.warning(
+            f"Translation key '{key}' not found. Falling back to generated label '{fallback}'"
+        )
+        return fallback
 
 
 def get_translated_kwargs(i18n: TranslatorRunner, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -16,14 +50,14 @@ def get_translated_kwargs(i18n: TranslatorRunner, kwargs: dict[str, Any]) -> dic
         ):
             key, sub_kwargs = v
             processed_sub_kwargs = get_translated_kwargs(i18n, sub_kwargs)
-            result[k] = i18n.get(key, **processed_sub_kwargs)
+            result[k] = safe_i18n_get(i18n, key, **processed_sub_kwargs)
 
         # case {"key": "some.key", "value": 5}
         elif isinstance(v, dict) and "key" in v:
             key = v["key"]
             sub_kwargs = {sub_k: sub_v for sub_k, sub_v in v.items() if sub_k != "key"}
             processed_sub_kwargs = get_translated_kwargs(i18n, sub_kwargs)
-            result[k] = i18n.get(key, **processed_sub_kwargs)
+            result[k] = safe_i18n_get(i18n, key, **processed_sub_kwargs)
 
         # case ["key", {"value": 5}]
         elif (
@@ -31,7 +65,7 @@ def get_translated_kwargs(i18n: TranslatorRunner, kwargs: dict[str, Any]) -> dic
         ):
             key, sub_kwargs = v
             processed_sub_kwargs = get_translated_kwargs(i18n, sub_kwargs)
-            result[k] = i18n.get(key, **processed_sub_kwargs)
+            result[k] = safe_i18n_get(i18n, key, **processed_sub_kwargs)
 
         # case [("day", {"value": 6}), ("hour", {"value": 23})]
         elif isinstance(v, list) and all(
@@ -42,7 +76,7 @@ def get_translated_kwargs(i18n: TranslatorRunner, kwargs: dict[str, Any]) -> dic
             for item in v
         ):
             parts = [
-                i18n.get(item_key, **get_translated_kwargs(i18n, item_kwargs))
+                safe_i18n_get(i18n, item_key, **get_translated_kwargs(i18n, item_kwargs))
                 for item_key, item_kwargs in v
             ]
             result[k] = " ".join(parts)

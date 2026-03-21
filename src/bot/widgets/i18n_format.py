@@ -10,7 +10,7 @@ from loguru import logger
 from magic_filter import MagicFilter
 
 from src.core.constants import CONTAINER_KEY
-from src.core.i18n.translator import get_translated_kwargs
+from src.core.i18n.translator import get_translated_kwargs, safe_i18n_get
 from src.core.utils.formatters import i18n_postprocess_text
 
 
@@ -56,4 +56,6 @@ class I18nFormat(Text):
             data = await self._transform(data, dialog_manager)
 
         data = get_translated_kwargs(i18n, data)
-        return i18n_postprocess_text(text=i18n.get(self.key.format_map(data), **data))
+        return i18n_postprocess_text(
+            text=safe_i18n_get(i18n, self.key.format_map(data), **data)
+        )

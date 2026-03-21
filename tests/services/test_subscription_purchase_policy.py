@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta
-from types import SimpleNamespace
+from datetime import timedelta
 from uuid import uuid4
 
 from src.core.enums import (
@@ -13,7 +12,13 @@ from src.core.enums import (
     SubscriptionRenewMode,
     SubscriptionStatus,
 )
-from src.infrastructure.database.models.dto import PlanDto, PlanSnapshotDto, SubscriptionDto, UserDto
+from src.core.utils.time import datetime_now
+from src.infrastructure.database.models.dto import (
+    PlanDto,
+    PlanSnapshotDto,
+    SubscriptionDto,
+    UserDto,
+)
 from src.services.plan_catalog import PlanCatalogItemSnapshot
 from src.services.subscription_purchase_policy import (
     ARCHIVED_REPLACEMENT_WARNING_CODE,
@@ -78,7 +83,7 @@ def build_subscription(
         device_limit=plan.device_limit,
         internal_squads=[],
         external_squad=None,
-        expire_at=datetime.now() + timedelta(days=30),
+        expire_at=datetime_now() + timedelta(days=30),
         url="https://example.test/subscription",
         plan=PlanSnapshotDto.from_plan(plan, 30),
     )
