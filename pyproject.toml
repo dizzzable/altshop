@@ -1,6 +1,6 @@
 [project]
 name = "altshop"
-version = "1.0.2"
+version = "1.0.3"
 description = "Telegram bot, FastAPI API, and React web app for selling VPN subscriptions with Remnawave integration"
 authors = [{ name = "dizzzable" }]
 readme = "README.md"

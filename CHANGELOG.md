@@ -6,6 +6,22 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-03-21
+
+### Added
+
+- GHCR-backed release publishing for `altshop-backend` and `altshop-nginx` images on semantic-version tags
+- a pull-based `docker-compose.prod.yml` contract for VPS updates without local backend or frontend builds
+
+### Changed
+
+- production deployment docs now point to the GHCR update flow and host-side certificates in `/opt/altshop/nginx`
+- the production nginx image now renders `APP_DOMAIN` into `server_name` at container startup
+
+### Fixed
+
+- synchronized `uv.lock` with the project version so locked backend image builds pass during release publishing
+
 ## [1.0.2] - 2026-03-21
 
 ### Fixed
