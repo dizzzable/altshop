@@ -147,9 +147,17 @@ docker compose -f docker-compose.prod.yml up -d
 Если нужен pin конкретного релиза вместо `latest`, задайте перед запуском:
 
 ```bash
-export ALTSHOP_IMAGE_TAG=1.0.2
-export ALTSHOP_NGINX_IMAGE_TAG=1.0.2
+export ALTSHOP_IMAGE_TAG=X.Y.Z
+export ALTSHOP_NGINX_IMAGE_TAG=X.Y.Z
 ```
+
+Если сервер когда-то поднимался вручную и в нем еще нет `docker-compose.prod.yml`, используйте одноразовый migrate-bootstrap:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dizzzable/altshop/main/scripts/bootstrap-prod-vps.sh | sh
+```
+
+Скрипт подтягивает `docker-compose.prod.yml`, сохраняет текущий `.env`, пытается подхватить существующие volume или bind mounts для PostgreSQL и Redis и затем переводит хост на GHCR-based stack.
 
 ## Что монтируется в production контейнеры
 
@@ -159,8 +167,8 @@ export ALTSHOP_NGINX_IMAGE_TAG=1.0.2
 | `${NGINX_SSL_PRIVKEY_PATH:-/opt/altshop/nginx/remnabot_privkey.key}` | `/etc/nginx/ssl/privkey.key` | `altshop-nginx` |
 | `./logs` | `/opt/altshop/logs` | `altshop`, worker, scheduler |
 | `./assets` | `/opt/altshop/assets` | `altshop`, worker, scheduler |
-| `altshop-db-data` | `/var/lib/postgresql/data` | `altshop-db` |
-| `altshop-redis-data` | `/data` | `altshop-redis` |
+| `${ALTSHOP_DB_VOLUME_NAME:-altshop-db-data}` | `/var/lib/postgresql/data` | `altshop-db` |
+| `${ALTSHOP_REDIS_VOLUME_NAME:-altshop-redis-data}` | `/data` | `altshop-redis` |
 
 ## Проверка после старта
 

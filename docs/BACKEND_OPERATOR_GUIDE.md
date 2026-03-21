@@ -65,6 +65,7 @@ Notes:
 
 - `docker-compose.prod.yml` is the canonical VPS deploy contract and pulls release images from GHCR.
 - `APP_DOMAIN` from `.env` is rendered into `server_name` inside `altshop-nginx` at container startup.
+- `scripts/bootstrap-prod-vps.sh` is the one-time migration path for older manually deployed VPS hosts that do not have `docker-compose.prod.yml` yet.
 - Certificates are expected on the host at `/opt/altshop/nginx/remnabot_fullchain.pem` and `/opt/altshop/nginx/remnabot_privkey.key` unless overridden via `NGINX_SSL_FULLCHAIN_PATH` and `NGINX_SSL_PRIVKEY_PATH`.
 - After the first release publish, ensure `ghcr.io/dizzzable/altshop-backend` and `ghcr.io/dizzzable/altshop-nginx` are `Public` in GitHub Packages if you want anonymous pulls on the VPS.
 

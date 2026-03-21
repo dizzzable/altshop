@@ -128,6 +128,6 @@ networks:
 
 volumes:
   altshop-db-data:
-    name: altshop-db-data
+    name: ${ALTSHOP_DB_VOLUME_NAME:-altshop-db-data}
   altshop-redis-data:
-    name: altshop-redis-data
+    name: ${ALTSHOP_REDIS_VOLUME_NAME:-altshop-redis-data}

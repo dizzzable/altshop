@@ -220,10 +220,17 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+Если VPS изначально поднимался вручную и `docker-compose.prod.yml` там еще нет, теперь есть bootstrap одной командой:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dizzzable/altshop/main/scripts/bootstrap-prod-vps.sh | sh
+```
+
 Доступные production overrides:
 
 - `ALTSHOP_IMAGE_TAG` для pin конкретного backend release вместо `latest`
 - `ALTSHOP_NGINX_IMAGE_TAG` для pin конкретного nginx/web release вместо `latest`
+- `ALTSHOP_DB_VOLUME_NAME` и `ALTSHOP_REDIS_VOLUME_NAME`, если старый сервер использует свои имена Docker volume
 - `NGINX_SSL_FULLCHAIN_PATH` и `NGINX_SSL_PRIVKEY_PATH`, если сертификаты лежат не в `/opt/altshop/nginx`
 
 ### 8. Проверить публичные точки входа

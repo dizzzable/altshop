@@ -220,10 +220,17 @@ docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
+If the VPS was originally deployed manually and does not have `docker-compose.prod.yml` yet, bootstrap it in one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dizzzable/altshop/main/scripts/bootstrap-prod-vps.sh | sh
+```
+
 Optional production overrides:
 
 - `ALTSHOP_IMAGE_TAG` to pin a backend release instead of `latest`
 - `ALTSHOP_NGINX_IMAGE_TAG` to pin an nginx/web release instead of `latest`
+- `ALTSHOP_DB_VOLUME_NAME` and `ALTSHOP_REDIS_VOLUME_NAME` if the old server uses custom named Docker volumes
 - `NGINX_SSL_FULLCHAIN_PATH` and `NGINX_SSL_PRIVKEY_PATH` if your certificates live outside `/opt/altshop/nginx`
 
 ### 8. Validate the public surface

@@ -7,3 +7,4 @@
 # Force LF for Docker files
 Dockerfile text eol=lf
 docker-compose.yml text eol=lf
+docker-compose*.yml text eol=lf
