@@ -9,6 +9,8 @@ from fluentogram import TranslatorRunner
 from src.bot.routers.subscription.payment_helpers import (
     collect_renew_ids,
     filter_gateways_for_durations,
+    normalize_gateway_type,
+    normalize_purchase_type,
     resolve_purchase_durations,
 )
 from src.core.config import AppConfig
@@ -16,6 +18,7 @@ from src.core.crypto_assets import get_supported_payment_assets
 from src.core.enums import (
     Currency,
     DeviceType,
+    PaymentGatewayType,
     PromocodeRewardType,
     PurchaseChannel,
     PurchaseType,
@@ -511,7 +514,9 @@ async def duration_getter(
     durations = []
 
     # Проверяем, есть ли множественное продление с разными планами
-    purchase_type = dialog_manager.dialog_data.get("purchase_type")
+    purchase_type = normalize_purchase_type(
+        cast(PurchaseType | str, dialog_manager.dialog_data.get("purchase_type", PurchaseType.NEW))
+    )
     renew_subscription_ids = dialog_manager.dialog_data.get("renew_subscription_ids")
     renew_subscription_id = dialog_manager.dialog_data.get("renew_subscription_id")
     renew_ids = collect_renew_ids(
@@ -519,33 +524,29 @@ async def duration_getter(
         renew_subscription_ids=renew_subscription_ids,
     )
     is_multi_renew = purchase_type == PurchaseType.RENEW and len(renew_ids) > 1
-
-    # Получаем все планы для расчёта суммарной цены при множественном продлении
-    all_plans = None
-    subscriptions_with_plans = []
-    for gateway in gateways:
-        all_plans = await plan_service.get_available_plans(user)
-        for sub_id in renew_subscription_ids:
-            subscription = await subscription_service.get(sub_id)
-            if subscription:
-                matched_plan = subscription.find_matching_plan(all_plans)
-                if matched_plan:
-                    subscriptions_with_plans.append((subscription, matched_plan))
+    renew_count = len(renew_ids) if renew_ids else 1
 
     for duration in plan.durations:
         key, kw = i18n_format_days(duration.days)
 
-        if is_multi_renew and subscriptions_with_plans:
-            # Суммируем цены всех подписок для этой длительности
-            selected_durations = []
-            total_price = Decimal(0)
-            for sub, matched_plan in subscriptions_with_plans:
-                sub_duration = matched_plan.get_duration(duration.days)
-                if sub_duration:
-                    selected_durations.append(sub_duration)
+        if is_multi_renew:
+            selected_durations = await resolve_purchase_durations(
+                user=user,
+                plan=plan,
+                duration_days=duration.days,
+                purchase_type=purchase_type,
+                renew_subscription_id=renew_subscription_id,
+                renew_subscription_ids=renew_subscription_ids,
+                subscription_service=subscription_service,
+                plan_service=plan_service,
+            )
+            if len(selected_durations) != renew_count:
+                continue
             pricing_currency = _resolve_common_duration_currency(selected_durations, currency)
-            for sub_duration in selected_durations:
-                total_price += sub_duration.get_price(pricing_currency)
+            total_price = sum(
+                (selected_duration.get_price(pricing_currency) for selected_duration in selected_durations),
+                Decimal(0),
+            )
             price = pricing_service.calculate(user, total_price, pricing_currency)
         else:
             pricing_currency = _resolve_duration_currency(duration, currency)
@@ -565,9 +566,6 @@ async def duration_getter(
                 "currency": pricing_currency.symbol,
             }
         )
-
-    # Информация о количестве продлеваемых подписок
-    renew_count = len(renew_ids) if renew_ids else 1
 
     return {
         "plan": plan.name,
@@ -609,7 +607,9 @@ async def payment_method_getter(
     )
     selected_duration = dialog_manager.dialog_data["selected_duration"]
     only_single_duration = dialog_manager.dialog_data.get("only_single_duration", False)
-    purchase_type = dialog_manager.dialog_data.get("purchase_type")
+    purchase_type = normalize_purchase_type(
+        cast(PurchaseType | str, dialog_manager.dialog_data.get("purchase_type", PurchaseType.NEW))
+    )
     is_new_purchase = purchase_type in (PurchaseType.NEW, PurchaseType.ADDITIONAL)
     duration = plan.get_duration(selected_duration)
 
@@ -699,9 +699,13 @@ async def payment_asset_getter(
         raise ValueError("PlanDto not found in dialog data")
 
     selected_duration = dialog_manager.dialog_data["selected_duration"]
-    selected_payment_method = dialog_manager.dialog_data["selected_payment_method"]
+    selected_payment_method = normalize_gateway_type(
+        cast(PaymentGatewayType | str, dialog_manager.dialog_data["selected_payment_method"])
+    )
     selected_payment_asset = dialog_manager.dialog_data.get("selected_payment_asset")
-    purchase_type = dialog_manager.dialog_data["purchase_type"]
+    purchase_type = normalize_purchase_type(
+        cast(PurchaseType | str, dialog_manager.dialog_data["purchase_type"])
+    )
     renew_ids = collect_renew_ids(
         renew_subscription_id=dialog_manager.dialog_data.get("renew_subscription_id"),
         renew_subscription_ids=dialog_manager.dialog_data.get("renew_subscription_ids"),
@@ -762,9 +766,13 @@ async def confirm_getter(
     selected_duration = dialog_manager.dialog_data["selected_duration"]
     only_single_duration = dialog_manager.dialog_data.get("only_single_duration", False)
     is_free = dialog_manager.dialog_data.get("is_free", False)
-    selected_payment_method = dialog_manager.dialog_data["selected_payment_method"]
+    selected_payment_method = normalize_gateway_type(
+        cast(PaymentGatewayType | str, dialog_manager.dialog_data["selected_payment_method"])
+    )
     selected_payment_asset = dialog_manager.dialog_data.get("selected_payment_asset")
-    purchase_type = dialog_manager.dialog_data["purchase_type"]
+    purchase_type = normalize_purchase_type(
+        cast(PurchaseType | str, dialog_manager.dialog_data["purchase_type"])
+    )
     duration = plan.get_duration(selected_duration)
 
     # Проверяем множественное продление
@@ -856,7 +864,7 @@ async def success_payment_getter(
     **kwargs: Any,
 ) -> dict[str, Any]:
     start_data = cast(dict[str, Any], dialog_manager.start_data)
-    purchase_type: PurchaseType = start_data["purchase_type"]
+    purchase_type = normalize_purchase_type(cast(PurchaseType | str, start_data["purchase_type"]))
     subscription = user.current_subscription
 
     if not subscription:

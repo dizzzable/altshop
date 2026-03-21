@@ -9,6 +9,7 @@ from src.services.settings import SettingsService
 FIELD_LABELS: dict[str, str] = {
     "project_name": "Project Name",
     "web_title": "Web Title",
+    "bot_menu_button_text": "Bot Menu Button",
     "telegram_template": "TG Template",
     "password_reset_telegram_template": "TG Password Reset Template",
     "web_request_delivered": "Web Request Delivered",
@@ -48,6 +49,8 @@ def _get_field_value(branding: Any, field: str, locale: str = "en") -> str:
         return branding.project_name
     if field == "web_title":
         return branding.web_title
+    if field == "bot_menu_button_text":
+        return branding.bot_menu_button_text
 
     localized_value = _get_localized_field(branding, field)
     if not localized_value:
@@ -101,6 +104,7 @@ async def branding_main_getter(
     return {
         "project_name": _truncate_preview(str(branding.project_name), max_length=32),
         "web_title": _truncate_preview(str(branding.web_title), max_length=32),
+        "bot_menu_button_text": _truncate_preview(str(branding.bot_menu_button_text), max_length=32),
         "tg_preview_ru": _truncate_preview(
             _render_localized_preview(
                 settings_service=settings_service,

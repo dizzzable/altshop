@@ -19,6 +19,8 @@ from src.bot.routers.subscription.payment_helpers import (
     build_payment_cache_key,
     collect_renew_ids,
     filter_gateways_for_durations,
+    normalize_gateway_type,
+    normalize_purchase_type,
     resolve_purchase_durations,
     select_auto_gateway,
 )
@@ -218,7 +220,7 @@ def _get_purchase_state(
     dialog_manager: DialogManager,
 ) -> tuple[PurchaseType, int | None, list[int] | None]:
     return (
-        cast(PurchaseType, dialog_manager.dialog_data["purchase_type"]),
+        normalize_purchase_type(cast(PurchaseType | str, dialog_manager.dialog_data["purchase_type"])),
         cast(Optional[int], dialog_manager.dialog_data.get("renew_subscription_id")),
         cast(Optional[list[int]], dialog_manager.dialog_data.get("renew_subscription_ids")),
     )
@@ -491,6 +493,7 @@ async def _finalize_gateway_selection(
     payment_asset: CryptoAsset | None = None,
     device_types: list[DeviceType] | None = None,
 ) -> bool:
+    gateway_type = normalize_gateway_type(gateway_type)
     _set_selected_gateway(
         dialog_manager,
         gateway_type=gateway_type,
@@ -553,6 +556,7 @@ async def _handle_gateway_selection(
     subscription_service: SubscriptionService,
     device_types: list[DeviceType] | None = None,
 ) -> bool:
+    gateway_type = normalize_gateway_type(gateway_type)
     _set_selected_gateway(
         dialog_manager,
         gateway_type=gateway_type,
@@ -1374,7 +1378,9 @@ async def on_payment_asset_select(
         raise ValueError("PlanDto not found in dialog data")
 
     selected_duration = dialog_manager.dialog_data[CURRENT_DURATION_KEY]
-    selected_payment_method = dialog_manager.dialog_data[CURRENT_METHOD_KEY]
+    selected_payment_method = normalize_gateway_type(
+        cast(PaymentGatewayType | str, dialog_manager.dialog_data[CURRENT_METHOD_KEY])
+    )
 
     await _finalize_gateway_selection(
         dialog_manager=dialog_manager,

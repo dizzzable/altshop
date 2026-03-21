@@ -319,6 +319,7 @@ async def invite_referrals_getter(
     return {
         "has_referrals": bool(rows),
         "referral_rows": rows,
+        "count": total,
         "referrals_total": total,
     }
 

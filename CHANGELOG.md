@@ -6,6 +6,15 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-03-21
+
+### Fixed
+
+- restored branding settings compatibility by bringing back `bot_menu_button_text` in the settings DTO and dashboard editor
+- fixed the referrals menu screen so `msg-menu-invite-referrals` always receives the required `count` value
+- repaired subscription duration rendering for multi-renew flows by removing the broken `gateways` reference and recalculating prices from resolved durations
+- normalized dialog-stored enum values in the subscription payment flow to prevent cache-key and crypto gateway regressions after FSM state restoration
+
 ## [1.0.1] - 2026-03-08
 
 ### Added

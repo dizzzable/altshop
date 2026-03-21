@@ -28,6 +28,13 @@ main = Window(
     ),
     Row(
         Button(
+            text=Format("Bot Menu Button"),
+            id="bot_menu_button_text",
+            on_click=on_select_edit_field,
+        ),
+    ),
+    Row(
+        Button(
             text=Format("TG Template"),
             id="telegram_template",
             on_click=on_select_edit_field,

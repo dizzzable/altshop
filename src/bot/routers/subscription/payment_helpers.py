@@ -12,6 +12,18 @@ from src.services.plan import PlanService
 from src.services.subscription import SubscriptionService
 
 
+def normalize_purchase_type(purchase_type: PurchaseType | str) -> PurchaseType:
+    if isinstance(purchase_type, PurchaseType):
+        return purchase_type
+    return PurchaseType(str(purchase_type))
+
+
+def normalize_gateway_type(gateway_type: PaymentGatewayType | str) -> PaymentGatewayType:
+    if isinstance(gateway_type, PaymentGatewayType):
+        return gateway_type
+    return PaymentGatewayType(str(gateway_type))
+
+
 def collect_renew_ids(
     *,
     renew_subscription_id: int | None,
@@ -78,12 +90,14 @@ def build_payment_cache_key(
     *,
     plan_id: int,
     duration_days: int,
-    gateway_type: PaymentGatewayType,
-    purchase_type: PurchaseType,
+    gateway_type: PaymentGatewayType | str,
+    purchase_type: PurchaseType | str,
     renew_ids: list[int],
     payment_asset: str | None,
     device_types: list[DeviceType] | None,
 ) -> str:
+    normalized_purchase_type = normalize_purchase_type(purchase_type)
+    normalized_gateway_type = normalize_gateway_type(gateway_type)
     normalized_renew_ids = ",".join(str(item) for item in sorted(set(renew_ids))) or "-"
     normalized_device_types = (
         ",".join(sorted(device_type.value for device_type in device_types))
@@ -96,8 +110,8 @@ def build_payment_cache_key(
         (
             str(plan_id),
             str(duration_days),
-            purchase_type.value,
-            gateway_type.value,
+            normalized_purchase_type.value,
+            normalized_gateway_type.value,
             normalized_payment_asset,
             normalized_renew_ids,
             normalized_device_types,
@@ -110,17 +124,18 @@ async def resolve_purchase_durations(
     user: UserDto,
     plan: PlanDto,
     duration_days: int,
-    purchase_type: PurchaseType,
+    purchase_type: PurchaseType | str,
     renew_subscription_id: int | None,
     renew_subscription_ids: list[int] | tuple[int, ...] | None,
     subscription_service: SubscriptionService,
     plan_service: PlanService,
 ) -> list[PlanDurationDto]:
+    normalized_purchase_type = normalize_purchase_type(purchase_type)
     renew_ids = collect_renew_ids(
         renew_subscription_id=renew_subscription_id,
         renew_subscription_ids=renew_subscription_ids,
     )
-    is_multi_renew = purchase_type == PurchaseType.RENEW and len(renew_ids) > 1
+    is_multi_renew = normalized_purchase_type == PurchaseType.RENEW and len(renew_ids) > 1
 
     if not is_multi_renew:
         duration = plan.get_duration(duration_days)

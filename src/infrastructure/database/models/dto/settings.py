@@ -528,6 +528,7 @@ class BrandingVerificationDto(TrackableDto):
 class BrandingSettingsDto(TrackableDto):
     project_name: str = "AltShop"
     web_title: str = "AltShop - VPN Subscription Management"
+    bot_menu_button_text: str = "Shop"
     verification: BrandingVerificationDto = Field(default_factory=BrandingVerificationDto)
 
     @field_validator("project_name", mode="before")
@@ -548,6 +549,16 @@ class BrandingSettingsDto(TrackableDto):
             field_name="branding.web_title",
             min_length=3,
             max_length=80,
+        )
+
+    @field_validator("bot_menu_button_text", mode="before")
+    @classmethod
+    def _normalize_bot_menu_button_text(cls, value: object) -> str:
+        return ensure_text_length(
+            normalize_text(value),
+            field_name="branding.bot_menu_button_text",
+            min_length=1,
+            max_length=64,
         )
 
 

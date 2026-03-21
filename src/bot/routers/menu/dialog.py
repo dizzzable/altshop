@@ -260,7 +260,7 @@ invite = Window(
 
 invite_referrals = Window(
     Banner(BannerName.REFERRAL),
-    I18nFormat("msg-menu-invite-referrals"),
+    I18nFormat("msg-menu-invite-referrals", count=F["count"]),
     Column(
         Select(
             text=Format("{item[display]}"),

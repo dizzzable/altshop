@@ -23,6 +23,7 @@ LOCALIZED_FIELDS: set[str] = {
 GLOBAL_FIELD_MAP: dict[str, str] = {
     "project_name": "project_name",
     "web_title": "web_title",
+    "bot_menu_button_text": "bot_menu_button_text",
 }
 
 LOCALIZED_FIELD_MAP: dict[str, str] = {
