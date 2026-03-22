@@ -72,6 +72,19 @@ class AccessService(BaseService):
 
         return await self._handle_existing_user_access(user=user, mode=mode, event=event)
 
+    async def is_invite_locked(
+        self,
+        user: UserDto,
+        *,
+        mode: AccessMode | None = None,
+    ) -> bool:
+        resolved_mode = mode or await self.settings_service.get_access_mode()
+        return (
+            resolved_mode == AccessMode.INVITED
+            and not user.is_privileged
+            and not user.is_invited_user
+        )
+
     async def _handle_new_user_access(
         self,
         aiogram_user: AiogramUser,
@@ -130,9 +143,9 @@ class AccessService(BaseService):
             return await self._handle_purchase_blocked_access(user=user, event=event)
 
         if mode == AccessMode.INVITED:
-            if user.is_invited_user:
+            if not await self.is_invite_locked(user, mode=mode):
                 logger.info(
-                    f"Access allowed for invited user '{user.telegram_id}' (mode: INVITED)"
+                    f"Access allowed for user '{user.telegram_id}' (mode: INVITED)"
                 )
                 return True
 
@@ -192,7 +205,27 @@ class AccessService(BaseService):
                 logger.info(f"Notifying '{len(waiting_users)}' waiting users about access opening")
                 await send_access_opened_notifications_task.kiq(waiting_users)
 
+        await self._refresh_recent_non_privileged_users_main_menu()
         await self.clear_all_waiting_users()
+
+    async def _refresh_recent_non_privileged_users_main_menu(self) -> int:
+        recent_users = await self.user_service.get_recent_activity_users()
+        redirected = 0
+        seen_ids: set[int] = set()
+
+        for user in recent_users:
+            if user.telegram_id in seen_ids:
+                continue
+            seen_ids.add(user.telegram_id)
+
+            if user.is_privileged or user.is_blocked:
+                continue
+
+            await redirect_to_main_menu_task.kiq(user.telegram_id)
+            redirected += 1
+
+        logger.info(f"Refreshed main menu for '{redirected}' recent non-privileged user(s)")
+        return redirected
 
     async def add_user_to_waitlist(self, telegram_id: int) -> bool:
         added_count = await self.redis_repository.collection_add(AccessWaitListKey(), telegram_id)

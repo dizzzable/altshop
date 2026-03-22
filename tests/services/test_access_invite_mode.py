@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from aiogram.types import CallbackQuery, Message
 
-from src.core.enums import AccessMode
+from src.core.enums import AccessMode, UserRole
 from src.infrastructure.database.models.dto import UserDto
 from src.services.access import AccessService
 
@@ -50,8 +50,14 @@ def build_access_service() -> AccessService:
             delete=AsyncMock(),
         ),
         translator_hub=MagicMock(),
-        settings_service=SimpleNamespace(get_access_mode=AsyncMock()),
-        user_service=SimpleNamespace(get=AsyncMock()),
+        settings_service=SimpleNamespace(
+            get_access_mode=AsyncMock(),
+            set_access_mode=AsyncMock(),
+        ),
+        user_service=SimpleNamespace(
+            get=AsyncMock(),
+            get_recent_activity_users=AsyncMock(return_value=[]),
+        ),
         referral_service=SimpleNamespace(is_referral_event=AsyncMock(return_value=False)),
     )
 
@@ -116,3 +122,39 @@ def test_existing_uninvited_user_is_blocked_on_product_callback(monkeypatch) -> 
     assert result is False
     redirect_mock.assert_awaited_once_with(user.telegram_id)
     notify_mock.assert_awaited_once()
+
+
+def test_public_mode_never_marks_user_as_invite_locked() -> None:
+    service = build_access_service()
+    user = UserDto(telegram_id=503, name="Guest")
+
+    result = run_async(service.is_invite_locked(user, mode=AccessMode.PUBLIC))
+
+    assert result is False
+
+
+def test_set_mode_refreshes_recent_non_privileged_users(monkeypatch) -> None:
+    service = build_access_service()
+    guest = UserDto(telegram_id=600, name="Guest")
+    dev = UserDto(telegram_id=601, name="Dev", role=UserRole.DEV)
+    blocked = UserDto(telegram_id=602, name="Blocked", is_blocked=True)
+    service.user_service.get_recent_activity_users = AsyncMock(
+        return_value=[guest, dev, blocked, guest]
+    )
+    redirect_mock = AsyncMock()
+    access_opened_mock = AsyncMock()
+
+    monkeypatch.setattr(
+        "src.services.access.redirect_to_main_menu_task.kiq",
+        redirect_mock,
+    )
+    monkeypatch.setattr(
+        "src.services.access.send_access_opened_notifications_task.kiq",
+        access_opened_mock,
+    )
+
+    run_async(service.set_mode(AccessMode.PUBLIC))
+
+    service.settings_service.set_access_mode.assert_awaited_once_with(AccessMode.PUBLIC)
+    redirect_mock.assert_awaited_once_with(guest.telegram_id)
+    access_opened_mock.assert_not_awaited()

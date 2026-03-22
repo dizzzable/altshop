@@ -9,7 +9,14 @@ from magic_filter import F
 
 from src.bot.states import DashboardUser, MainMenu, Subscription
 from src.bot.widgets.i18n_format import I18nFormat
-from src.core.constants import GOTO_PREFIX, PURCHASE_PREFIX, T_ME
+from src.core.constants import (
+    ALTSHOP_GITHUB_RELEASES_LATEST_URL,
+    ALTSHOP_GITHUB_UPGRADE_GUIDE_URL,
+    ALTSHOP_GITHUB_URL,
+    GOTO_PREFIX,
+    PURCHASE_PREFIX,
+    T_ME,
+)
 from src.core.enums import PurchaseType
 from src.core.utils.formatters import format_username_to_url
 
@@ -122,7 +129,7 @@ def get_remnashop_keyboard() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(
             text="btn-remnashop-github",
-            url="https://github.com/dizzzable/altshop",
+            url=ALTSHOP_GITHUB_URL,
         ),
         InlineKeyboardButton(
             text="btn-remnashop-telegram",
@@ -150,11 +157,11 @@ def get_remnashop_update_keyboard() -> InlineKeyboardMarkup:
     builder.row(
         InlineKeyboardButton(
             text="btn-remnashop-release-latest",
-            url="https://github.com/dizzzable/altshop/releases/latest",
+            url=ALTSHOP_GITHUB_RELEASES_LATEST_URL,
         ),
         InlineKeyboardButton(
             text="btn-remnashop-how-upgrade",
-            url="https://github.com/dizzzable/altshop?tab=readme-ov-file#step-5--how-to-upgrade",
+            url=ALTSHOP_GITHUB_UPGRADE_GUIDE_URL,
         ),
     )
 

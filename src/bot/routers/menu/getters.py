@@ -6,7 +6,7 @@ from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
 
 from src.core.config import AppConfig
-from src.core.enums import AccessMode, DeviceType, PointsExchangeType, SubscriptionStatus
+from src.core.enums import DeviceType, PointsExchangeType, SubscriptionStatus
 from src.core.utils.formatters import (
     format_username_to_url,
     i18n_format_device_limit,
@@ -14,6 +14,7 @@ from src.core.utils.formatters import (
     i18n_format_traffic_limit,
 )
 from src.infrastructure.database.models.dto import UserDto
+from src.services.access import AccessService
 from src.services.partner import PartnerService
 from src.services.plan import PlanService
 from src.services.referral import ReferralService
@@ -77,6 +78,7 @@ async def menu_getter(
     plan_service: FromDishka[PlanService],
     subscription_service: FromDishka[SubscriptionService],
     settings_service: FromDishka[SettingsService],
+    access_service: FromDishka[AccessService],
     referral_service: FromDishka[ReferralService],
     partner_service: FromDishka[PartnerService],
     **kwargs: Any,
@@ -88,11 +90,7 @@ async def menu_getter(
     support_username = config.bot.support_username.get_secret_value()
     support_link = format_username_to_url(support_username, i18n.get("contact-support-help"))
     access_mode = await settings_service.get_access_mode()
-    invite_locked = (
-        access_mode == AccessMode.INVITED
-        and not user.is_privileged
-        and not user.is_invited_user
-    )
+    invite_locked = await access_service.is_invite_locked(user, mode=access_mode)
     invite_state = await referral_service.get_invite_state(user, create_if_missing=True)
     has_active_invite = (
         invite_state.invite is not None

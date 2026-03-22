@@ -19,6 +19,14 @@ API_V1: Final[str] = "/api/v1"
 BOT_WEBHOOK_PATH: Final[str] = "/telegram"
 PAYMENTS_WEBHOOK_PATH: Final[str] = "/payments"
 REMNAWAVE_WEBHOOK_PATH: Final[str] = "/remnawave"
+ALTSHOP_GITHUB_URL: Final[str] = "https://github.com/dizzzable/altshop"
+ALTSHOP_GITHUB_RELEASES_LATEST_URL: Final[str] = f"{ALTSHOP_GITHUB_URL}/releases/latest"
+ALTSHOP_GITHUB_RELEASES_LATEST_API_URL: Final[str] = (
+    "https://api.github.com/repos/dizzzable/altshop/releases/latest"
+)
+ALTSHOP_GITHUB_UPGRADE_GUIDE_URL: Final[str] = (
+    f"{ALTSHOP_GITHUB_URL}?tab=readme-ov-file#step-5--how-to-upgrade"
+)
 
 TIMEZONE: Final[timezone] = timezone.utc
 REMNASHOP_PREFIX: Final[str] = "rs_"

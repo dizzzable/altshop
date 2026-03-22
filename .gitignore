@@ -33,6 +33,8 @@ logs/
 .env.*
 !.env.example
 tests/
+!tests/
+!tests/**/*.py
 mypy-wave*.ini
 
 # Deployment secrets
