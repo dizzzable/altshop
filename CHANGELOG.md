@@ -10,8 +10,8 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ### Fixed
 
-- the main Telegram menu no longer reuses a stale `msg-main-menu` translation key on deployments with mounted translation assets, which fixes the case where the invite-only warning could still be shown even after access mode was switched back to `PUBLIC`
-- self-hosted instances that update via fresh release images now receive an isolated default main-menu copy key, so the unlocked menu text and unlocked buttons stay in sync after upgrading
+- the main Telegram menu now renders both its text and product buttons from one resolved access-state source, which removes the hybrid state where unlocked buttons could appear together with the invite-only warning
+- deployments with mounted translation assets now use an isolated default main-menu key, so stale bind-mounted translations can no longer force the old invite-lock copy onto the normal public menu
 
 ## [1.1.5] - 2026-03-22
 
