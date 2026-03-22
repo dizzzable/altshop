@@ -58,7 +58,9 @@ from .getters import (
 from .handlers import (
     on_active_toggle,
     on_assign_plan,
+    on_assign_plan_back,
     on_assign_plan_select,
+    on_assign_plan_subscription_select,
     on_block_toggle,
     on_current_subscription,
     on_device_delete,
@@ -607,6 +609,41 @@ subscription_duration = Window(
     getter=subscription_duration_getter,
 )
 
+assign_plan_subscriptions = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-assign-plan-subscriptions", count=F["count"]),
+    ScrollingGroup(
+        Select(
+            text=I18nFormat(
+                "btn-user-subscription-choice",
+                status=F["item"]["status"],
+                device_name=F["item"]["device_name"],
+                expire_time=F["item"]["expire_time"],
+                is_current=F["item"]["is_current"],
+            ),
+            id="assign_plan_subscription_select",
+            item_id_getter=lambda item: item["id"],
+            items="subscriptions",
+            type_factory=int,
+            on_click=on_assign_plan_subscription_select,
+        ),
+        id="assign_plan_subscriptions_scroll",
+        width=1,
+        height=7,
+        hide_on_single_page=True,
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.MAIN,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.ASSIGN_PLAN_SUBSCRIPTIONS,
+    getter=subscriptions_getter,
+)
+
 assign_plan = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-user-assign-plan"),
@@ -625,10 +662,10 @@ assign_plan = Window(
         ),
     ),
     Row(
-        SwitchTo(
+        Button(
             text=I18nFormat("btn-back"),
             id="back",
-            state=DashboardUser.MAIN,
+            on_click=on_assign_plan_back,
         ),
     ),
     IgnoreUpdate(),
@@ -1230,6 +1267,7 @@ router = Dialog(
     devices_list,
     give_subscription,
     subscription_duration,
+    assign_plan_subscriptions,
     assign_plan,
     transactions_list,
     transaction,

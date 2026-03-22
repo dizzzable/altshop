@@ -730,15 +730,29 @@ async def subscription_duration_getter(
 @inject
 async def assign_plan_getter(
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     plan_service: FromDishka[PlanService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscription = await subscription_service.get_current(telegram_id=target_telegram_id)
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    current_subscription_id = (
+        target_user.current_subscription.id if target_user.current_subscription else None
+    )
+    _, subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        current_subscription_id,
+    )
 
     if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+        raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
     plans = [
         plan for plan in await plan_service.get_all() if plan.is_active and plan.id is not None
@@ -754,7 +768,7 @@ async def assign_plan_getter(
 
     return {
         "plans": formatted_plans,
-        "current_plan_name": subscription.plan.name,
+        "current_plan_name": subscription.plan.name if subscription.plan else "—",
     }
 
 

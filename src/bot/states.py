@@ -107,6 +107,7 @@ class DashboardUser(StatesGroup):
     MAIN = State()
     SUBSCRIPTIONS = State()
     SUBSCRIPTION = State()
+    ASSIGN_PLAN_SUBSCRIPTIONS = State()
     ASSIGN_PLAN = State()
     TRAFFIC_LIMIT = State()
     DEVICE_LIMIT = State()

@@ -41,9 +41,12 @@ from src.services.user import UserService
 
 from .subscription_selection import (
     clear_selected_subscription,
+    get_visible_subscriptions,
     resolve_selected_subscription,
     set_selected_subscription,
 )
+
+ASSIGN_PLAN_FROM_MULTI_KEY = "assign_plan_from_multi_subscriptions"
 
 
 async def start_user_window(
@@ -1204,9 +1207,10 @@ async def on_assign_plan(
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscription = await subscription_service.get_current(target_telegram_id)
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    visible_subscriptions = get_visible_subscriptions(all_subscriptions)
 
-    if not subscription:
+    if not visible_subscriptions:
         await notification_service.notify_user(
             user=user,
             payload=MessagePayload(i18n_key="ntf-user-subscription-empty"),
@@ -1221,6 +1225,38 @@ async def on_assign_plan(
         )
         return
 
+    if len(visible_subscriptions) > 1:
+        dialog_manager.dialog_data[ASSIGN_PLAN_FROM_MULTI_KEY] = True
+        await dialog_manager.switch_to(state=DashboardUser.ASSIGN_PLAN_SUBSCRIPTIONS)
+        return
+
+    subscription = visible_subscriptions[0]
+    if subscription.id is None:
+        raise ValueError(f"Subscription for user '{target_telegram_id}' has no id")
+
+    set_selected_subscription(dialog_manager, subscription.id, visible_subscriptions)
+    dialog_manager.dialog_data[ASSIGN_PLAN_FROM_MULTI_KEY] = False
+    await dialog_manager.switch_to(state=DashboardUser.ASSIGN_PLAN)
+
+
+@inject
+async def on_assign_plan_subscription_select(
+    callback: CallbackQuery,
+    widget: Select[int],
+    dialog_manager: DialogManager,
+    selected_subscription_id: int,
+    subscription_service: FromDishka[SubscriptionService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+
+    set_selected_subscription(dialog_manager, selected_subscription_id, subscriptions)
+    dialog_manager.dialog_data[ASSIGN_PLAN_FROM_MULTI_KEY] = True
+    logger.info(
+        f"{log(user)} Selected subscription '{selected_subscription_id}' "
+        f"for plan assignment to user '{target_telegram_id}'"
+    )
     await dialog_manager.switch_to(state=DashboardUser.ASSIGN_PLAN)
 
 
@@ -1231,19 +1267,16 @@ async def on_assign_plan_select(
     dialog_manager: DialogManager,
     selected_plan_id: int,
     plan_service: FromDishka[PlanService],
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        await notification_service.notify_user(
-            user=user,
-            payload=MessagePayload(i18n_key="ntf-user-subscription-empty"),
-        )
-        return
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     plan = await plan_service.get(selected_plan_id)
     if not plan or not plan.is_active:
@@ -1267,7 +1300,25 @@ async def on_assign_plan_select(
             i18n_kwargs={"plan_name": plan.name},
         ),
     )
-    logger.info(f"{log(user)} Assigned plan '{selected_plan_id}' for user '{target_telegram_id}'")
+    dialog_manager.dialog_data.pop(ASSIGN_PLAN_FROM_MULTI_KEY, None)
+    logger.info(
+        f"{log(user)} Assigned plan '{selected_plan_id}' "
+        f"to subscription '{subscription.id}' for user '{target_user.telegram_id}'"
+    )
+    await dialog_manager.switch_to(state=DashboardUser.MAIN)
+
+
+@inject
+async def on_assign_plan_back(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    if dialog_manager.dialog_data.get(ASSIGN_PLAN_FROM_MULTI_KEY):
+        await dialog_manager.switch_to(state=DashboardUser.ASSIGN_PLAN_SUBSCRIPTIONS)
+        return
+
+    dialog_manager.dialog_data.pop(ASSIGN_PLAN_FROM_MULTI_KEY, None)
     await dialog_manager.switch_to(state=DashboardUser.MAIN)
 
 

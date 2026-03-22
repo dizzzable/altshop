@@ -2242,7 +2242,13 @@ msg-user-assign-plan =
     Current plan: { $current_plan_name }
     </blockquote>
 
-    Select an active plan. It will be applied to the user's current subscription.
+    Select an active plan. It will be applied to the user's selected subscription.
+
+msg-user-assign-plan-subscriptions =
+    <b>📋 Choose a subscription for plan assignment ({ $count })</b>
+
+    First choose which user subscription should receive the new plan.
+    ⭐ marks the user's current subscription.
 
 msg-menu-invite-referrals =
     <b>👥 My Referrals</b>
