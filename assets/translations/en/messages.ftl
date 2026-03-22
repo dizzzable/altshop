@@ -42,6 +42,40 @@ msg-main-menu =
     </blockquote>
     }
 
+msg-main-menu-default =
+    { hdr-user-profile }
+    { frg-user }
+
+    { hdr-subscription }
+    { $status ->
+    [ACTIVE]
+    { frg-subscription }
+    [EXPIRED]
+    <blockquote>
+    вЂў Subscription expired.
+
+    <i>To renew, go to "рџ’і Subscription" menu</i>
+    </blockquote>
+    [LIMITED]
+    <blockquote>
+    вЂў You have exceeded your traffic limit.
+
+    <i>To reset traffic, go to "рџ’і Subscription" menu</i>
+    </blockquote>
+    [DISABLED]
+    <blockquote>
+    вЂў Your subscription is disabled.
+
+    <i>Contact support to find out the reason!</i>
+    </blockquote>
+    *[NONE]
+    <blockquote>
+    вЂў You don't have an active subscription.
+
+    <i>To subscribe, go to "рџ’і Subscription" menu</i>
+    </blockquote>
+    }
+
 msg-menu-connect-device =
     <b>🚀 Select device to connect</b>
 

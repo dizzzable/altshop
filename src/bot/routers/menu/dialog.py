@@ -63,7 +63,7 @@ from .handlers import (
 
 menu = Window(
     Banner(BannerName.MENU),
-    I18nFormat("msg-main-menu", when=~F["invite_locked"]),
+    I18nFormat("msg-main-menu-default", when=~F["invite_locked"]),
     I18nFormat("msg-main-menu-invite-locked", when=F["invite_locked"]),
     Row(
         SwitchTo(
