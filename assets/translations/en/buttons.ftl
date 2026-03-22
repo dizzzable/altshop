@@ -773,7 +773,7 @@ btn-partner-referral-item = { $level ->
     } { $username } - { $total_earned }
 
 # Importer plan assignment
-btn-importer-assign-plan-all = Assign plan to all
+btn-importer-assign-plan-all = 🎫Assign plan to all
 btn-importer-assign-plan-confirm = Confirm assignment
 btn-importer-assign-plan-choice = { $selected ->
     [1] ✅
@@ -781,7 +781,7 @@ btn-importer-assign-plan-choice = { $selected ->
     } { $name }
 
 # User plan assignment
-btn-user-assign-plan = Assign plan
+btn-user-assign-plan = 🎫Assign plan
 btn-user-assign-plan-choice = { $selected ->
     [1] ✅
     *[0] ⬜
@@ -809,3 +809,22 @@ btn-plan-transition-choice = { $selected ->
     [1] ✅
     *[0] ◻️
     } { $name }
+btn-menu-invite-regenerate = 🔄 Regenerate link
+btn-referral-invite-limits = 🎟 Invite limits
+btn-referral-invite-ttl-toggle = ⏳ Link lifetime: { $enabled ->
+    [true] enabled
+    *[false] disabled
+    }
+btn-referral-invite-ttl-edit = ⌛ Link TTL: { $value }
+btn-referral-invite-slots-toggle = 👥 Invite slots: { $enabled ->
+    [true] enabled
+    *[false] disabled
+    }
+btn-referral-invite-initial-slots = 1️⃣ Initial slots: { $value }
+btn-referral-invite-refill-threshold = 📈 Qualification threshold: { $value }
+btn-referral-invite-refill-amount = ➕ Refill slots: { $value }
+btn-user-referral-invite-settings = 🎟 Invite settings
+btn-user-referral-invite-use-global = 🌐 Use global settings: { $use_global ->
+    [true] yes
+    *[false] no
+    }

@@ -44,6 +44,7 @@ from .getters import (
     partner_settings_getter,
     points_getter,
     purchase_discount_getter,
+    referral_invite_settings_getter,
     referrals_getter,
     role_getter,
     squads_getter,
@@ -99,6 +100,14 @@ from .handlers import (
     on_points_select,
     on_purchase_discount_input,
     on_purchase_discount_select,
+    on_referral_invite_initial_slots_input,
+    on_referral_invite_refill_amount_input,
+    on_referral_invite_refill_threshold_input,
+    on_referral_invite_settings,
+    on_referral_invite_slots_toggle,
+    on_referral_invite_ttl_input,
+    on_referral_invite_ttl_toggle,
+    on_referral_invite_use_global_toggle,
     on_referral_user_select,
     on_referrals,
     on_reset_traffic,
@@ -223,6 +232,14 @@ user = Window(
             text=I18nFormat("btn-user-max-subscriptions"),
             id="max_subscriptions",
             on_click=on_max_subscriptions,
+            when=F["can_edit"],
+        ),
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-referral-invite-settings"),
+            id="referral_invite_settings",
+            on_click=on_referral_invite_settings,
             when=F["can_edit"],
         ),
     ),
@@ -1253,6 +1270,151 @@ max_subscriptions = Window(
     getter=max_subscriptions_getter,
 )
 
+referral_invite_settings = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-referral-invite-settings"),
+    I18nFormat(
+        "msg-user-referral-invite-settings-summary",
+        effective_ttl_enabled=F["effective_ttl_status"],
+        effective_ttl_value=F["effective_ttl_value"],
+        effective_slots_enabled=F["effective_slots_status"],
+        effective_initial_slots=F["effective_initial_slots"],
+        effective_refill_threshold=F["effective_refill_threshold"],
+        effective_refill_amount=F["effective_refill_amount"],
+    ),
+    Row(
+        Button(
+            text=I18nFormat(
+                "btn-user-referral-invite-use-global",
+                use_global=F["use_global_settings"],
+            ),
+            id="referral_invite_use_global_toggle",
+            on_click=on_referral_invite_use_global_toggle,
+        ),
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-referral-invite-ttl-toggle", enabled=F["ttl_enabled"]),
+            id="referral_invite_ttl_toggle",
+            on_click=on_referral_invite_ttl_toggle,
+            when=~F["use_global_settings"],
+        ),
+        SwitchTo(
+            text=I18nFormat("btn-referral-invite-ttl-edit", value=F["ttl_value"]),
+            id="referral_invite_ttl",
+            state=DashboardUser.REFERRAL_INVITE_TTL,
+            when=~F["use_global_settings"],
+        ),
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-referral-invite-slots-toggle", enabled=F["slots_enabled"]),
+            id="referral_invite_slots_toggle",
+            on_click=on_referral_invite_slots_toggle,
+            when=~F["use_global_settings"],
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-referral-invite-initial-slots", value=F["initial_slots"]),
+            id="referral_invite_initial_slots",
+            state=DashboardUser.REFERRAL_INVITE_INITIAL_SLOTS,
+            when=~F["use_global_settings"],
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat(
+                "btn-referral-invite-refill-threshold",
+                value=F["refill_threshold"],
+            ),
+            id="referral_invite_refill_threshold",
+            state=DashboardUser.REFERRAL_INVITE_REFILL_THRESHOLD,
+            when=~F["use_global_settings"],
+        ),
+        SwitchTo(
+            text=I18nFormat("btn-referral-invite-refill-amount", value=F["refill_amount"]),
+            id="referral_invite_refill_amount",
+            state=DashboardUser.REFERRAL_INVITE_REFILL_AMOUNT,
+            when=~F["use_global_settings"],
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.MAIN,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.REFERRAL_INVITE_SETTINGS,
+    getter=referral_invite_settings_getter,
+)
+
+referral_invite_ttl = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-referral-invite-ttl"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.REFERRAL_INVITE_SETTINGS,
+        ),
+    ),
+    MessageInput(func=on_referral_invite_ttl_input),
+    IgnoreUpdate(),
+    state=DashboardUser.REFERRAL_INVITE_TTL,
+    getter=referral_invite_settings_getter,
+)
+
+referral_invite_initial_slots = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-referral-invite-initial-slots"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.REFERRAL_INVITE_SETTINGS,
+        ),
+    ),
+    MessageInput(func=on_referral_invite_initial_slots_input),
+    IgnoreUpdate(),
+    state=DashboardUser.REFERRAL_INVITE_INITIAL_SLOTS,
+    getter=referral_invite_settings_getter,
+)
+
+referral_invite_refill_threshold = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-referral-invite-refill-threshold"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.REFERRAL_INVITE_SETTINGS,
+        ),
+    ),
+    MessageInput(func=on_referral_invite_refill_threshold_input),
+    IgnoreUpdate(),
+    state=DashboardUser.REFERRAL_INVITE_REFILL_THRESHOLD,
+    getter=referral_invite_settings_getter,
+)
+
+referral_invite_refill_amount = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-referral-invite-refill-amount"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.REFERRAL_INVITE_SETTINGS,
+        ),
+    ),
+    MessageInput(func=on_referral_invite_refill_amount_input),
+    IgnoreUpdate(),
+    state=DashboardUser.REFERRAL_INVITE_REFILL_AMOUNT,
+    getter=referral_invite_settings_getter,
+)
+
 
 router = Dialog(
     user,
@@ -1286,4 +1448,9 @@ router = Dialog(
     partner_settings_percent,
     partner_settings_fixed,
     max_subscriptions,
+    referral_invite_settings,
+    referral_invite_ttl,
+    referral_invite_initial_slots,
+    referral_invite_refill_threshold,
+    referral_invite_refill_amount,
 )

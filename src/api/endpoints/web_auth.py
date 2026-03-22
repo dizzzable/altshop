@@ -266,17 +266,25 @@ async def _apply_referral_for_new_user(
     if not referral_code:
         return
     try:
+        normalized_code = (
+            referral_code
+            if referral_code.startswith(REFERRAL_PREFIX)
+            else f"{REFERRAL_PREFIX}{referral_code}"
+        )
+        partner_referrer = await referral_service.get_partner_referrer_by_code(
+            normalized_code,
+            user_telegram_id=user.telegram_id,
+        )
         await referral_service.handle_referral(
             user=user,
-            code=referral_code,
+            code=normalized_code,
             source=ReferralInviteSource.WEB,
         )
-        referrer_code = (
-            referral_code[len(REFERRAL_PREFIX) :]
-            if referral_code.startswith(REFERRAL_PREFIX)
-            else referral_code
-        )
-        await partner_service.handle_new_user_referral(user=user, referrer_code=referrer_code)
+        if partner_referrer:
+            await partner_service.handle_new_user_referral(
+                user=user,
+                referrer_code=partner_referrer.referral_code,
+            )
     except Exception:
         logger.exception(
             f"Failed to apply referral for new web user '{user.telegram_id}' "
@@ -409,7 +417,7 @@ async def register(
 
     is_valid_invite = await validate_web_invite_code(
         raw_code=register_data.referral_code,
-        user_service=user_service,
+        referral_service=referral_service,
         new_user_telegram_id=register_data.telegram_id or -1,
     )
     assert_web_registration_access(mode=mode, existing_user=None, is_valid_invite=is_valid_invite)
@@ -687,7 +695,7 @@ async def telegram_auth(
         if not user:
             is_valid_invite = await validate_web_invite_code(
                 raw_code=referral_code,
-                user_service=user_service,
+                referral_service=referral_service,
                 new_user_telegram_id=auth_data.id,
             )
             assert_web_registration_access(

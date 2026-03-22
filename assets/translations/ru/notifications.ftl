@@ -720,3 +720,7 @@ ntf-user-web-password-reset-issued =
 ntf-user-web-password-reset-failed = ❌ Не удалось сбросить web-пароль: { $error }
 ntf-plan-delete-blocked = <i>❌ План нельзя удалить, пока он используется в подписках или переходах. Переведите его в архив.</i>
 ntf-plan-validation-error = <i>❌ Ошибка валидации плана: { $error }</i>
+ntf-referral-invite-link-unavailable = <i>⚠️ Активная invite-ссылка сейчас недоступна. Проверьте срок действия и свободные слоты.</i>
+ntf-referral-invite-regenerated = <i>✅ Новая invite-ссылка успешно создана.</i>
+ntf-referral-invite-regenerate-blocked = <i>🚫 Нельзя выпустить новую ссылку: свободные слоты приглашений закончились.</i>
+ntf-access-denied-only-invited-soft = <i>🔒 Этот раздел доступен только приглашённым пользователям. Откройте бота по валидной invite-ссылке.</i>

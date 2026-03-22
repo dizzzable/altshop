@@ -28,7 +28,7 @@ from .payment_gateway import (
 )
 from .plan import PlanDto, PlanDurationDto, PlanPriceDto, PlanSnapshotDto
 from .promocode import PromocodeActivationBaseDto, PromocodeActivationDto, PromocodeDto
-from .referral import ReferralDto, ReferralRewardDto
+from .referral import ReferralDto, ReferralInviteDto, ReferralRewardDto
 from .settings import (
     BrandingSettingsDto,
     BrandingVerificationDto,
@@ -36,6 +36,7 @@ from .settings import (
     LocalizedTextDto,
     PartnerSettingsDto,
     PointsExchangeSettingsDto,
+    ReferralInviteLimitsDto,
     ReferralSettingsDto,
     SettingsDto,
     SystemNotificationDto,
@@ -43,7 +44,7 @@ from .settings import (
 )
 from .subscription import BaseSubscriptionDto, RemnaSubscriptionDto, SubscriptionDto
 from .transaction import BaseTransactionDto, PriceDetailsDto, TransactionDto
-from .user import BaseUserDto, UserDto
+from .user import BaseUserDto, ReferralInviteIndividualSettingsDto, UserDto
 from .user_notification_event import UserNotificationEventDto
 from .web_account import AuthChallengeDto, BaseWebAccountDto, WebAccountDto
 from .web_analytics_event import WebAnalyticsEventDto
@@ -99,11 +100,13 @@ __all__ = [
     "PromocodeActivationBaseDto",
     "PromocodeActivationDto",
     "ReferralDto",
+    "ReferralInviteDto",
     "ReferralRewardDto",
     "SettingsDto",
     "BrandingSettingsDto",
     "BrandingVerificationDto",
     "LocalizedTextDto",
+    "ReferralInviteLimitsDto",
     "ReferralSettingsDto",
     "PointsExchangeSettingsDto",
     "ExchangeTypeSettingsDto",
@@ -113,6 +116,7 @@ __all__ = [
     "RemnaSubscriptionDto",
     "PriceDetailsDto",
     "TransactionDto",
+    "ReferralInviteIndividualSettingsDto",
     "UserDto",
     "UserNotificationEventDto",
     "WebAnalyticsEventDto",

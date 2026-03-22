@@ -20,7 +20,7 @@ from src.infrastructure.taskiq.tasks.subscriptions import trial_subscription_tas
 from src.services.notification import NotificationService
 from src.services.partner import PartnerService
 from src.services.plan import PlanService
-from src.services.referral import ReferralService
+from src.services.referral import INVITE_BLOCK_REASON_EXHAUSTED, ReferralService
 from src.services.referral_exchange import (
     ReferralExchangeError,
     ReferralExchangeService,
@@ -77,7 +77,7 @@ async def on_start_command(
     dialog_manager: DialogManager,
     referral_service: FromDishka[ReferralService],
 ) -> None:
-    if command.args and command.args.startswith(REFERRAL_PREFIX) and is_new_user:
+    if command.args and command.args.startswith(REFERRAL_PREFIX) and not user.is_invited_user:
         referral_code = command.args
         logger.info(f"Start with referral code: '{referral_code}'")
         await referral_service.handle_referral(
@@ -156,8 +156,18 @@ async def on_show_qr(
     notification_service: FromDishka[NotificationService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    invite_state = await referral_service.get_invite_state(user, create_if_missing=True)
+    if (
+        not invite_state.invite
+        or invite_state.invite_block_reason is not None
+    ):
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-referral-invite-link-unavailable"),
+        )
+        return
 
-    ref_link = await referral_service.get_ref_link(user.referral_code)
+    ref_link = await referral_service.get_ref_link(invite_state.invite.token)
     ref_qr = referral_service.get_ref_qr(ref_link)
 
     await notification_service.notify_user(
@@ -168,6 +178,37 @@ async def on_show_qr(
             media_type=MediaType.PHOTO,
         ),
     )
+
+
+@dialog_inject
+async def on_regenerate_invite(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    referral_service: FromDishka[ReferralService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    invite_state = await referral_service.regenerate_invite(user)
+
+    if invite_state.invite and invite_state.invite_block_reason is None:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-referral-invite-regenerated"),
+        )
+        await dialog_manager.switch_to(state=MainMenu.INVITE)
+        return
+
+    error_key = (
+        "ntf-referral-invite-regenerate-blocked"
+        if invite_state.invite_block_reason == INVITE_BLOCK_REASON_EXHAUSTED
+        else "ntf-referral-invite-link-unavailable"
+    )
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(i18n_key=error_key),
+    )
+    await dialog_manager.switch_to(state=MainMenu.INVITE)
 
 
 @dialog_inject

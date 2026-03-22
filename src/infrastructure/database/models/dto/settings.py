@@ -204,11 +204,53 @@ class ReferralRewardSettingsDto(BaseDto):
         return self.type == ReferralRewardType.EXTRA_DAYS
 
 
+class ReferralInviteLimitsDto(BaseDto):
+    link_ttl_enabled: bool = False
+    link_ttl_seconds: int | None = None
+    slots_enabled: bool = False
+    initial_slots: int | None = None
+    refill_threshold_qualified: int | None = None
+    refill_amount: int | None = None
+
+    @property
+    def effective_link_ttl_seconds(self) -> int | None:
+        if not self.link_ttl_enabled:
+            return None
+        if self.link_ttl_seconds is None or self.link_ttl_seconds <= 0:
+            return None
+        return self.link_ttl_seconds
+
+    @property
+    def effective_initial_slots(self) -> int | None:
+        if not self.slots_enabled:
+            return None
+        if self.initial_slots is None:
+            return 0
+        return max(self.initial_slots, 0)
+
+    @property
+    def effective_refill_threshold(self) -> int | None:
+        if not self.slots_enabled:
+            return None
+        if self.refill_threshold_qualified is None or self.refill_threshold_qualified <= 0:
+            return None
+        return self.refill_threshold_qualified
+
+    @property
+    def effective_refill_amount(self) -> int:
+        if not self.slots_enabled:
+            return 0
+        if self.refill_amount is None:
+            return 0
+        return max(self.refill_amount, 0)
+
+
 class ReferralSettingsDto(TrackableDto):
     enable: bool = True
     level: ReferralLevel = ReferralLevel.FIRST
     accrual_strategy: ReferralAccrualStrategy = ReferralAccrualStrategy.ON_FIRST_PAYMENT
     reward: ReferralRewardSettingsDto = ReferralRewardSettingsDto()
+    invite_limits: ReferralInviteLimitsDto = Field(default_factory=ReferralInviteLimitsDto)
     eligible_plan_ids: list[int] = []  # Пустой список = все планы
     points_exchange: PointsExchangeSettingsDto = (
         PointsExchangeSettingsDto()

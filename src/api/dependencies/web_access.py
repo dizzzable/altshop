@@ -9,7 +9,7 @@ from fastapi import HTTPException, status
 from src.core.constants import REFERRAL_PREFIX
 from src.core.enums import AccessMode
 from src.infrastructure.database.models.dto import UserDto
-from src.services.user import UserService
+from src.services.referral import ReferralService
 
 ACCESS_DENIED_SERVICE_RESTRICTED = "Access denied: service is currently restricted"
 ACCESS_DENIED_REGISTRATION_DISABLED = "Access denied: registration is currently disabled"
@@ -43,27 +43,17 @@ def normalize_web_referral_code(
 async def validate_web_invite_code(
     *,
     raw_code: str | None,
-    user_service: UserService,
+    referral_service: ReferralService,
     new_user_telegram_id: int,
 ) -> bool | None:
     normalized_code = normalize_web_referral_code(raw_code)
     if not normalized_code:
         return None
 
-    referral_code = (
-        normalized_code[len(REFERRAL_PREFIX) :]
-        if normalized_code.startswith(REFERRAL_PREFIX)
-        else normalized_code
+    return await referral_service.is_valid_invite_or_partner_code(
+        normalized_code,
+        user_telegram_id=new_user_telegram_id,
     )
-
-    referrer = await user_service.get_by_referral_code(referral_code)
-    if not referrer:
-        return False
-
-    if referrer.telegram_id == new_user_telegram_id:
-        return False
-
-    return True
 
 
 def assert_web_general_access(user: UserDto, mode: AccessMode) -> None:

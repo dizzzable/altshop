@@ -692,3 +692,7 @@ ntf-user-web-password-reset-issued =
 ntf-user-web-password-reset-failed = ❌ Failed to reset web password: { $error }
 ntf-plan-delete-blocked = <i>❌ This plan cannot be deleted while it is used by subscriptions or transitions. Archive it instead.</i>
 ntf-plan-validation-error = <i>❌ Plan validation error: { $error }</i>
+ntf-referral-invite-link-unavailable = <i>⚠️ Active invite link is unavailable right now. Check expiration time and free slots.</i>
+ntf-referral-invite-regenerated = <i>✅ A new invite link has been generated.</i>
+ntf-referral-invite-regenerate-blocked = <i>🚫 Cannot generate a new invite link because no free invite slots remain.</i>
+ntf-access-denied-only-invited-soft = <i>🔒 This section is available only for invited users. Open the bot using a valid invite link.</i>

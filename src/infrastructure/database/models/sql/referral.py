@@ -8,13 +8,33 @@ if TYPE_CHECKING:
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Integer
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.enums import PurchaseChannel, ReferralInviteSource, ReferralLevel, ReferralRewardType
 
 from .base import BaseSql
 from .timestamp import TimestampMixin
+
+
+class ReferralInvite(BaseSql, TimestampMixin):
+    __tablename__ = "referral_invites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    inviter_telegram_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.telegram_id"),
+        nullable=False,
+    )
+    token: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    inviter: Mapped["User"] = relationship(
+        "User",
+        foreign_keys=[inviter_telegram_id],
+        lazy="selectin",
+    )
 
 
 class Referral(BaseSql, TimestampMixin):

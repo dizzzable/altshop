@@ -218,6 +218,151 @@ async def on_clear_eligible_plans(
 
 
 @inject
+async def on_invite_limits_ttl_toggle(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    settings_service: FromDishka[SettingsService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    settings = await settings_service.get()
+    settings.referral.invite_limits.link_ttl_enabled = (
+        not settings.referral.invite_limits.link_ttl_enabled
+    )
+    await settings_service.update(settings)
+    logger.info(
+        f"{log(user)} Toggled referral invite TTL to "
+        f"'{settings.referral.invite_limits.link_ttl_enabled}'"
+    )
+
+
+@inject
+async def on_invite_limits_slots_toggle(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    settings_service: FromDishka[SettingsService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    settings = await settings_service.get()
+    settings.referral.invite_limits.slots_enabled = (
+        not settings.referral.invite_limits.slots_enabled
+    )
+    await settings_service.update(settings)
+    logger.info(
+        f"{log(user)} Toggled referral invite slots to "
+        f"'{settings.referral.invite_limits.slots_enabled}'"
+    )
+
+
+async def _update_invite_limit_numeric_field(
+    *,
+    dialog_manager: DialogManager,
+    message: Message,
+    notification_service: NotificationService,
+    settings_service: SettingsService,
+    field_name: str,
+    next_state: RemnashopReferral,
+) -> None:
+    dialog_manager.show_mode = ShowMode.EDIT
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    text = (message.text or "").strip()
+
+    try:
+        value = int(text)
+        if value < 0:
+            raise ValueError("negative value")
+    except (TypeError, ValueError):
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-invalid-value"),
+        )
+        return
+
+    settings = await settings_service.get()
+    setattr(
+        settings.referral.invite_limits,
+        field_name,
+        value if value > 0 else None,
+    )
+    await settings_service.update(settings)
+    logger.info(f"{log(user)} Updated referral invite field '{field_name}' to '{value}'")
+    await dialog_manager.switch_to(state=next_state)
+
+
+@inject
+async def on_invite_ttl_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    notification_service: FromDishka[NotificationService],
+    settings_service: FromDishka[SettingsService],
+) -> None:
+    await _update_invite_limit_numeric_field(
+        dialog_manager=dialog_manager,
+        message=message,
+        notification_service=notification_service,
+        settings_service=settings_service,
+        field_name="link_ttl_seconds",
+        next_state=RemnashopReferral.INVITE_LIMITS,
+    )
+
+
+@inject
+async def on_invite_initial_slots_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    notification_service: FromDishka[NotificationService],
+    settings_service: FromDishka[SettingsService],
+) -> None:
+    await _update_invite_limit_numeric_field(
+        dialog_manager=dialog_manager,
+        message=message,
+        notification_service=notification_service,
+        settings_service=settings_service,
+        field_name="initial_slots",
+        next_state=RemnashopReferral.INVITE_LIMITS,
+    )
+
+
+@inject
+async def on_invite_refill_threshold_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    notification_service: FromDishka[NotificationService],
+    settings_service: FromDishka[SettingsService],
+) -> None:
+    await _update_invite_limit_numeric_field(
+        dialog_manager=dialog_manager,
+        message=message,
+        notification_service=notification_service,
+        settings_service=settings_service,
+        field_name="refill_threshold_qualified",
+        next_state=RemnashopReferral.INVITE_LIMITS,
+    )
+
+
+@inject
+async def on_invite_refill_amount_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    notification_service: FromDishka[NotificationService],
+    settings_service: FromDishka[SettingsService],
+) -> None:
+    await _update_invite_limit_numeric_field(
+        dialog_manager=dialog_manager,
+        message=message,
+        notification_service=notification_service,
+        settings_service=settings_service,
+        field_name="refill_amount",
+        next_state=RemnashopReferral.INVITE_LIMITS,
+    )
+
+
+@inject
 async def on_exchange_toggle(
     callback: CallbackQuery,
     widget: Button,

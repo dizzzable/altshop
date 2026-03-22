@@ -7,12 +7,16 @@ from loguru import logger
 
 from src.api.utils.web_app_urls import build_web_referral_link
 from src.core.config import AppConfig
-from src.core.constants import REFERRAL_PREFIX
 from src.core.enums import PointsExchangeType
 from src.infrastructure.database.models.dto import UserDto
 
 from .partner import PartnerService
-from .referral import ReferralService
+from .referral import (
+    INVITE_BLOCK_REASON_EXHAUSTED,
+    INVITE_BLOCK_REASON_EXPIRED,
+    ReferralInviteStateSnapshot,
+    ReferralService,
+)
 from .referral_exchange import (
     ReferralExchangeExecutionResult,
     ReferralExchangeOptions,
@@ -21,6 +25,7 @@ from .referral_exchange import (
 from .user import UserService
 
 REFERRAL_DISABLED_FOR_ACTIVE_PARTNER = "REFERRAL_DISABLED_FOR_ACTIVE_PARTNER"
+REFERRAL_INVITE_UNAVAILABLE = "REFERRAL_INVITE_UNAVAILABLE"
 
 
 class ReferralPortalError(Exception):
@@ -49,7 +54,14 @@ class ReferralInfoSnapshot:
     referral_link: str
     telegram_referral_link: str
     web_referral_link: str
-    referral_code: str
+    referral_code: str | None
+    invite_expires_at: str | None
+    remaining_slots: int | None
+    total_capacity: int | None
+    requires_regeneration: bool
+    invite_block_reason: str | None
+    refill_step_progress: int | None
+    refill_step_target: int | None
     points: int
 
 
@@ -122,55 +134,29 @@ class ReferralPortalService:
     async def prepare_user_with_resolved_links(
         self,
         current_user: UserDto,
-        *,
-        retry_delay_seconds: float = 0.2,
     ) -> tuple[UserDto, ResolvedReferralLinks]:
-        ensured_user = await self.user_service.ensure_referral_code(current_user)
         links = await self.resolve_referral_links(
-            ensured_user,
-            retry_delay_seconds=retry_delay_seconds,
+            current_user,
         )
-        return ensured_user, links
+        return current_user, links
 
     async def resolve_referral_links(
         self,
         current_user: UserDto,
-        *,
-        retry_delay_seconds: float = 0.2,
     ) -> ResolvedReferralLinks:
-        referral_code = current_user.referral_code
-        web_referral_link = build_web_referral_link(self.config, referral_code)
-
-        last_exception: Exception | None = None
-        for attempt in range(2):
-            try:
-                telegram_referral_link = await self.referral_service.get_ref_link(referral_code)
-                return ResolvedReferralLinks(
-                    referral_link=telegram_referral_link,
-                    telegram_referral_link=telegram_referral_link,
-                    web_referral_link=web_referral_link,
-                )
-            except Exception as exception:  # noqa: BLE001
-                last_exception = exception
-                if attempt == 0:
-                    await asyncio.sleep(retry_delay_seconds)
-
-        error_type = type(last_exception).__name__ if last_exception else "UnknownError"
-        error_text = str(last_exception) if last_exception else "unknown"
-        logger.warning(
-            f"Failed to resolve telegram referral link for user '{current_user.telegram_id}' "
-            f"code '{referral_code}' after retry: {error_type}: {error_text}. "
-            f"Using web referral link fallback."
+        invite_state = await self.referral_service.get_invite_state(
+            current_user,
+            create_if_missing=True,
         )
-        return ResolvedReferralLinks(
-            referral_link=web_referral_link,
-            telegram_referral_link=web_referral_link,
-            web_referral_link=web_referral_link,
-        )
+        return await self._resolve_links_from_invite_state(invite_state)
 
     async def get_info(self, current_user: UserDto) -> ReferralInfoSnapshot:
         await self.ensure_api_available(current_user)
-        current_user, links = await self.prepare_user_with_resolved_links(current_user)
+        invite_state = await self.referral_service.get_invite_state(
+            current_user,
+            create_if_missing=True,
+        )
+        _, links = await self.prepare_user_with_resolved_links(current_user)
 
         referral_count, qualified_referral_count, reward_count, user = await asyncio.gather(
             self.referral_service.get_referral_count(current_user.telegram_id),
@@ -186,20 +172,37 @@ class ReferralPortalService:
             referral_link=links.referral_link,
             telegram_referral_link=links.telegram_referral_link,
             web_referral_link=links.web_referral_link,
-            referral_code=f"{REFERRAL_PREFIX}{current_user.referral_code}",
+            referral_code=(
+                f"ref_{invite_state.invite.token}"
+                if invite_state.invite and invite_state.invite_block_reason is None
+                else None
+            ),
+            invite_expires_at=(
+                invite_state.invite_expires_at.isoformat()
+                if invite_state.invite_expires_at
+                else None
+            ),
+            remaining_slots=invite_state.remaining_slots,
+            total_capacity=invite_state.total_capacity,
+            requires_regeneration=invite_state.requires_regeneration,
+            invite_block_reason=invite_state.invite_block_reason,
+            refill_step_progress=invite_state.refill_step_progress,
+            refill_step_target=invite_state.refill_step_target,
             points=user.points if user else 0,
         )
 
     async def build_qr_image(self, *, target: str, current_user: UserDto) -> bytes:
         await self.ensure_api_available(current_user)
-        current_user = await self.user_service.ensure_referral_code(current_user)
+        links = await self.resolve_referral_links(current_user)
+        referral_link = (
+            links.web_referral_link if target == "web" else links.telegram_referral_link
+        )
 
-        if target == "web":
-            referral_link = build_web_referral_link(self.config, current_user.referral_code)
-        else:
-            referral_link = (
-                await self.resolve_referral_links(current_user)
-            ).telegram_referral_link
+        if not referral_link:
+            raise ReferralPortalAccessDeniedError(
+                code=REFERRAL_INVITE_UNAVAILABLE,
+                message="Active referral invite link is unavailable",
+            )
 
         return self.referral_service.generate_ref_qr_bytes(referral_link)
 
@@ -330,3 +333,34 @@ class ReferralPortalService:
         if hasattr(value, "value"):
             return str(getattr(value, "value"))
         return str(value)
+
+    async def _resolve_links_from_invite_state(
+        self,
+        invite_state: ReferralInviteStateSnapshot,
+    ) -> ResolvedReferralLinks:
+        invite = invite_state.invite
+        if not invite or invite_state.invite_block_reason is not None:
+            if invite and invite_state.invite_block_reason not in {
+                INVITE_BLOCK_REASON_EXPIRED,
+                INVITE_BLOCK_REASON_EXHAUSTED,
+            }:
+                logger.warning(
+                    "Referral invite '{}' for user '{}' is unavailable: {}",
+                    invite.token,
+                    invite.inviter_telegram_id,
+                    invite_state.invite_block_reason,
+                )
+
+            return ResolvedReferralLinks(
+                referral_link="",
+                telegram_referral_link="",
+                web_referral_link="",
+            )
+
+        telegram_referral_link = await self.referral_service.get_ref_link(invite.token)
+        web_referral_link = build_web_referral_link(self.config, invite.token)
+        return ResolvedReferralLinks(
+            referral_link=telegram_referral_link,
+            telegram_referral_link=telegram_referral_link,
+            web_referral_link=web_referral_link,
+        )

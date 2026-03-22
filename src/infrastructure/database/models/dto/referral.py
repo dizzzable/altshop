@@ -12,6 +12,22 @@ from pydantic import Field
 from .base import TrackableDto
 
 
+class ReferralInviteDto(TrackableDto):
+    id: Optional[int] = Field(default=None, frozen=True)
+
+    inviter_telegram_id: int
+    token: str
+    expires_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+
+    created_at: Optional[datetime] = Field(default=None, frozen=True)
+    updated_at: Optional[datetime] = Field(default=None, frozen=True)
+
+    @property
+    def is_revoked(self) -> bool:
+        return self.revoked_at is not None
+
+
 class ReferralDto(TrackableDto):
     id: Optional[int] = Field(default=None, frozen=True)
 

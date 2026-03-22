@@ -38,7 +38,14 @@ class ReferralInfoResponse(BaseModel):
     referral_link: str
     telegram_referral_link: str
     web_referral_link: str
-    referral_code: str
+    referral_code: str | None = None
+    invite_expires_at: str | None = None
+    remaining_slots: int | None = None
+    total_capacity: int | None = None
+    requires_regeneration: bool = False
+    invite_block_reason: str | None = None
+    refill_step_progress: int | None = None
+    refill_step_target: int | None = None
     points: int
 
 
@@ -270,6 +277,13 @@ def _build_referral_info_response(snapshot: ReferralInfoSnapshot) -> ReferralInf
         telegram_referral_link=snapshot.telegram_referral_link,
         web_referral_link=snapshot.web_referral_link,
         referral_code=snapshot.referral_code,
+        invite_expires_at=snapshot.invite_expires_at,
+        remaining_slots=snapshot.remaining_slots,
+        total_capacity=snapshot.total_capacity,
+        requires_regeneration=snapshot.requires_regeneration,
+        invite_block_reason=snapshot.invite_block_reason,
+        refill_step_progress=snapshot.refill_step_progress,
+        refill_step_target=snapshot.refill_step_target,
         points=snapshot.points,
     )
 

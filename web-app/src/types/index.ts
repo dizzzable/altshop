@@ -274,7 +274,14 @@ export interface ReferralInfo {
   referral_link: string
   telegram_referral_link?: string
   web_referral_link?: string
-  referral_code: string
+  referral_code?: string | null
+  invite_expires_at?: string | null
+  remaining_slots?: number | null
+  total_capacity?: number | null
+  requires_regeneration?: boolean
+  invite_block_reason?: string | null
+  refill_step_progress?: number | null
+  refill_step_target?: number | null
   points: number
 }
 

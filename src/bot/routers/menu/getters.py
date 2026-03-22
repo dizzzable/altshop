@@ -6,7 +6,7 @@ from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
 
 from src.core.config import AppConfig
-from src.core.enums import DeviceType, PointsExchangeType, SubscriptionStatus
+from src.core.enums import AccessMode, DeviceType, PointsExchangeType, SubscriptionStatus
 from src.core.utils.formatters import (
     format_username_to_url,
     i18n_format_device_limit,
@@ -86,8 +86,23 @@ async def menu_getter(
     mini_app_url = _resolve_mini_app_entry_url(config)
     is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
     support_username = config.bot.support_username.get_secret_value()
-    ref_link = await referral_service.get_ref_link(user.referral_code)
     support_link = format_username_to_url(support_username, i18n.get("contact-support-help"))
+    access_mode = await settings_service.get_access_mode()
+    invite_locked = (
+        access_mode == AccessMode.INVITED
+        and not user.is_privileged
+        and not user.is_invited_user
+    )
+    invite_state = await referral_service.get_invite_state(user, create_if_missing=True)
+    has_active_invite = (
+        invite_state.invite is not None
+        and invite_state.invite_block_reason is None
+    )
+    ref_link = (
+        await referral_service.get_ref_link(invite_state.invite.token)
+        if has_active_invite and invite_state.invite
+        else ""
+    )
 
     # Get subscriptions count
     all_subscriptions = await subscription_service.get_all_by_user(user.telegram_id)
@@ -130,18 +145,19 @@ async def menu_getter(
         "user_name": user.name,
         "personal_discount": user.personal_discount,
         "support": support_link,
-        "invite": i18n.get("referral-invite-message", url=ref_link),
+        "invite": i18n.get("referral-invite-message", url=ref_link) if ref_link else "",
         "has_subscription": user.has_subscription,
         "is_app": is_app_enabled,
         "is_referral_enable": is_referral_enabled,
-        "can_show_referral_exchange": can_show_referral_controls,
-        "can_show_referral_invite": can_show_referral_invite,
-        "can_show_referral_send_inline": can_show_referral_inline_send,
+        "can_show_referral_exchange": can_show_referral_controls and not invite_locked,
+        "can_show_referral_invite": can_show_referral_invite and not invite_locked,
+        "can_show_referral_send_inline": can_show_referral_inline_send and bool(ref_link),
         "is_points_reward": is_points_reward,
         "subscriptions_count": subscriptions_count,
         "count": devices_count,  # For btn-menu-devices
         "is_partner": is_partner_active,
         "is_partner_active": is_partner_active,
+        "invite_locked": invite_locked,
     }
 
     subscription = user.current_subscription
@@ -263,10 +279,58 @@ async def invite_getter(
     settings = await settings_service.get_referral_settings()
     referrals = await referral_service.get_referral_count(user.telegram_id)
     payments = await referral_service.get_reward_count(user.telegram_id)
-    ref_link = await referral_service.get_ref_link(user.referral_code)
+    invite_state = await referral_service.get_invite_state(user, create_if_missing=True)
+    has_active_invite = (
+        invite_state.invite is not None
+        and invite_state.invite_block_reason is None
+    )
+    ref_link = (
+        await referral_service.get_ref_link(invite_state.invite.token)
+        if has_active_invite and invite_state.invite
+        else ""
+    )
     support_username = config.bot.support_username.get_secret_value()
     support_link = format_username_to_url(
         support_username, i18n.get("contact-support-withdraw-points")
+    )
+    invite_status_key = {
+        None: "msg-menu-invite-status-active",
+        "EXPIRED": "msg-menu-invite-status-expired",
+        "SLOTS_EXHAUSTED": "msg-menu-invite-status-exhausted",
+    }.get(invite_state.invite_block_reason, "msg-menu-invite-status-missing")
+    expires_at = (
+        invite_state.invite_expires_at.strftime("%d.%m.%Y %H:%M")
+        if invite_state.invite_expires_at
+        else i18n.get("msg-menu-invite-status-never")
+    )
+    slots_value = (
+        i18n.get(
+            "msg-menu-invite-status-slots-unlimited",
+        )
+        if invite_state.total_capacity is None
+        else i18n.get(
+            "msg-menu-invite-status-slots",
+            remaining=invite_state.remaining_slots or 0,
+            total=invite_state.total_capacity or 0,
+        )
+    )
+    progress_value = (
+        i18n.get("msg-menu-invite-status-progress-disabled")
+        if invite_state.refill_step_target is None
+        else i18n.get(
+            "msg-menu-invite-status-progress",
+            current=invite_state.refill_step_progress or 0,
+            target=invite_state.refill_step_target,
+        )
+    )
+    invite_status_block = "\n".join(
+        [
+            i18n.get("msg-menu-invite-status-title"),
+            i18n.get(invite_status_key),
+            i18n.get("msg-menu-invite-status-expires-at", expires_at=expires_at),
+            slots_value,
+            progress_value,
+        ]
     )
 
     return {
@@ -277,8 +341,12 @@ async def invite_getter(
         "is_points_reward": settings.reward.is_points,
         "has_points": True if user.points > 0 else False,
         "referral_link": ref_link,
-        "invite": i18n.get("referral-invite-message", url=ref_link),
+        "invite": i18n.get("referral-invite-message", url=ref_link) if ref_link else "",
         "withdraw": support_link,
+        "has_active_referral_link": has_active_invite,
+        "can_regenerate_invite": invite_state.requires_regeneration
+        and invite_state.invite_block_reason != "SLOTS_EXHAUSTED",
+        "invite_status_block": invite_status_block,
     }
 
 

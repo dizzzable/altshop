@@ -1,20 +1,30 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
-from pydantic import Field, PrivateAttr
+from pydantic import Field, PrivateAttr, field_validator
 
 from src.core.constants import REMNASHOP_PREFIX
 from src.core.enums import Currency, Locale, UserRole
 from src.core.utils.time import datetime_now
 
-from .base import TrackableDto
+from .base import BaseDto, TrackableDto
 
 if TYPE_CHECKING:
     from src.infrastructure.database.models.dto.base import SqlModel
 
     from .subscription import BaseSubscriptionDto
+
+
+class ReferralInviteIndividualSettingsDto(BaseDto):
+    use_global_settings: bool = True
+    link_ttl_enabled: bool = False
+    link_ttl_seconds: int | None = None
+    slots_enabled: bool = False
+    initial_slots: int | None = None
+    refill_threshold_qualified: int | None = None
+    refill_amount: int | None = None
 
 
 class BaseUserDto(TrackableDto):
@@ -35,6 +45,9 @@ class BaseUserDto(TrackableDto):
     is_bot_blocked: bool = False
     is_rules_accepted: bool = True
     partner_balance_currency_override: Optional[Currency] = None
+    referral_invite_settings: ReferralInviteIndividualSettingsDto = Field(
+        default_factory=ReferralInviteIndividualSettingsDto
+    )
 
     # Per-user subscription cap:
     # None -> use global, -1 -> unlimited, >0 -> explicit limit.
@@ -42,6 +55,20 @@ class BaseUserDto(TrackableDto):
 
     created_at: Optional[datetime] = Field(default=None, frozen=True)
     updated_at: Optional[datetime] = Field(default=None, frozen=True)
+
+    @field_validator("referral_invite_settings", mode="before")
+    @classmethod
+    def parse_referral_invite_settings(
+        cls,
+        value: Union[dict[str, Any], ReferralInviteIndividualSettingsDto, None],
+    ) -> ReferralInviteIndividualSettingsDto:
+        if value is None:
+            return ReferralInviteIndividualSettingsDto()
+        if isinstance(value, ReferralInviteIndividualSettingsDto):
+            return value
+        if isinstance(value, dict):
+            return ReferralInviteIndividualSettingsDto(**value)
+        return ReferralInviteIndividualSettingsDto()
 
     @property
     def remna_name(self) -> str:  # NOTE: DONT USE FOR GET!

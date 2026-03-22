@@ -76,6 +76,22 @@ function formatText(template: string, params: TranslationParams): string {
   )
 }
 
+function formatAbsoluteDateTime(value: string | null | undefined, locale: ReferralsLocale): string {
+  if (!value) {
+    return translateText(locale, 'referrals.inviteStatus.never')
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return translateText(locale, 'referrals.inviteStatus.never')
+  }
+
+  return new Intl.DateTimeFormat(locale === 'ru' ? 'ru-RU' : 'en-US', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date)
+}
+
 function getExchangeTypeLabel(type: PointsExchangeType, locale: ReferralsLocale): string {
   if (type === 'SUBSCRIPTION_DAYS') {
     return translateText(locale, 'referrals.auto.001')
@@ -281,12 +297,52 @@ export function ReferralsPage() {
   const totalRewards = referrals.reduce((sum, referral) => sum + getReferralRewards(referral), 0)
   const telegramReferralLink = referralInfo?.telegram_referral_link || referralInfo?.referral_link || ''
   const webReferralLink = referralInfo?.web_referral_link || ''
-  const activeReferralLink = qrTarget === 'web' ? webReferralLink : telegramReferralLink
+  const shareReferralLink = telegramReferralLink || webReferralLink
+  const hasActiveInviteLink = Boolean(telegramReferralLink || webReferralLink)
   const showExchangePreview = exchangeLoading || Boolean(exchangeOptions?.exchange_enabled)
   const showMobileExchangeAction = Boolean(!exchangeLoading && exchangeOptions?.exchange_enabled)
   const isMobileExchangeActionActive = Boolean(
     exchangeOptions?.exchange_enabled && availableExchangeTypes.length > 0
   )
+  const inviteBlockReason = referralInfo?.invite_block_reason ?? null
+  const inviteStatusDescription =
+    inviteBlockReason === 'EXPIRED'
+      ? translateText(referralLocale, 'referrals.inviteStatus.expired')
+      : inviteBlockReason === 'SLOTS_EXHAUSTED'
+        ? translateText(referralLocale, 'referrals.inviteStatus.exhausted')
+        : hasActiveInviteLink
+          ? translateText(referralLocale, 'referrals.inviteStatus.active')
+          : translateText(referralLocale, 'referrals.inviteStatus.missing')
+  const inviteStatusBadge = inviteBlockReason === 'EXPIRED'
+    ? translateText(referralLocale, 'referrals.inviteStatus.expired')
+    : inviteBlockReason === 'SLOTS_EXHAUSTED'
+      ? translateText(referralLocale, 'referrals.inviteStatus.exhausted')
+      : hasActiveInviteLink
+        ? translateText(referralLocale, 'referrals.inviteStatus.active')
+        : translateText(referralLocale, 'referrals.inviteStatus.missing')
+  const inviteExpiryValue = formatAbsoluteDateTime(referralInfo?.invite_expires_at, referralLocale)
+  const inviteSlotsValue =
+    referralInfo?.total_capacity == null
+      ? translateText(referralLocale, 'referrals.inviteStatus.slotsUnlimited')
+      : formatText(translateText(referralLocale, 'referrals.inviteStatus.slots'), {
+          remaining: referralInfo?.remaining_slots ?? 0,
+          total: referralInfo?.total_capacity ?? 0,
+        })
+  const inviteProgressValue =
+    referralInfo?.refill_step_target == null
+      ? translateText(referralLocale, 'referrals.inviteStatus.progressDisabled')
+      : formatText(translateText(referralLocale, 'referrals.inviteStatus.progress'), {
+          current: referralInfo?.refill_step_progress ?? 0,
+          target: referralInfo?.refill_step_target ?? 0,
+        })
+  const inviteStatusCardClass =
+    inviteBlockReason === 'SLOTS_EXHAUSTED'
+      ? 'border-amber-500/30 bg-amber-500/10'
+      : inviteBlockReason === 'EXPIRED'
+        ? 'border-rose-500/30 bg-rose-500/10'
+        : hasActiveInviteLink
+          ? 'border-emerald-500/25 bg-emerald-500/10'
+          : 'border-white/15 bg-white/5'
 
   const copyLink = async (link: string, label: string) => {
     if (!link) {
@@ -303,7 +359,7 @@ export function ReferralsPage() {
   }
 
   const handleShareReferralLink = async () => {
-    if (!activeReferralLink) {
+    if (!shareReferralLink) {
       toast.error(translateText(referralLocale, 'referrals.auto.007'))
       return
     }
@@ -312,12 +368,12 @@ export function ReferralsPage() {
       await navigator.share({
         title: translateText(referralLocale, 'referrals.share.joinTitle', { projectName }),
         text: translateText(referralLocale, 'referrals.share.joinText', { projectName }),
-        url: activeReferralLink,
+        url: shareReferralLink,
       })
       return
     }
 
-    await navigator.clipboard.writeText(activeReferralLink)
+    await navigator.clipboard.writeText(shareReferralLink)
     toast.success(translateText(referralLocale, 'referrals.auto.009'))
   }
 
@@ -410,11 +466,51 @@ export function ReferralsPage() {
               onClick={handleShareReferralLink}
               className={cn(useMobileUiV2 ? 'h-11 w-11' : 'h-9 w-9')}
               aria-label={translateText(referralLocale, 'referrals.mobile.shareAction')}
+              disabled={!shareReferralLink}
             >
               <Share2 className="h-4 w-4" />
             </Button>
           </CardHeader>
-          <CardContent className="space-y-2 pt-0">
+          <CardContent className="space-y-3 pt-0">
+            <div className={cn('rounded-xl border p-3', inviteStatusCardClass)}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">
+                    {translateText(referralLocale, 'referrals.inviteStatus.title')}
+                  </p>
+                  <p className="text-sm text-muted-foreground">{inviteStatusDescription}</p>
+                </div>
+                <Badge variant="secondary" className="max-w-full whitespace-normal text-left">
+                  {inviteStatusBadge}
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                <div className="rounded-lg border border-white/10 bg-black/10 p-2.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {translateText(referralLocale, 'referrals.inviteStatus.expiresAt')}
+                  </p>
+                  <p className="mt-1 text-sm font-medium">{inviteExpiryValue}</p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/10 p-2.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {translateText(referralLocale, 'referrals.auto.024')}
+                  </p>
+                  <p className="mt-1 text-sm font-medium">{inviteSlotsValue}</p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-black/10 p-2.5">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {translateText(referralLocale, 'referrals.auto.046')}
+                  </p>
+                  <p className="mt-1 text-sm font-medium">{inviteProgressValue}</p>
+                </div>
+              </div>
+              {(!hasActiveInviteLink || referralInfo?.requires_regeneration) && (
+                <p className="mt-3 text-xs text-muted-foreground">
+                  {translateText(referralLocale, 'referrals.inviteStatus.regenerateHint')}{' '}
+                  {translateText(referralLocale, 'referrals.inviteStatus.noActiveLink')}
+                </p>
+              )}
+            </div>
             <ReferralLinkField
               label={translateText(referralLocale, 'referrals.auto.016')}
               value={telegramReferralLink}
@@ -886,6 +982,7 @@ function ReferralLinkField({
           onClick={onCopy}
           className={cn(compact ? 'h-11 w-11' : 'h-9 w-9')}
           aria-label={label}
+          disabled={!value}
         >
           <Copy className="h-4 w-4" />
         </Button>
@@ -895,6 +992,7 @@ function ReferralLinkField({
           onClick={onShowQr}
           className={cn(compact ? 'h-11 w-11' : 'h-9 w-9')}
           aria-label={label}
+          disabled={!value}
         >
           <QrCode className="h-4 w-4" />
         </Button>

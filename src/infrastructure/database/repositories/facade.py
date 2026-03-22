@@ -7,6 +7,7 @@ from .payment_webhook_event import PaymentWebhookEventRepository
 from .plan import PlanRepository
 from .promocode import PromocodeRepository
 from .referral import ReferralRepository
+from .referral_invite import ReferralInviteRepository
 from .settings import SettingsRepository
 from .subscription import SubscriptionRepository
 from .transaction import TransactionRepository
@@ -30,6 +31,7 @@ class RepositoriesFacade:
     settings: SettingsRepository
     broadcasts: BroadcastRepository
     referrals: ReferralRepository
+    referral_invites: ReferralInviteRepository
     user_notification_events: UserNotificationEventRepository
     web_analytics_events: WebAnalyticsEventRepository
     web_accounts: WebAccountRepository
@@ -49,6 +51,7 @@ class RepositoriesFacade:
         self.settings = SettingsRepository(session)
         self.broadcasts = BroadcastRepository(session)
         self.referrals = ReferralRepository(session)
+        self.referral_invites = ReferralInviteRepository(session)
         self.user_notification_events = UserNotificationEventRepository(session)
         self.web_analytics_events = WebAnalyticsEventRepository(session)
         self.web_accounts = WebAccountRepository(session)

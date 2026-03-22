@@ -28,6 +28,7 @@ from src.infrastructure.database.models.dto import UserDto
 from src.infrastructure.database.models.dto.partner import PartnerIndividualSettingsDto
 from src.infrastructure.database.models.dto.plan import PlanSnapshotDto
 from src.infrastructure.database.models.dto.subscription import SubscriptionDto
+from src.infrastructure.database.models.dto.user import ReferralInviteIndividualSettingsDto
 from src.infrastructure.taskiq.tasks.redirects import redirect_to_main_menu_task
 from src.services.email_recovery import EmailRecoveryService
 from src.services.notification import NotificationService
@@ -2100,6 +2101,242 @@ async def on_partner_fixed_input(
             f"{log(user)} Partner '{partner.id}' level {level} "
             f"fixed amount changed to {amount_rub} RUB"
         )
+
+
+def _build_referral_invite_individual_settings(
+    target_user: UserDto,
+    **updates: object,
+) -> ReferralInviteIndividualSettingsDto:
+    current = target_user.referral_invite_settings
+    return ReferralInviteIndividualSettingsDto(
+        use_global_settings=bool(updates.get("use_global_settings", current.use_global_settings)),
+        link_ttl_enabled=bool(updates.get("link_ttl_enabled", current.link_ttl_enabled)),
+        link_ttl_seconds=updates.get("link_ttl_seconds", current.link_ttl_seconds),
+        slots_enabled=bool(updates.get("slots_enabled", current.slots_enabled)),
+        initial_slots=updates.get("initial_slots", current.initial_slots),
+        refill_threshold_qualified=updates.get(
+            "refill_threshold_qualified",
+            current.refill_threshold_qualified,
+        ),
+        refill_amount=updates.get("refill_amount", current.refill_amount),
+    )
+
+
+async def _update_referral_invite_settings(
+    *,
+    user_service: UserService,
+    target_user: UserDto,
+    settings: ReferralInviteIndividualSettingsDto,
+) -> None:
+    target_user.referral_invite_settings = settings
+    await user_service.update(user=target_user)
+
+
+@inject
+async def on_referral_invite_settings(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    await dialog_manager.switch_to(state=DashboardUser.REFERRAL_INVITE_SETTINGS)
+
+
+@inject
+async def on_referral_invite_use_global_toggle(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    new_settings = _build_referral_invite_individual_settings(
+        target_user,
+        use_global_settings=not target_user.referral_invite_settings.use_global_settings,
+    )
+    await _update_referral_invite_settings(
+        user_service=user_service,
+        target_user=target_user,
+        settings=new_settings,
+    )
+    logger.info(
+        f"{log(user)} Toggled referral invite use_global_settings to "
+        f"'{new_settings.use_global_settings}' for user '{target_telegram_id}'"
+    )
+
+
+@inject
+async def on_referral_invite_ttl_toggle(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    new_settings = _build_referral_invite_individual_settings(
+        target_user,
+        use_global_settings=False,
+        link_ttl_enabled=not target_user.referral_invite_settings.link_ttl_enabled,
+    )
+    await _update_referral_invite_settings(
+        user_service=user_service,
+        target_user=target_user,
+        settings=new_settings,
+    )
+    logger.info(
+        f"{log(user)} Toggled referral invite TTL to "
+        f"'{new_settings.link_ttl_enabled}' for user '{target_telegram_id}'"
+    )
+
+
+@inject
+async def on_referral_invite_slots_toggle(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    new_settings = _build_referral_invite_individual_settings(
+        target_user,
+        use_global_settings=False,
+        slots_enabled=not target_user.referral_invite_settings.slots_enabled,
+    )
+    await _update_referral_invite_settings(
+        user_service=user_service,
+        target_user=target_user,
+        settings=new_settings,
+    )
+    logger.info(
+        f"{log(user)} Toggled referral invite slots to "
+        f"'{new_settings.slots_enabled}' for user '{target_telegram_id}'"
+    )
+
+
+async def _update_referral_invite_numeric_field(
+    *,
+    dialog_manager: DialogManager,
+    message: Message,
+    user_service: UserService,
+    notification_service: NotificationService,
+    field_name: str,
+) -> None:
+    dialog_manager.show_mode = ShowMode.EDIT
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    number = parse_int(message.text)
+    if number is None or number < 0:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-invalid-value"),
+        )
+        return
+
+    new_settings = _build_referral_invite_individual_settings(
+        target_user,
+        use_global_settings=False,
+        **{field_name: number if number > 0 else None},
+    )
+    await _update_referral_invite_settings(
+        user_service=user_service,
+        target_user=target_user,
+        settings=new_settings,
+    )
+    logger.info(
+        f"{log(user)} Updated referral invite field '{field_name}' "
+        f"to '{number}' for user '{target_telegram_id}'"
+    )
+    await dialog_manager.switch_to(state=DashboardUser.REFERRAL_INVITE_SETTINGS)
+
+
+@inject
+async def on_referral_invite_ttl_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    await _update_referral_invite_numeric_field(
+        dialog_manager=dialog_manager,
+        message=message,
+        user_service=user_service,
+        notification_service=notification_service,
+        field_name="link_ttl_seconds",
+    )
+
+
+@inject
+async def on_referral_invite_initial_slots_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    await _update_referral_invite_numeric_field(
+        dialog_manager=dialog_manager,
+        message=message,
+        user_service=user_service,
+        notification_service=notification_service,
+        field_name="initial_slots",
+    )
+
+
+@inject
+async def on_referral_invite_refill_threshold_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    await _update_referral_invite_numeric_field(
+        dialog_manager=dialog_manager,
+        message=message,
+        user_service=user_service,
+        notification_service=notification_service,
+        field_name="refill_threshold_qualified",
+    )
+
+
+@inject
+async def on_referral_invite_refill_amount_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    await _update_referral_invite_numeric_field(
+        dialog_manager=dialog_manager,
+        message=message,
+        user_service=user_service,
+        notification_service=notification_service,
+        field_name="refill_amount",
+    )
 
 
 # ==================

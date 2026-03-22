@@ -54,12 +54,16 @@ class UserMiddleware(EventTypedMiddleware):
         if user is None:
             user = await user_service.create(aiogram_user)
             referrer = await referral_service.get_referrer_by_event(event, user.telegram_id)
+            partner_referrer = await referral_service.get_partner_referrer_by_event(
+                event,
+                user.telegram_id,
+            )
 
             # Обрабатываем партнерского реферала если пришёл по реферальной ссылке
-            if referrer and referrer.referral_code:
+            if partner_referrer and partner_referrer.referral_code:
                 await partner_service.handle_new_user_referral(
                     user=user,
-                    referrer_code=referrer.referral_code,
+                    referrer_code=partner_referrer.referral_code,
                 )
 
             base_i18n_kwargs = {

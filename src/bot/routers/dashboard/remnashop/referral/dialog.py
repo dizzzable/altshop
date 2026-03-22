@@ -10,6 +10,7 @@ from src.bot.routers.dashboard.remnashop.referral.getters import (
     exchange_gift_plan_getter,
     exchange_type_settings_getter,
     exchange_types_getter,
+    invite_limits_getter,
     level_getter,
     max_exchange_points_getter,
     min_exchange_points_getter,
@@ -34,6 +35,12 @@ from src.bot.routers.dashboard.remnashop.referral.handlers import (
     on_exchange_type_toggle,
     on_gift_duration_input,
     on_gift_plan_select,
+    on_invite_initial_slots_input,
+    on_invite_limits_slots_toggle,
+    on_invite_limits_ttl_toggle,
+    on_invite_refill_amount_input,
+    on_invite_refill_threshold_input,
+    on_invite_ttl_input,
     on_level_select,
     on_max_exchange_points_input,
     on_min_exchange_points_input,
@@ -101,6 +108,13 @@ referral = Window(
             text=I18nFormat("btn-referral-eligible-plans"),
             id="eligible_plans",
             state=RemnashopReferral.ELIGIBLE_PLANS,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-referral-invite-limits"),
+            id="invite_limits",
+            state=RemnashopReferral.INVITE_LIMITS,
         ),
     ),
     Row(
@@ -276,6 +290,126 @@ eligible_plans = Window(
     IgnoreUpdate(),
     state=RemnashopReferral.ELIGIBLE_PLANS,
     getter=eligible_plans_getter,
+)
+
+invite_limits = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-referral-invite-limits"),
+    Row(
+        Button(
+            text=I18nFormat("btn-referral-invite-ttl-toggle", enabled=F["ttl_enabled"]),
+            id="invite_ttl_toggle",
+            on_click=on_invite_limits_ttl_toggle,
+        ),
+        SwitchTo(
+            text=I18nFormat("btn-referral-invite-ttl-edit", value=F["ttl_value"]),
+            id="invite_ttl",
+            state=RemnashopReferral.INVITE_TTL,
+        ),
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-referral-invite-slots-toggle", enabled=F["slots_enabled"]),
+            id="invite_slots_toggle",
+            on_click=on_invite_limits_slots_toggle,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-referral-invite-initial-slots", value=F["initial_slots"]),
+            id="invite_initial_slots",
+            state=RemnashopReferral.INVITE_INITIAL_SLOTS,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat(
+                "btn-referral-invite-refill-threshold",
+                value=F["refill_threshold"],
+            ),
+            id="invite_refill_threshold",
+            state=RemnashopReferral.INVITE_REFILL_THRESHOLD,
+        ),
+        SwitchTo(
+            text=I18nFormat("btn-referral-invite-refill-amount", value=F["refill_amount"]),
+            id="invite_refill_amount",
+            state=RemnashopReferral.INVITE_REFILL_AMOUNT,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=RemnashopReferral.MAIN,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=RemnashopReferral.INVITE_LIMITS,
+    getter=invite_limits_getter,
+)
+
+invite_ttl = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-referral-invite-ttl"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=RemnashopReferral.INVITE_LIMITS,
+        ),
+    ),
+    MessageInput(func=on_invite_ttl_input),
+    IgnoreUpdate(),
+    state=RemnashopReferral.INVITE_TTL,
+    getter=invite_limits_getter,
+)
+
+invite_initial_slots = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-referral-invite-initial-slots"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=RemnashopReferral.INVITE_LIMITS,
+        ),
+    ),
+    MessageInput(func=on_invite_initial_slots_input),
+    IgnoreUpdate(),
+    state=RemnashopReferral.INVITE_INITIAL_SLOTS,
+    getter=invite_limits_getter,
+)
+
+invite_refill_threshold = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-referral-invite-refill-threshold"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=RemnashopReferral.INVITE_LIMITS,
+        ),
+    ),
+    MessageInput(func=on_invite_refill_threshold_input),
+    IgnoreUpdate(),
+    state=RemnashopReferral.INVITE_REFILL_THRESHOLD,
+    getter=invite_limits_getter,
+)
+
+invite_refill_amount = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-referral-invite-refill-amount"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=RemnashopReferral.INVITE_LIMITS,
+        ),
+    ),
+    MessageInput(func=on_invite_refill_amount_input),
+    IgnoreUpdate(),
+    state=RemnashopReferral.INVITE_REFILL_AMOUNT,
+    getter=invite_limits_getter,
 )
 
 # Настройки обмена баллов
@@ -621,6 +755,11 @@ router = Dialog(
     reward_strategy,
     reward,
     eligible_plans,
+    invite_limits,
+    invite_ttl,
+    invite_initial_slots,
+    invite_refill_threshold,
+    invite_refill_amount,
     points_exchange,
     points_per_day,
     min_exchange_points,

@@ -5,6 +5,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from src.api.utils.user_identity import resolve_public_username
+from src.api.utils.web_app_urls import build_web_referral_link
 from src.core.config import AppConfig
 from src.core.enums import (
     CryptoAsset,
@@ -236,9 +237,13 @@ class PartnerPortalService:
             )
 
         partner_stats = await self.partner_service.get_partner_statistics(partner=partner)
-        _, referral_links = await self.referral_portal_service.prepare_user_with_resolved_links(
+        current_user = await self.referral_portal_service.user_service.ensure_referral_code(
             current_user
         )
+        telegram_referral_link = await self.referral_portal_service.referral_service.get_ref_link(
+            current_user.referral_code
+        )
+        web_referral_link = build_web_referral_link(self.config, current_user.referral_code)
 
         individual_settings = partner.individual_settings
         use_global_settings = bool(individual_settings.use_global_settings)
@@ -307,15 +312,15 @@ class PartnerPortalService:
             total_withdrawn_display=float(total_withdrawn_display),
             referrals_count=partner.referrals_count,
             level2_referrals_count=partner.level2_referrals_count,
-            level3_referrals_count=partner.level3_referrals_count,
-            referral_link=referral_links.referral_link,
-            telegram_referral_link=referral_links.telegram_referral_link,
-            web_referral_link=referral_links.web_referral_link,
-            use_global_settings=use_global_settings,
-            effective_reward_type=effective_reward_type.value,
-            effective_accrual_strategy=effective_accrual_strategy.value,
-            level_settings=level_settings,
-        )
+                level3_referrals_count=partner.level3_referrals_count,
+                referral_link=telegram_referral_link,
+                telegram_referral_link=telegram_referral_link,
+                web_referral_link=web_referral_link,
+                use_global_settings=use_global_settings,
+                effective_reward_type=effective_reward_type.value,
+                effective_accrual_strategy=effective_accrual_strategy.value,
+                level_settings=level_settings,
+            )
 
     async def list_referrals(
         self,

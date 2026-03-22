@@ -66,6 +66,47 @@ async def reward_strategy_getter(dialog_manager: DialogManager, **kwargs: Any) -
 
 
 @inject
+async def invite_limits_getter(
+    dialog_manager: DialogManager,
+    settings_service: FromDishka[SettingsService],
+    i18n: FromDishka[TranslatorRunner],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    settings = await settings_service.get_referral_settings()
+    limits = settings.invite_limits
+
+    ttl_value = (
+        str(limits.link_ttl_seconds)
+        if limits.link_ttl_seconds is not None
+        else i18n.get("msg-referral-invite-unset")
+    )
+    initial_slots = (
+        str(limits.initial_slots)
+        if limits.initial_slots is not None
+        else i18n.get("msg-referral-invite-unset")
+    )
+    refill_threshold = (
+        str(limits.refill_threshold_qualified)
+        if limits.refill_threshold_qualified is not None
+        else i18n.get("msg-referral-invite-unset")
+    )
+    refill_amount = (
+        str(limits.refill_amount)
+        if limits.refill_amount is not None
+        else i18n.get("msg-referral-invite-unset")
+    )
+
+    return {
+        "ttl_enabled": limits.link_ttl_enabled,
+        "slots_enabled": limits.slots_enabled,
+        "ttl_value": ttl_value,
+        "initial_slots": initial_slots,
+        "refill_threshold": refill_threshold,
+        "refill_amount": refill_amount,
+    }
+
+
+@inject
 async def eligible_plans_getter(
     dialog_manager: DialogManager,
     plan_service: FromDishka[PlanService],

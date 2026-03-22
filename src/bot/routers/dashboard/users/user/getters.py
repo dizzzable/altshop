@@ -1124,3 +1124,53 @@ async def max_subscriptions_getter(
         "limits": limits,
         "is_unlimited": current_max == -1,
     }
+
+
+@inject
+async def referral_invite_settings_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    settings_service: FromDishka[SettingsService],
+    referral_service: FromDishka[ReferralService],
+    i18n: FromDishka[TranslatorRunner],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    global_settings = await settings_service.get_referral_settings()
+    effective = await referral_service.get_effective_invite_limits(target_user)
+    individual = target_user.referral_invite_settings
+
+    def _display(value: int | None) -> str:
+        return str(value) if value is not None else i18n.get("msg-referral-invite-unset")
+
+    return {
+        "use_global_settings": individual.use_global_settings,
+        "use_global": individual.use_global_settings,
+        "ttl_enabled": individual.link_ttl_enabled,
+        "slots_enabled": individual.slots_enabled,
+        "ttl_value": _display(individual.link_ttl_seconds),
+        "initial_slots": _display(individual.initial_slots),
+        "refill_threshold": _display(individual.refill_threshold_qualified),
+        "refill_amount": _display(individual.refill_amount),
+        "effective_ttl_enabled": effective.link_ttl_enabled,
+        "effective_slots_enabled": effective.slots_enabled,
+        "effective_ttl_status": i18n.get(
+            "msg-referral-invite-enabled-status",
+            enabled=effective.link_ttl_enabled,
+        ),
+        "effective_slots_status": i18n.get(
+            "msg-referral-invite-enabled-status",
+            enabled=effective.slots_enabled,
+        ),
+        "effective_ttl_value": _display(effective.link_ttl_seconds),
+        "effective_initial_slots": _display(effective.initial_slots),
+        "effective_refill_threshold": _display(effective.refill_threshold_qualified),
+        "effective_refill_amount": _display(effective.refill_amount),
+        "global_ttl_enabled": global_settings.invite_limits.link_ttl_enabled,
+        "global_slots_enabled": global_settings.invite_limits.slots_enabled,
+    }

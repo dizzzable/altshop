@@ -140,6 +140,11 @@ class DashboardUser(StatesGroup):
     PARTNER_SETTINGS_FIXED = State()  # Настройка фиксированных сумм
     PARTNER_WITHDRAWALS = State()  # Список заявок на вывод
     PARTNER_WITHDRAWAL = State()  # Детали заявки на вывод
+    REFERRAL_INVITE_SETTINGS = State()
+    REFERRAL_INVITE_TTL = State()
+    REFERRAL_INVITE_INITIAL_SLOTS = State()
+    REFERRAL_INVITE_REFILL_THRESHOLD = State()
+    REFERRAL_INVITE_REFILL_AMOUNT = State()
 
 
 class DashboardRemnashop(StatesGroup):
@@ -182,6 +187,11 @@ class RemnashopReferral(StatesGroup):
     REWARD_STRATEGY = State()
     ELIGIBLE_PLANS = State()
     # Настройки обмена баллов
+    INVITE_LIMITS = State()
+    INVITE_TTL = State()
+    INVITE_INITIAL_SLOTS = State()
+    INVITE_REFILL_THRESHOLD = State()
+    INVITE_REFILL_AMOUNT = State()
     POINTS_EXCHANGE = State()
     POINTS_PER_DAY = State()
     MIN_EXCHANGE_POINTS = State()

@@ -1,3 +1,7 @@
+import secrets
+import string
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from typing import Any, List, Optional, cast
@@ -29,13 +33,15 @@ from src.core.utils.time import datetime_now
 from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import (
     ReferralDto,
+    ReferralInviteDto,
+    ReferralInviteLimitsDto,
     ReferralRewardDto,
     ReferralSettingsDto,
     TransactionDto,
     UserDto,
 )
 from src.infrastructure.database.models.dto.user import BaseUserDto
-from src.infrastructure.database.models.sql import Referral, ReferralReward
+from src.infrastructure.database.models.sql import Referral, ReferralInvite, ReferralReward
 from src.infrastructure.redis import RedisRepository
 from src.infrastructure.taskiq.tasks.notifications import send_user_notification_task
 from src.services.settings import SettingsService
@@ -43,6 +49,32 @@ from src.services.user import UserService
 
 from .base import BaseService
 from .notification import NotificationService
+
+INVITE_BLOCK_REASON_EXPIRED = "EXPIRED"
+INVITE_BLOCK_REASON_EXHAUSTED = "SLOTS_EXHAUSTED"
+
+
+@dataclass(slots=True, frozen=True)
+class ReferralInviteCapacitySnapshot:
+    total_capacity: int | None
+    remaining_slots: int | None
+    qualified_referral_count: int
+    used_slots: int
+    refill_step_progress: int | None
+    refill_step_target: int | None
+
+
+@dataclass(slots=True, frozen=True)
+class ReferralInviteStateSnapshot:
+    invite: ReferralInviteDto | None
+    invite_expires_at: datetime | None
+    total_capacity: int | None
+    remaining_slots: int | None
+    qualified_referral_count: int
+    requires_regeneration: bool
+    invite_block_reason: str | None
+    refill_step_progress: int | None
+    refill_step_target: int | None
 
 
 class ReferralService(BaseService):
@@ -175,6 +207,264 @@ class ReferralService(BaseService):
         )
         return total_amount
 
+    async def get_effective_invite_limits(
+        self,
+        inviter: UserDto,
+    ) -> ReferralInviteLimitsDto:
+        settings = await self.settings_service.get_referral_settings()
+        global_limits = settings.invite_limits
+        individual = inviter.referral_invite_settings
+
+        if individual.use_global_settings:
+            return ReferralInviteLimitsDto.model_validate(global_limits.model_dump())
+
+        return ReferralInviteLimitsDto.model_validate(
+            individual.model_dump(exclude={"use_global_settings"})
+        )
+
+    async def get_invite_capacity_snapshot(
+        self,
+        inviter: UserDto,
+        *,
+        limits: ReferralInviteLimitsDto | None = None,
+    ) -> ReferralInviteCapacitySnapshot:
+        effective_limits = limits or await self.get_effective_invite_limits(inviter)
+        qualified_referral_count, used_slots = await self._get_capacity_counters(
+            inviter.telegram_id
+        )
+
+        if not effective_limits.slots_enabled:
+            return ReferralInviteCapacitySnapshot(
+                total_capacity=None,
+                remaining_slots=None,
+                qualified_referral_count=qualified_referral_count,
+                used_slots=used_slots,
+                refill_step_progress=None,
+                refill_step_target=None,
+            )
+
+        initial_slots = effective_limits.effective_initial_slots or 0
+        refill_threshold = effective_limits.effective_refill_threshold
+        refill_amount = effective_limits.effective_refill_amount
+
+        bonus_capacity = 0
+        refill_step_progress: int | None = None
+        refill_step_target: int | None = None
+
+        if refill_threshold and refill_amount > 0:
+            bonus_capacity = (qualified_referral_count // refill_threshold) * refill_amount
+            refill_step_progress = qualified_referral_count % refill_threshold
+            refill_step_target = refill_threshold
+
+        total_capacity = max(initial_slots + bonus_capacity, 0)
+        remaining_slots = max(total_capacity - used_slots, 0)
+
+        return ReferralInviteCapacitySnapshot(
+            total_capacity=total_capacity,
+            remaining_slots=remaining_slots,
+            qualified_referral_count=qualified_referral_count,
+            used_slots=used_slots,
+            refill_step_progress=refill_step_progress,
+            refill_step_target=refill_step_target,
+        )
+
+    async def get_latest_invite(self, inviter_telegram_id: int) -> ReferralInviteDto | None:
+        invite = await self.uow.repository.referral_invites.get_latest_by_inviter(
+            inviter_telegram_id
+        )
+        return ReferralInviteDto.from_model(invite)
+
+    async def get_invite_state(
+        self,
+        inviter: UserDto,
+        *,
+        create_if_missing: bool = False,
+        regenerate: bool = False,
+    ) -> ReferralInviteStateSnapshot:
+        limits = await self.get_effective_invite_limits(inviter)
+        capacity = await self.get_invite_capacity_snapshot(inviter, limits=limits)
+        invite = await self.get_latest_invite(inviter.telegram_id)
+
+        if regenerate:
+            if capacity.remaining_slots is not None and capacity.remaining_slots <= 0:
+                return self._build_invite_state_snapshot(invite=invite, capacity=capacity)
+            invite = await self._create_new_referral_invite(inviter, limits=limits)
+        elif create_if_missing and invite is None:
+            if capacity.remaining_slots is None or capacity.remaining_slots > 0:
+                invite = await self._create_new_referral_invite(inviter, limits=limits)
+
+        return self._build_invite_state_snapshot(invite=invite, capacity=capacity)
+
+    async def regenerate_invite(self, inviter: UserDto) -> ReferralInviteStateSnapshot:
+        return await self.get_invite_state(
+            inviter,
+            create_if_missing=True,
+            regenerate=True,
+        )
+
+    async def resolve_invite_token(
+        self,
+        code: str,
+        *,
+        user_telegram_id: int,
+    ) -> tuple[ReferralInviteDto | None, UserDto | None, str | None]:
+        token = self._normalize_referral_payload(code)
+        if not token:
+            return None, None, None
+
+        invite = await self.uow.repository.referral_invites.get_by_token(token)
+        invite_dto = ReferralInviteDto.from_model(invite)
+        if not invite_dto:
+            return None, None, None
+
+        inviter = await self.user_service.get(invite_dto.inviter_telegram_id)
+        if not inviter or inviter.telegram_id == user_telegram_id:
+            return invite_dto, None, INVITE_BLOCK_REASON_EXPIRED
+
+        capacity = await self.get_invite_capacity_snapshot(inviter)
+        block_reason = self._resolve_invite_block_reason(invite_dto, capacity)
+        if block_reason:
+            return invite_dto, None, block_reason
+
+        return invite_dto, inviter, None
+
+    async def get_partner_referrer_by_code(
+        self,
+        code: str,
+        *,
+        user_telegram_id: int,
+    ) -> UserDto | None:
+        normalized = self._normalize_referral_payload(code)
+        if not normalized:
+            return None
+
+        referrer = await self.user_service.get_by_referral_code(normalized)
+        if not referrer or referrer.telegram_id == user_telegram_id:
+            return None
+
+        partner = await self.uow.repository.partners.get_partner_by_user(referrer.telegram_id)
+        if not partner or not partner.is_active:
+            return None
+
+        return referrer
+
+    async def is_valid_invite_or_partner_code(
+        self,
+        code: str,
+        *,
+        user_telegram_id: int,
+    ) -> bool:
+        _, inviter, block_reason = await self.resolve_invite_token(
+            code,
+            user_telegram_id=user_telegram_id,
+        )
+        if inviter and block_reason is None:
+            return True
+
+        partner_referrer = await self.get_partner_referrer_by_code(
+            code,
+            user_telegram_id=user_telegram_id,
+        )
+        return partner_referrer is not None
+
+    async def _get_capacity_counters(self, inviter_telegram_id: int) -> tuple[int, int]:
+        qualified_referral_count = await self.get_qualified_referral_count(inviter_telegram_id)
+        used_slots = await self.get_referral_count(inviter_telegram_id)
+        return qualified_referral_count, used_slots
+
+    async def _create_new_referral_invite(
+        self,
+        inviter: UserDto,
+        *,
+        limits: ReferralInviteLimitsDto,
+    ) -> ReferralInviteDto:
+        revoked_at = datetime_now()
+        await self.uow.repository.referral_invites.revoke_unrevoked_by_inviter(
+            inviter.telegram_id,
+            revoked_at=revoked_at,
+        )
+
+        expires_at = None
+        ttl_seconds = limits.effective_link_ttl_seconds
+        if ttl_seconds is not None:
+            expires_at = revoked_at + timedelta(seconds=ttl_seconds)
+
+        invite = await self.uow.repository.referral_invites.create_invite(
+            ReferralInvite(
+                inviter_telegram_id=inviter.telegram_id,
+                token=await self._generate_unique_invite_token(),
+                expires_at=expires_at,
+                revoked_at=None,
+            )
+        )
+        return ReferralInviteDto.from_model(invite)  # type: ignore[return-value]
+
+    async def _generate_unique_invite_token(self, *, length: int = 16) -> str:
+        alphabet = string.ascii_uppercase + string.digits
+
+        for _ in range(10):
+            token = "".join(secrets.choice(alphabet) for _ in range(length))
+            existing = await self.uow.repository.referral_invites.get_by_token(token)
+            if not existing:
+                return token
+
+        raise ValueError("Failed to generate unique referral invite token")
+
+    def _build_invite_state_snapshot(
+        self,
+        *,
+        invite: ReferralInviteDto | None,
+        capacity: ReferralInviteCapacitySnapshot,
+    ) -> ReferralInviteStateSnapshot:
+        block_reason = self._resolve_invite_block_reason(invite, capacity)
+        requires_regeneration = (
+            block_reason == INVITE_BLOCK_REASON_EXPIRED
+            or (invite is None and block_reason != INVITE_BLOCK_REASON_EXHAUSTED)
+        )
+
+        return ReferralInviteStateSnapshot(
+            invite=invite,
+            invite_expires_at=invite.expires_at if invite else None,
+            total_capacity=capacity.total_capacity,
+            remaining_slots=capacity.remaining_slots,
+            qualified_referral_count=capacity.qualified_referral_count,
+            requires_regeneration=requires_regeneration,
+            invite_block_reason=block_reason,
+            refill_step_progress=capacity.refill_step_progress,
+            refill_step_target=capacity.refill_step_target,
+        )
+
+    def _resolve_invite_block_reason(
+        self,
+        invite: ReferralInviteDto | None,
+        capacity: ReferralInviteCapacitySnapshot,
+    ) -> str | None:
+        if capacity.remaining_slots is not None and capacity.remaining_slots <= 0:
+            if invite is None:
+                return INVITE_BLOCK_REASON_EXHAUSTED
+
+        if invite is None:
+            return None
+
+        if invite.is_revoked or self._is_invite_expired(invite):
+            return INVITE_BLOCK_REASON_EXPIRED
+
+        if capacity.remaining_slots is not None and capacity.remaining_slots <= 0:
+            return INVITE_BLOCK_REASON_EXHAUSTED
+
+        return None
+
+    def _normalize_referral_payload(self, code: str) -> str:
+        normalized = code.strip()
+        if normalized.startswith(REFERRAL_PREFIX):
+            normalized = normalized[len(REFERRAL_PREFIX) :]
+        return normalized.strip()
+
+    def _is_invite_expired(self, invite: ReferralInviteDto) -> bool:
+        if invite.expires_at is None:
+            return False
+        return invite.expires_at <= datetime_now()
+
     async def create_reward(
         self,
         referral_id: int,
@@ -214,32 +504,81 @@ class ReferralService(BaseService):
         code: str,
         source: ReferralInviteSource = ReferralInviteSource.UNKNOWN,
     ) -> None:
-        if code.startswith(REFERRAL_PREFIX):
-            code = code[len(REFERRAL_PREFIX) :]
+        invite, invite_referrer, invite_block_reason = await self.resolve_invite_token(
+            code,
+            user_telegram_id=user.telegram_id,
+        )
 
-        referrer = await self.user_service.get_by_referral_code(code)
-        if not referrer or referrer.telegram_id == user.telegram_id:
-            logger.warning(
-                f"Referral skipped: invalid code or self-referral. "
-                f"User '{user.telegram_id}' with code '{code}'"
+        if invite_referrer and invite_block_reason is None:
+            await self._attach_referral(
+                user=user,
+                referrer=invite_referrer,
+                source=source,
+                enforce_slot_capacity=True,
             )
+            return
+
+        partner_referrer = await self.get_partner_referrer_by_code(
+            code,
+            user_telegram_id=user.telegram_id,
+        )
+        if partner_referrer:
+            await self._attach_referral(
+                user=user,
+                referrer=partner_referrer,
+                source=source,
+                enforce_slot_capacity=False,
+            )
+            return
+
+        normalized_code = self._normalize_referral_payload(code)
+        logger.warning(
+            "Referral skipped for user '{}' with code '{}': invite='{}', reason='{}'",
+            user.telegram_id,
+            normalized_code,
+            invite.token if invite else None,
+            invite_block_reason,
+        )
+
+    async def _attach_referral(
+        self,
+        *,
+        user: UserDto,
+        referrer: UserDto,
+        source: ReferralInviteSource,
+        enforce_slot_capacity: bool,
+    ) -> None:
+        if referrer.telegram_id == user.telegram_id:
+            logger.warning("Referral skipped: self-referral for user '{}'", user.telegram_id)
             return
 
         existing_referral = await self.get_referral_by_referred(user.telegram_id)
         if existing_referral:
             logger.warning(
-                f"Referral skipped: user '{user.telegram_id}' is already "
-                f"referred by '{existing_referral.referrer.telegram_id}'"
+                "Referral skipped: user '{}' is already referred by '{}'",
+                user.telegram_id,
+                existing_referral.referrer.telegram_id,
             )
             return
+
+        if enforce_slot_capacity:
+            capacity = await self.get_invite_capacity_snapshot(referrer)
+            if capacity.remaining_slots is not None and capacity.remaining_slots <= 0:
+                logger.warning(
+                    "Referral skipped: inviter '{}' has no remaining invite slots",
+                    referrer.telegram_id,
+                )
+                return
 
         parent = await self.get_referral_by_referred(referrer.telegram_id)
         parent_level = parent.level if parent else None
         level = self._define_referral_level(parent_level)
 
         logger.info(
-            f"Referral detected '{referrer.telegram_id}', referred '{user.telegram_id}', "
-            f"level '{level.name}'"
+            "Referral detected '{}' -> '{}' level '{}'",
+            referrer.telegram_id,
+            user.telegram_id,
+            level.name,
         )
 
         await self.create_referral(
@@ -415,8 +754,8 @@ class ReferralService(BaseService):
             user_telegram_id=referrer_telegram_id,
         )
 
-    async def get_ref_link(self, referral_code: str) -> str:
-        return f"{await self._get_bot_redirect_url()}?start={REFERRAL_PREFIX}{referral_code}"
+    async def get_ref_link(self, referral_payload: str) -> str:
+        return f"{await self._get_bot_redirect_url()}?start={REFERRAL_PREFIX}{referral_payload}"
 
     def generate_ref_qr_bytes(self, url: str) -> bytes:
         qrcode_module = cast(Any, qrcode)
@@ -464,66 +803,82 @@ class ReferralService(BaseService):
         event: TelegramObject,
         user_telegram_id: int,
     ) -> Optional[UserDto]:
-        if not isinstance(event, Message) or not event.text:
+        code = self._extract_referral_payload_from_event(event)
+        if not code:
             return None
 
-        text = event.text
-
-        if not text.startswith(f"/{Command.START.value.command}"):
-            return None
-
-        parts = text.split()
-
-        if len(parts) <= 1:
-            return None
-
-        code_with_prefix = parts[1]
-
-        if not code_with_prefix.startswith(REFERRAL_PREFIX):
-            return None
-
-        code = code_with_prefix[len(REFERRAL_PREFIX) :]
-        referrer = await self.user_service.get_by_referral_code(code)
-
-        if not referrer or referrer.telegram_id == user_telegram_id:
-            logger.warning(
-                f"Referrer retrieval failed for code '{code}': invalid code "
-                f"or self-referral by user '{user_telegram_id}'"
+        _, invite_referrer, invite_block_reason = await self.resolve_invite_token(
+            code,
+            user_telegram_id=user_telegram_id,
+        )
+        if invite_referrer and invite_block_reason is None:
+            logger.info(
+                "Invite referrer '{}' found for user '{}'",
+                invite_referrer.telegram_id,
+                user_telegram_id,
             )
+            return invite_referrer
+
+        partner_referrer = await self.get_partner_referrer_by_code(
+            code,
+            user_telegram_id=user_telegram_id,
+        )
+        if partner_referrer:
+            logger.info(
+                "Partner referrer '{}' found for user '{}'",
+                partner_referrer.telegram_id,
+                user_telegram_id,
+            )
+            return partner_referrer
+
+        logger.warning(
+            "Referrer retrieval failed for user '{}' and code '{}'",
+            user_telegram_id,
+            self._normalize_referral_payload(code),
+        )
+        return None
+
+    async def get_partner_referrer_by_event(
+        self,
+        event: TelegramObject,
+        user_telegram_id: int,
+    ) -> Optional[UserDto]:
+        code = self._extract_referral_payload_from_event(event)
+        if not code:
             return None
 
-        logger.info(f"Referrer '{referrer.telegram_id}' found for user '{user_telegram_id}'")
-        return referrer
+        return await self.get_partner_referrer_by_code(
+            code,
+            user_telegram_id=user_telegram_id,
+        )
 
     async def is_referral_event(self, event: TelegramObject, user_telegram_id: int) -> bool:
-        if not isinstance(event, Message) or not event.text:
+        code = self._extract_referral_payload_from_event(event)
+        if not code:
             return False
+
+        return await self.is_valid_invite_or_partner_code(
+            code,
+            user_telegram_id=user_telegram_id,
+        )
+
+    def _extract_referral_payload_from_event(self, event: TelegramObject) -> str | None:
+        if not isinstance(event, Message) or not event.text:
+            return None
 
         text = event.text
-
         if not text.startswith(f"/{Command.START.value.command}"):
-            return False
+            return None
 
         parts = text.split()
-
         if len(parts) <= 1:
-            return False
+            return None
 
         code_with_prefix = parts[1]
         if not code_with_prefix.startswith(REFERRAL_PREFIX):
-            return False
+            return None
 
-        code = code_with_prefix[len(REFERRAL_PREFIX) :]
-        referrer = await self.user_service.get_by_referral_code(code)
-
-        if not referrer or referrer.telegram_id == user_telegram_id:
-            logger.warning(
-                f"Referral check failed for code '{code}': invalid code "
-                f"or self-referral by user '{user_telegram_id}'"
-            )
-            return False
-
-        return True
+        return code_with_prefix
 
     def _define_referral_level(self, parent_level: Optional[ReferralLevel]) -> ReferralLevel:
         if parent_level is None:

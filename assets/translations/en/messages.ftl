@@ -2352,3 +2352,83 @@ msg-plan-configurator-transitions =
         }
     *[0] 🛒 Public plans are available for direct purchase.
     } ⬆️ Upgrade targets configured from this plan: { $upgrade_count }.</i>
+msg-main-menu-invite-locked =
+    <b>🔒 Invite-only access</b>
+
+    The bot is open, but product actions are locked for this account.
+    Ask the inviter for a fresh invite link and open the bot through that link.
+
+    Only safe actions remain available: rules, language and support.
+msg-menu-invite-status-title = <b>Invite link status</b>
+msg-menu-invite-status-active = ✅ Link is active and ready to share.
+msg-menu-invite-status-expired = ⌛ This invite link has expired. Generate a new one.
+msg-menu-invite-status-exhausted = 🚫 No free invite slots left.
+msg-menu-invite-status-missing = ⚠️ Active invite link is not available yet.
+msg-menu-invite-status-never = never expires
+msg-menu-invite-status-expires-at = ⏰ Expires at: { $expires_at }
+msg-menu-invite-status-slots = 👥 Slots: { $remaining } of { $total }
+msg-menu-invite-status-slots-unlimited = 👥 Slots: unlimited
+msg-menu-invite-status-progress = 📈 Until next refill: { $current } / { $target }
+msg-menu-invite-status-progress-disabled = 📈 Automatic slot refill is disabled
+msg-referral-invite-limits =
+    <b>🎟 Invite link limits</b>
+
+    <blockquote>
+    • Link lifetime: { $ttl_enabled ->
+        [true] enabled
+        *[false] disabled
+        }
+    • TTL value: { $ttl_value }
+    • Invite slots: { $slots_enabled ->
+        [true] enabled
+        *[false] disabled
+        }
+    • Initial slots: { $initial_slots }
+    • Qualification threshold: { $refill_threshold }
+    • Refill amount: { $refill_amount }
+    </blockquote>
+
+    When TTL is enabled, the user must regenerate the link after it expires.
+    When slot limits are enabled, new invites work only while free capacity remains.
+msg-referral-invite-ttl =
+    <b>⌛ Invite link lifetime</b>
+
+    Send a number in seconds.
+    <blockquote>
+    • 900 = 15 minutes
+    • 14400 = 4 hours
+    • 604800 = 7 days
+    • 0 = never expires
+    </blockquote>
+msg-referral-invite-initial-slots =
+    <b>1️⃣ Initial invite slots</b>
+
+    Send how many users can be invited immediately.
+    <blockquote>0 = no initial slots</blockquote>
+msg-referral-invite-refill-threshold =
+    <b>📈 Qualification threshold</b>
+
+    Send how many qualified referrals are required before new invite slots are added automatically.
+    <blockquote>0 = automatic refill disabled</blockquote>
+msg-referral-invite-refill-amount =
+    <b>➕ Slot refill amount</b>
+
+    Send how many slots to add after each reached qualification threshold.
+    <blockquote>0 = do not add slots automatically</blockquote>
+msg-referral-invite-unset = not set
+msg-referral-invite-enabled-status = { $enabled ->
+    [true] enabled
+    *[false] disabled
+    }
+msg-user-referral-invite-settings =
+    <b>🎟 Individual invite settings</b>
+
+    Here you can override global referral invite rules for the selected user and define a separate TTL and slot policy.
+msg-user-referral-invite-settings-summary =
+    <blockquote>
+    • Effective TTL: { $effective_ttl_enabled }, value: { $effective_ttl_value }
+    • Effective slot limit: { $effective_slots_enabled }
+    • Initial slots: { $effective_initial_slots }
+    • Qualification threshold: { $effective_refill_threshold }
+    • Refill amount: { $effective_refill_amount }
+    </blockquote>

@@ -56,13 +56,15 @@ from .handlers import (
     on_get_trial,
     on_invite,
     on_invite_referral_item_click,
+    on_regenerate_invite,
     on_show_qr,
     show_reason,
 )
 
 menu = Window(
     Banner(BannerName.MENU),
-    I18nFormat("msg-main-menu"),
+    I18nFormat("msg-main-menu", when=~F["invite_locked"]),
+    I18nFormat("msg-main-menu-invite-locked", when=F["invite_locked"]),
     Row(
         SwitchTo(
             text=I18nFormat("btn-menu-connect"),
@@ -76,7 +78,7 @@ menu = Window(
             on_click=show_reason,
             when=~F["connectable"],
         ),
-        when=F["has_subscription"],
+        when=F["has_subscription"] & ~F["invite_locked"],
     ),
     Row(
         Button(
@@ -85,6 +87,7 @@ menu = Window(
             on_click=on_get_trial,
             when=F["trial_available"],
         ),
+        when=~F["invite_locked"],
     ),
     Row(
         SwitchTo(
@@ -98,6 +101,7 @@ menu = Window(
             id=f"{PURCHASE_PREFIX}subscription",
             state=Subscription.MAIN,
         ),
+        when=~F["invite_locked"],
     ),
     Row(
         SwitchTo(
@@ -106,6 +110,7 @@ menu = Window(
             state=MainMenu.EXCHANGE,
             when=F["can_show_referral_exchange"],
         ),
+        when=~F["invite_locked"],
     ),
     Row(
         Start(
@@ -114,6 +119,7 @@ menu = Window(
             state=UserPartner.MAIN,
             when=F["is_partner"],
         ),
+        when=~F["invite_locked"],
     ),
     Row(
         Button(
@@ -136,6 +142,7 @@ menu = Window(
             id="support",
             url=Format("{support}"),
         ),
+        when=~F["invite_locked"],
     ),
     Row(
         Start(
@@ -213,6 +220,7 @@ connect_device = Window(
 invite = Window(
     Banner(BannerName.MENU),
     I18nFormat("msg-menu-invite"),
+    Format("{invite_status_block}"),
     Row(
         SwitchTo(
             text=I18nFormat("btn-menu-invite-about"),
@@ -229,6 +237,7 @@ invite = Window(
         CopyText(
             text=I18nFormat("btn-menu-invite-copy"),
             copy_text=Format("{referral_link}"),
+            when=F["has_active_referral_link"],
         ),
     ),
     Row(
@@ -236,6 +245,7 @@ invite = Window(
             text=I18nFormat("btn-menu-invite-qr"),
             id="qr",
             on_click=on_show_qr,
+            when=F["has_active_referral_link"],
         ),
         SwitchInlineQueryChosenChatButton(
             text=I18nFormat("btn-menu-invite-send"),
@@ -244,6 +254,15 @@ invite = Window(
             allow_group_chats=True,
             allow_channel_chats=True,
             id="send",
+            when=F["has_active_referral_link"],
+        ),
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-menu-invite-regenerate"),
+            id="regenerate",
+            on_click=on_regenerate_invite,
+            when=F["can_regenerate_invite"],
         ),
     ),
     Row(

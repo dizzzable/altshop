@@ -1,13 +1,14 @@
 from aiogram import Bot
-from aiogram.types import CallbackQuery, TelegramObject
+from aiogram.types import CallbackQuery, Message, TelegramObject
 from aiogram.types import User as AiogramUser
 from aiogram_dialog.utils import remove_intent_id
 from fluentogram import TranslatorHub
 from loguru import logger
 from redis.asyncio import Redis
 
+from src.bot.keyboards import CALLBACK_CHANNEL_CONFIRM, CALLBACK_RULES_ACCEPT
 from src.core.config import AppConfig
-from src.core.constants import PURCHASE_PREFIX
+from src.core.constants import PURCHASE_PREFIX, REFERRAL_PREFIX
 from src.core.enums import AccessMode, Locale
 from src.core.storage.keys import AccessWaitListKey
 from src.infrastructure.database.models.dto import UserDto
@@ -83,7 +84,11 @@ class AccessService(BaseService):
             logger.info(f"Access allowed for referral event for user '{aiogram_user.id}'")
             return True
 
-        if mode not in (AccessMode.REG_BLOCKED, AccessMode.INVITED, AccessMode.RESTRICTED):
+        if mode == AccessMode.INVITED:
+            logger.info(f"Soft access allowed for new user '{aiogram_user.id}' (mode: INVITED)")
+            return True
+
+        if mode not in (AccessMode.REG_BLOCKED, AccessMode.RESTRICTED):
             return True
 
         logger.info(f"Access denied for new user '{aiogram_user.id}' (mode: {mode})")
@@ -125,8 +130,28 @@ class AccessService(BaseService):
             return await self._handle_purchase_blocked_access(user=user, event=event)
 
         if mode == AccessMode.INVITED:
-            logger.info(f"Access allowed for user '{user.telegram_id}' (mode: INVITED)")
-            return True
+            if user.is_invited_user:
+                logger.info(
+                    f"Access allowed for invited user '{user.telegram_id}' (mode: INVITED)"
+                )
+                return True
+
+            if self._is_safe_invited_mode_event(event):
+                logger.info(
+                    f"Access allowed for safe invite-only event for user '{user.telegram_id}'"
+                )
+                return True
+
+            logger.info(
+                f"Access denied for locked invite-only user '{user.telegram_id}' "
+                "(product action blocked)"
+            )
+            await redirect_to_main_menu_task.kiq(user.telegram_id)
+            await send_access_denied_notification_task.kiq(
+                user=user,
+                i18n_key="ntf-access-denied-only-invited-soft",
+            )
+            return False
 
         logger.warning(f"Unknown access mode '{mode}'")
         return True
@@ -223,5 +248,23 @@ class AccessService(BaseService):
         if callback_data[-1].startswith(PURCHASE_PREFIX):
             logger.debug(f"Detected purchase action: {callback_data}")
             return True
+
+        return False
+
+    @staticmethod
+    def _is_safe_invited_mode_event(event: TelegramObject) -> bool:
+        if isinstance(event, Message):
+            text = (event.text or "").strip()
+            if not text:
+                return False
+
+            return text.startswith("/start") or text.startswith(f"/start {REFERRAL_PREFIX}")
+
+        if isinstance(event, CallbackQuery):
+            callback_data = remove_intent_id(event.data or "")
+            if not callback_data:
+                return False
+
+            return callback_data[-1] in {CALLBACK_RULES_ACCEPT, CALLBACK_CHANNEL_CONFIRM}
 
         return False

@@ -786,7 +786,7 @@ btn-backup-delete-confirm = ✅ Да, удалить
 btn-cancel = ❌ Отмена
 
 # Importer plan assignment
-btn-importer-assign-plan-all = Назначить план всем
+btn-importer-assign-plan-all = 🎫Назначить план всем
 btn-importer-assign-plan-confirm = Подтвердить назначение
 btn-importer-assign-plan-choice = { $selected ->
     [1] ✅
@@ -794,7 +794,7 @@ btn-importer-assign-plan-choice = { $selected ->
     } { $name }
 
 # User plan assignment
-btn-user-assign-plan = Назначить план
+btn-user-assign-plan = 🎫Назначить план
 btn-user-assign-plan-choice = { $selected ->
     [1] ✅
     *[0] ⬜
@@ -822,3 +822,22 @@ btn-plan-transition-choice = { $selected ->
     [1] ✅
     *[0] ◻️
     } { $name }
+btn-menu-invite-regenerate = 🔄 Обновить ссылку
+btn-referral-invite-limits = 🎟 Ограничения приглашений
+btn-referral-invite-ttl-toggle = ⏳ Срок действия: { $enabled ->
+    [true] включен
+    *[false] выключен
+    }
+btn-referral-invite-ttl-edit = ⌛ Время жизни ссылки: { $value }
+btn-referral-invite-slots-toggle = 👥 Лимит приглашений: { $enabled ->
+    [true] включен
+    *[false] выключен
+    }
+btn-referral-invite-initial-slots = 1️⃣ Стартовые слоты: { $value }
+btn-referral-invite-refill-threshold = 📈 Порог квалификаций: { $value }
+btn-referral-invite-refill-amount = ➕ Добавлять слотов: { $value }
+btn-user-referral-invite-settings = 🎟 Настройки инвайтов
+btn-user-referral-invite-use-global = 🌐 Глобальные настройки: { $use_global ->
+    [true] да
+    *[false] нет
+    }

@@ -6,6 +6,35 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.4] - 2026-03-22
+
+### Added
+
+- token-based invite links for the regular referral system with configurable TTL, invite slot limits, automatic slot refill from qualified referrals, and a dedicated `referral_invites` persistence layer
+- global DEV controls for referral invite limits plus per-user override settings for TTL and slot policy directly in the user card
+- referral portal and web API fields for invite status, expiration, remaining slots, total capacity, refill progress, and blocked-link reasons
+- regression coverage for invite capacity/refill rules and invite-only bot soft-lock behavior
+
+### Changed
+
+- regular referral onboarding now validates active invite tokens instead of permanent `users.referral_code` links, while the partner program continues using the classic partner referral code flow unchanged
+- invite-only mode in the Telegram bot is now soft-locked: users can open `/start` and safe informational screens, but product actions stay blocked until they open the bot via a valid invite link
+- referral screens in both bot and web now explain whether the link is active, expired, exhausted by slots, or needs regeneration, and show the current slot/refill state instead of silently exposing an unusable link
+- Telegram `/start ref_...` and web registration now cleanly separate regular referral attachment from partner attribution, so ordinary invite tokens no longer bleed into the partner flow
+
+### How It Works
+
+- every regular referrer now has at most one active invite link at a time; generating a new one revokes the previous link immediately
+- when TTL is enabled, the invite link stops working exactly at `expires_at` and the user must regenerate a fresh link before inviting again
+- when slot limits are enabled, capacity is spent only when a new user is actually attached to the referrer for the first time; repeated opens by the same referred user do not consume extra slots
+- slot capacity grows automatically according to the configured threshold and refill amount based on the existing `qualified_at` referral qualification logic
+- the web cabinet now displays the invite link status and capacity summary, while invite regeneration stays an explicit action in the Telegram bot
+
+### Upgrade Notes
+
+- regular non-partner referral links based on the old permanent `referral_code` are no longer accepted after this release; users must generate a fresh invite link
+- partner referral links and partner attribution rules are intentionally unchanged
+
 ## [1.1.3] - 2026-03-22
 
 ### Added

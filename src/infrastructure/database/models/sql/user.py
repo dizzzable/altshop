@@ -7,10 +7,11 @@ if TYPE_CHECKING:
     from .subscription import Subscription
     from .web_account import WebAccount
 
-from sqlalchemy import BigInteger, Boolean, Enum, ForeignKey, Integer, String
+from sqlalchemy import JSON, BigInteger, Boolean, Enum, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.core.enums import Currency, Locale, UserRole
+from src.infrastructure.database.models.dto.user import ReferralInviteIndividualSettingsDto
 
 from .base import BaseSql
 from .timestamp import TimestampMixin
@@ -59,6 +60,11 @@ class User(BaseSql, TimestampMixin):
         ),
         nullable=True,
         default=None,
+    )
+    referral_invite_settings: Mapped[ReferralInviteIndividualSettingsDto] = mapped_column(
+        JSON,
+        default=lambda: ReferralInviteIndividualSettingsDto().model_dump(mode="json"),
+        nullable=False,
     )
     max_subscriptions: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
 

@@ -5,7 +5,7 @@ from .payment_gateway import PaymentGateway
 from .payment_webhook_event import PaymentWebhookEvent
 from .plan import Plan, PlanDuration, PlanPrice
 from .promocode import Promocode, PromocodeActivation
-from .referral import Referral, ReferralReward
+from .referral import Referral, ReferralInvite, ReferralReward
 from .settings import Settings
 from .subscription import Subscription
 from .transaction import Transaction
@@ -30,6 +30,7 @@ __all__ = [
     "Promocode",
     "PromocodeActivation",
     "Referral",
+    "ReferralInvite",
     "ReferralReward",
     "Settings",
     "Subscription",

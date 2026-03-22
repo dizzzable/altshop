@@ -2534,3 +2534,83 @@ msg-plan-configurator-transitions =
         }
     *[0] 🛒 Публичный тариф доступен к покупке новым пользователям.
     } ⬆️ Улучшений из этого тарифа настроено: { $upgrade_count }.</i>
+msg-main-menu-invite-locked =
+    <b>🔒 Доступ ограничен приглашением</b>
+
+    Бот уже открыт, но продуктовые разделы пока заблокированы.
+    Получите новую invite-ссылку от пригласившего вас пользователя и откройте бота по ней.
+
+    Доступны только безопасные действия: правила, язык и поддержка.
+msg-menu-invite-status-title = <b>Статус ссылки приглашения</b>
+msg-menu-invite-status-active = ✅ Ссылка активна и готова к отправке.
+msg-menu-invite-status-expired = ⌛ Срок действия ссылки истёк. Сгенерируйте новую ссылку.
+msg-menu-invite-status-exhausted = 🚫 Свободные слоты приглашений закончились.
+msg-menu-invite-status-missing = ⚠️ Активная ссылка пока недоступна.
+msg-menu-invite-status-never = бессрочно
+msg-menu-invite-status-expires-at = ⏰ Работает до: { $expires_at }
+msg-menu-invite-status-slots = 👥 Слоты: { $remaining } из { $total }
+msg-menu-invite-status-slots-unlimited = 👥 Слоты: без ограничений
+msg-menu-invite-status-progress = 📈 До следующего расширения: { $current } / { $target }
+msg-menu-invite-status-progress-disabled = 📈 Автодобавление слотов отключено
+msg-referral-invite-limits =
+    <b>🎟 Ограничения invite-ссылок</b>
+
+    <blockquote>
+    • Срок действия ссылки: { $ttl_enabled ->
+        [true] включен
+        *[false] выключен
+        }
+    • Время жизни: { $ttl_value }
+    • Лимит приглашений: { $slots_enabled ->
+        [true] включен
+        *[false] выключен
+        }
+    • Стартовые слоты: { $initial_slots }
+    • Порог квалификаций: { $refill_threshold }
+    • Добавлять слотов: { $refill_amount }
+    </blockquote>
+
+    Если срок жизни включен, пользователь должен перевыпускать ссылку после истечения.
+    Если лимит слотов включен, новые приглашения доступны только в рамках свободной ёмкости.
+msg-referral-invite-ttl =
+    <b>⌛ Время жизни invite-ссылки</b>
+
+    Отправьте число в секундах.
+    <blockquote>
+    • 900 = 15 минут
+    • 14400 = 4 часа
+    • 604800 = 7 дней
+    • 0 = бессрочно
+    </blockquote>
+msg-referral-invite-initial-slots =
+    <b>1️⃣ Стартовые слоты приглашений</b>
+
+    Отправьте, сколько пользователей можно пригласить сразу.
+    <blockquote>0 = без стартовых слотов</blockquote>
+msg-referral-invite-refill-threshold =
+    <b>📈 Порог квалификаций</b>
+
+    Отправьте, сколько квалифицированных рефералов нужно для автоматического добавления новых слотов.
+    <blockquote>0 = автодобавление выключено</blockquote>
+msg-referral-invite-refill-amount =
+    <b>➕ Количество новых слотов</b>
+
+    Отправьте, сколько слотов добавлять после каждого достигнутого порога квалификаций.
+    <blockquote>0 = новые слоты не добавляются</blockquote>
+msg-referral-invite-unset = не задано
+msg-referral-invite-enabled-status = { $enabled ->
+    [true] включено
+    *[false] выключено
+    }
+msg-user-referral-invite-settings =
+    <b>🎟 Индивидуальные настройки invite-ссылок</b>
+
+    Здесь можно обойти глобальные правила для выбранного пользователя и задать отдельные TTL и лимиты приглашений.
+msg-user-referral-invite-settings-summary =
+    <blockquote>
+    • Эффективный TTL: { $effective_ttl_enabled }, значение: { $effective_ttl_value }
+    • Эффективный лимит слотов: { $effective_slots_enabled }
+    • Стартовые слоты: { $effective_initial_slots }
+    • Порог квалификаций: { $effective_refill_threshold }
+    • Добавлять слотов: { $effective_refill_amount }
+    </blockquote>
