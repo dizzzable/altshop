@@ -6,6 +6,23 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.5] - 2026-03-22
+
+### Added
+
+- DEV update notifications now track official GitHub Releases of `dizzzable/altshop` and include the current version, available version, release date, and direct upgrade links
+- regression coverage for GitHub release parsing/deduplication and access-mode refresh after invite-only soft-lock
+
+### Changed
+
+- update checks now use the AltShop GitHub Releases API instead of the old upstream raw version file, so self-hosted instances are notified only about real AltShop releases
+- repository, latest release, and upgrade-guide links are now centralized and reused by both the checker and Telegram notification keyboard
+
+### Fixed
+
+- users who were previously shown the invite-only soft-lock screen now get their main menu refreshed when access mode is switched back to `PUBLIC`, so the stale "Доступ ограничен приглашением" screen no longer lingers
+- main menu invite-lock state is now resolved through the central access service instead of duplicating the condition in the menu getter
+
 ## [1.1.4] - 2026-03-22
 
 ### Added
