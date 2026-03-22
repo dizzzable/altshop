@@ -6,6 +6,17 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.3] - 2026-03-22
+
+### Added
+
+- DEV `Assign plan` flow in the user card now asks which non-deleted subscription to update when a user has multiple subscriptions, instead of always targeting `current_subscription`
+
+### Changed
+
+- plan reassignment in the DEV user card now uses the already selected subscription context and returns to a dedicated subscription picker when the assign flow starts from a multi-subscription user
+- RU/EN bot copy for plan reassignment now explicitly refers to the selected subscription and explains the new subscription-picking step
+
 ## [1.1.2] - 2026-03-22
 
 ### Added
