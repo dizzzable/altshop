@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.6] - 2026-03-22
+
+### Fixed
+
+- the main Telegram menu no longer reuses a stale `msg-main-menu` translation key on deployments with mounted translation assets, which fixes the case where the invite-only warning could still be shown even after access mode was switched back to `PUBLIC`
+- self-hosted instances that update via fresh release images now receive an isolated default main-menu copy key, so the unlocked menu text and unlocked buttons stay in sync after upgrading
+
 ## [1.1.5] - 2026-03-22
 
 ### Added
