@@ -820,6 +820,11 @@ export const ruDictionary: Dictionary = {
     'purchase.lifetime': 'Бессрочно',
     'purchase.limitCheckDesc': 'Прогноз перед оплатой. Серверная проверка остается источником истины.',
     'purchase.limitReached': 'Достигнут лимит подписок для вашего аккаунта. Уменьшите количество или освободите слот.',
+    'purchase.limitWouldExceed': 'После этой покупки будет превышен лимит подписок для вашего аккаунта.',
+    'purchase.limitCurrentActive': 'Активно сейчас',
+    'purchase.limitMaximum': 'Лимит аккаунта',
+    'purchase.limitRemaining': 'Свободных слотов',
+    'purchase.manageSubscriptions': 'Управлять подписками',
     'purchase.limitCheckMayExceed': ' (может превысить текущий лимит)',
     'purchase.limitCheckServerValidation': 'Лимит подписок будет проверен сервером при создании оплаты.',
     'purchase.limitCheckTitle': 'Проверка лимита подписок',
@@ -854,6 +859,7 @@ export const ruDictionary: Dictionary = {
     'purchase.selectDurationMethodError': 'Выберите срок и способ оплаты',
     'purchase.selectDurationTitle': 'Выберите срок',
     'purchase.selectPaymentMethodExternalDesc': 'Выберите удобный способ оплаты',
+    'purchase.selectPaymentMethodError': 'Выберите способ оплаты',
     'purchase.selectPaymentMethodPartnerDesc': 'Выберите RUB-шлюз. Его комиссии/налоги используются в партнерской логике.',
     'purchase.selectPaymentMethodTitle': 'Выберите способ оплаты',
     'purchase.selectPaymentAssetTitle': 'Выберите криптомонету',
@@ -921,6 +927,8 @@ export const ruDictionary: Dictionary = {
     'purchase.trialUpgradeRequired':
       'У вас уже есть пробная подписка. Её можно продолжить только через улучшение текущего тарифа.',
     'purchase.trialDebugReasonCode': 'Код причины',
+    'purchase.quotePreparing': 'Подготавливаем итоговую стоимость и параметры оплаты...',
+    'purchase.quoteUnavailable': 'Не удалось подготовить оплату. Попробуйте изменить параметры или обновить страницу.',
     'purchase.readOnlyNotice':
       'Покупки временно недоступны, пока проверка канала не восстановлена.',
     'subscription.readOnlyNotice':

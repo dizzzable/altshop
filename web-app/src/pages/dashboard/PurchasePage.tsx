@@ -127,6 +127,11 @@ type PurchaseText = {
   limitCheckTitle: string
   limitCheckDesc: string
   limitReached: string
+  limitWouldExceed: string
+  limitCurrentActive: string
+  limitMaximum: string
+  limitRemaining: string
+  manageSubscriptions: string
   subscriptionsAfterPurchase: string
   limitCheckMayExceed: string
   limitCheckServerValidation: string
@@ -144,6 +149,7 @@ type PurchaseText = {
   partnerBalancePartnerInactive: string
   available: string
   selectPaymentMethodTitle: string
+  selectPaymentMethodError: string
   selectPaymentMethodPartnerDesc: string
   selectPaymentMethodExternalDesc: string
   noRubGateway: string
@@ -179,6 +185,8 @@ type PurchaseText = {
   trialErrorPlanNotFound: string
   trialUpgradeRequired: string
   trialDebugReasonCode: string
+  quotePreparing: string
+  quoteUnavailable: string
   readOnlyNotice: string
 }
 
@@ -240,6 +248,11 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   limitCheckTitle: 'purchase.limitCheckTitle',
   limitCheckDesc: 'purchase.limitCheckDesc',
   limitReached: 'purchase.limitReached',
+  limitWouldExceed: 'purchase.limitWouldExceed',
+  limitCurrentActive: 'purchase.limitCurrentActive',
+  limitMaximum: 'purchase.limitMaximum',
+  limitRemaining: 'purchase.limitRemaining',
+  manageSubscriptions: 'purchase.manageSubscriptions',
   subscriptionsAfterPurchase: 'purchase.subscriptionsAfterPurchase',
   limitCheckMayExceed: 'purchase.limitCheckMayExceed',
   limitCheckServerValidation: 'purchase.limitCheckServerValidation',
@@ -257,6 +270,7 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   partnerBalancePartnerInactive: 'purchase.partnerBalancePartnerInactive',
   available: 'purchase.available',
   selectPaymentMethodTitle: 'purchase.selectPaymentMethodTitle',
+  selectPaymentMethodError: 'purchase.selectPaymentMethodError',
   selectPaymentMethodPartnerDesc: 'purchase.selectPaymentMethodPartnerDesc',
   selectPaymentMethodExternalDesc: 'purchase.selectPaymentMethodExternalDesc',
   noRubGateway: 'purchase.noRubGateway',
@@ -292,8 +306,21 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   trialErrorPlanNotFound: 'purchase.trialErrorPlanNotFound',
   trialUpgradeRequired: 'purchase.trialUpgradeRequired',
   trialDebugReasonCode: 'purchase.trialDebugReasonCode',
+  quotePreparing: 'purchase.quotePreparing',
+  quoteUnavailable: 'purchase.quoteUnavailable',
   readOnlyNotice: 'purchase.readOnlyNotice',
 }
+
+type SubmitBlockReason =
+  | 'LIMIT_REACHED'
+  | 'LIMIT_WOULD_BE_EXCEEDED'
+  | 'READ_ONLY_ACCESS'
+  | 'MISSING_PLAN'
+  | 'MISSING_DURATION'
+  | 'MISSING_DEVICE'
+  | 'MISSING_GATEWAY'
+  | 'MISSING_PAYMENT_ASSET'
+  | 'QUOTE_PENDING_OR_FAILED'
 
 function buildPurchaseText(locale: PurchaseLocale): PurchaseText {
   return Object.fromEntries(
@@ -810,6 +837,11 @@ export function PurchasePage() {
   const partnerBalanceRub = partnerInfo ? partnerInfo.balance / 100 : 0
   const partnerBalanceDisplay = partnerInfo?.balance_display ?? partnerBalanceRub
   const partnerBalanceCurrency = partnerInfo?.effective_currency ?? 'RUB'
+  const noGatewayMessage = purchaseChannel === TELEGRAM_CHANNEL
+    ? text.noTelegramGateway
+    : paymentSource === PARTNER_BALANCE_PAYMENT_SOURCE
+      ? text.noRubGateway
+      : text.noWebGateway
   const purchaseQuoteEnabled = Boolean(
     effectivePlanId !== null
       && selectedDuration !== null
@@ -818,7 +850,11 @@ export function PurchasePage() {
       && !exceedsPredictedLimit
       && (!requiresPaymentAsset || selectedPaymentAsset)
   )
-  const { data: selectedQuote, isFetching: isQuoteFetching } = useQuery<PurchaseQuoteResponse>({
+  const {
+    data: selectedQuote,
+    isFetching: isQuoteFetching,
+    error: quoteError,
+  } = useQuery<PurchaseQuoteResponse>({
     queryKey: [
       'subscription-quote',
       purchaseChannel,
@@ -859,6 +895,102 @@ export function PurchasePage() {
     enabled: purchaseQuoteEnabled,
     retry: false,
   })
+  const quoteErrorMessage = quoteError
+    ? extractPurchaseError(quoteError, text)
+    : text.quoteUnavailable
+  const submitBlockReason: SubmitBlockReason | null = useMemo(() => {
+    if (isPurchasing) {
+      return null
+    }
+    if (isReadOnlyAccess) {
+      return 'READ_ONLY_ACCESS'
+    }
+    if (purchaseBlockedByLimit) {
+      return 'LIMIT_REACHED'
+    }
+    if (exceedsPredictedLimit) {
+      return 'LIMIT_WOULD_BE_EXCEEDED'
+    }
+    if (effectivePlanId === null) {
+      return 'MISSING_PLAN'
+    }
+    if (selectedDuration === null) {
+      return 'MISSING_DURATION'
+    }
+    if (isNewPurchaseFlow && !selectedDeviceType) {
+      return 'MISSING_DEVICE'
+    }
+    if (noGatewayAvailable || !selectedGateway) {
+      return 'MISSING_GATEWAY'
+    }
+    if (requiresPaymentAsset && !selectedPaymentAsset) {
+      return 'MISSING_PAYMENT_ASSET'
+    }
+    if (purchaseQuoteEnabled && (isQuoteFetching || !selectedQuote)) {
+      return 'QUOTE_PENDING_OR_FAILED'
+    }
+    return null
+  }, [
+    effectivePlanId,
+    exceedsPredictedLimit,
+    isNewPurchaseFlow,
+    isPurchasing,
+    isQuoteFetching,
+    isReadOnlyAccess,
+    noGatewayAvailable,
+    purchaseBlockedByLimit,
+    purchaseQuoteEnabled,
+    requiresPaymentAsset,
+    selectedDeviceType,
+    selectedDuration,
+    selectedGateway,
+    selectedPaymentAsset,
+    selectedQuote,
+  ])
+  const submitBlockMessage = useMemo(() => {
+    if (!submitBlockReason) {
+      return null
+    }
+
+    switch (submitBlockReason) {
+      case 'LIMIT_REACHED':
+        return text.limitReached
+      case 'LIMIT_WOULD_BE_EXCEEDED':
+        return text.limitWouldExceed
+      case 'READ_ONLY_ACCESS':
+        return text.readOnlyNotice
+      case 'MISSING_PLAN':
+        return text.selectPlanError
+      case 'MISSING_DURATION':
+        return text.selectDurationMethodError
+      case 'MISSING_DEVICE':
+        return text.selectDeviceError
+      case 'MISSING_GATEWAY':
+        return noGatewayAvailable ? noGatewayMessage : text.selectPaymentMethodError
+      case 'MISSING_PAYMENT_ASSET':
+        return text.selectPaymentAssetError
+      case 'QUOTE_PENDING_OR_FAILED':
+        return isQuoteFetching ? text.quotePreparing : quoteErrorMessage
+      default:
+        return null
+    }
+  }, [
+    isQuoteFetching,
+    noGatewayAvailable,
+    noGatewayMessage,
+    quoteErrorMessage,
+    submitBlockReason,
+    text.limitReached,
+    text.limitWouldExceed,
+    text.readOnlyNotice,
+    text.selectPlanError,
+    text.selectDurationMethodError,
+    text.selectDeviceError,
+    text.selectPaymentMethodError,
+    text.selectPaymentAssetError,
+    text.quotePreparing,
+  ])
+  const showLimitWarning = submitBlockReason === 'LIMIT_REACHED' || submitBlockReason === 'LIMIT_WOULD_BE_EXCEEDED'
   const canOpenCheckout = Boolean(
     effectivePlanId !== null &&
       selectedDuration !== null &&
@@ -867,21 +999,7 @@ export function PurchasePage() {
       !exceedsPredictedLimit &&
       (!isNewPurchaseFlow || selectedDeviceType)
   )
-  const canSubmit = Boolean(
-    effectivePlanId !== null &&
-      selectedDuration !== null &&
-      selectedGateway &&
-      !isReadOnlyAccess &&
-      !isPurchasing &&
-      !isQuoteFetching &&
-      !noGatewayAvailable &&
-      !purchaseBlockedByLimit &&
-      !exceedsPredictedLimit &&
-      (!isNewPurchaseFlow || selectedDeviceType) &&
-      (!isNewPurchaseFlow || normalizedQuantity >= 1) &&
-      (!requiresPaymentAsset || selectedPaymentAsset) &&
-      selectedQuote
-  )
+  const canSubmit = submitBlockReason === null
   const purchaseWarningMessage =
     resolvePurchaseWarning(singlePurchaseOptions?.warning_code, text)
     ?? singlePurchaseOptions?.warning_message
@@ -1080,12 +1198,6 @@ export function PurchasePage() {
     }
   }
 
-  const noGatewayMessage = purchaseChannel === TELEGRAM_CHANNEL
-    ? text.noTelegramGateway
-    : paymentSource === PARTNER_BALANCE_PAYMENT_SOURCE
-      ? text.noRubGateway
-      : text.noWebGateway
-
   const paymentAssetSelector = selectedPrice && availablePaymentAssets.length > 0 ? (
     <div className="space-y-3 border-t border-white/10 pt-3">
       <div>
@@ -1278,6 +1390,82 @@ export function PurchasePage() {
       </CardContent>
     </Card>
   ) : null
+  const renderLimitWarningCard = () => {
+    if (!showLimitWarning || effectiveMaxSubscriptions === null) {
+      return null
+    }
+
+    return (
+      <Card className="border-amber-300/25 bg-amber-500/10">
+        <CardHeader>
+          <CardTitle>{text.limitCheckTitle}</CardTitle>
+          <CardDescription className="text-amber-100/90">
+            {submitBlockReason === 'LIMIT_WOULD_BE_EXCEEDED' ? text.limitWouldExceed : text.limitReached}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
+              <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.limitCurrentActive}</p>
+              <p className="mt-1 text-lg font-semibold text-amber-50">{activeSubscriptionsCount}</p>
+            </div>
+            <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
+              <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.limitMaximum}</p>
+              <p className="mt-1 text-lg font-semibold text-amber-50">{effectiveMaxSubscriptions}</p>
+            </div>
+            <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
+              <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.subscriptionsAfterPurchase}</p>
+              <p className="mt-1 text-lg font-semibold text-amber-50">
+                {activeSubscriptionsCount + effectiveSubscriptionCount}
+              </p>
+            </div>
+            {remainingSlots !== null && remainingSlots > 0 && (
+              <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
+                <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.limitRemaining}</p>
+                <p className="mt-1 text-lg font-semibold text-amber-50">{remainingSlots}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-sm text-amber-100">{text.limitCheckDesc}</p>
+            <p className="text-xs text-amber-200/85">{text.limitCheckServerValidation}</p>
+          </div>
+
+          <Button type="button" onClick={() => navigate('/dashboard/subscription')}>
+            {text.manageSubscriptions}
+          </Button>
+        </CardContent>
+      </Card>
+    )
+  }
+  const renderSubmitBlockNotice = () => {
+    if (!submitBlockMessage) {
+      return null
+    }
+
+    return (
+      <div
+        className={cn(
+          'rounded-lg border px-3 py-2',
+          submitBlockReason === 'QUOTE_PENDING_OR_FAILED' && isQuoteFetching
+            ? 'border-sky-300/25 bg-sky-500/10'
+            : 'border-amber-300/20 bg-amber-500/10'
+        )}
+      >
+        <p
+          className={cn(
+            'text-xs',
+            submitBlockReason === 'QUOTE_PENDING_OR_FAILED' && isQuoteFetching
+              ? 'text-sky-100'
+              : 'text-amber-100'
+          )}
+        >
+          {submitBlockMessage}
+        </p>
+      </div>
+    )
+  }
 
   const displayPrice = selectedQuote ?? selectedPrice
   const showOriginalPrice = hasActiveDiscount(displayPrice)
@@ -1423,6 +1611,7 @@ export function PurchasePage() {
       )}
 
       {trialCard}
+      {renderLimitWarningCard()}
       {purchaseWarningMessage && (
         <Card className="border-amber-300/25 bg-amber-500/10">
           <CardContent className="space-y-2 pt-6">
@@ -1445,7 +1634,7 @@ export function PurchasePage() {
           </CardHeader>
           <CardContent>
             <RadioGroup
-              value={effectivePlanId?.toString()}
+              value={effectivePlanId !== null ? effectivePlanId.toString() : ''}
               onValueChange={(value) => {
                 if (isPlanSelectionLocked) {
                   return
@@ -1529,6 +1718,7 @@ export function PurchasePage() {
                   text.proceedPayment
                 )}
               </Button>
+              {renderSubmitBlockNotice()}
 
               <Button
                 variant="outline"
@@ -1651,6 +1841,7 @@ export function PurchasePage() {
             <div className="mt-4 space-y-4 pb-2">
               {paymentSourceSelector}
               {paymentGatewaySelector}
+              {renderLimitWarningCard()}
 
               <Card>
                 <CardContent className="pt-4">
@@ -1672,6 +1863,7 @@ export function PurchasePage() {
                   text.proceedPayment
                 )}
               </Button>
+              {renderSubmitBlockNotice()}
             </div>
           </SheetContent>
         </Sheet>

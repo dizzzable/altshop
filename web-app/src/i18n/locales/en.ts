@@ -819,6 +819,11 @@ export const enDictionary: Dictionary = {
     'purchase.lifetime': 'Lifetime',
     'purchase.limitCheckDesc': 'Predictive check before payment. Server validation remains the source of truth.',
     'purchase.limitReached': 'The subscription limit for your account has been reached. Reduce the quantity or free up a slot.',
+    'purchase.limitWouldExceed': 'This purchase would exceed your account subscription limit.',
+    'purchase.limitCurrentActive': 'Active now',
+    'purchase.limitMaximum': 'Account limit',
+    'purchase.limitRemaining': 'Free slots',
+    'purchase.manageSubscriptions': 'Manage subscriptions',
     'purchase.limitCheckMayExceed': ' (may exceed your current limit)',
     'purchase.limitCheckServerValidation': 'Subscription limit will be validated on the server during payment creation.',
     'purchase.limitCheckTitle': 'Subscription Limit Check',
@@ -853,6 +858,7 @@ export const enDictionary: Dictionary = {
     'purchase.selectDurationMethodError': 'Please select duration and payment method',
     'purchase.selectDurationTitle': 'Select Duration',
     'purchase.selectPaymentMethodExternalDesc': 'Choose a convenient payment method',
+    'purchase.selectPaymentMethodError': 'Please select a payment method',
     'purchase.selectPaymentMethodPartnerDesc': 'Choose a RUB gateway. Its commissions/taxes will be used for partner logic.',
     'purchase.selectPaymentMethodTitle': 'Select Payment Method',
     'purchase.selectPaymentAssetTitle': 'Choose crypto asset',
@@ -920,6 +926,8 @@ export const enDictionary: Dictionary = {
     'purchase.trialUpgradeRequired':
       'You already have a trial subscription. It can only be continued by upgrading the current plan.',
     'purchase.trialDebugReasonCode': 'Reason code',
+    'purchase.quotePreparing': 'Preparing the final quote and payment parameters...',
+    'purchase.quoteUnavailable': 'Failed to prepare payment. Try changing the options or refresh the page.',
     'purchase.readOnlyNotice':
       'Purchases are temporarily unavailable while channel verification is being restored.',
     'subscription.readOnlyNotice':
