@@ -149,6 +149,17 @@ a {
   animation: spin 1s linear infinite;
 }
 
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .dashboard-route-swipe-next {
     animation: dashboardRouteSwipeNext 220ms ease-out;

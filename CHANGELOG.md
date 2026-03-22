@@ -12,6 +12,7 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 - the main Telegram menu now renders both its text and product buttons from one resolved access-state source, which removes the hybrid state where unlocked buttons could appear together with the invite-only warning
 - deployments with mounted translation assets now use an isolated default main-menu key, so stale bind-mounted translations can no longer force the old invite-lock copy onto the normal public menu
+- the `/miniapp` Telegram landing now uses a scrollable content area with a sticky bottom CTA, so the `Open dashboard` button stays reachable on narrow mobile Telegram viewports instead of slipping below the fold
 
 ## [1.1.5] - 2026-03-22
 

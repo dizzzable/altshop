@@ -167,59 +167,66 @@ export function MiniAppLandingPage() {
   }
 
   return (
-    <div className="relative h-[100svh] overflow-hidden px-4 pb-[calc(0.95rem+var(--app-safe-bottom))] pt-[calc(0.7rem+var(--app-safe-top))]">
+    <div className="relative min-h-[100svh] px-3 pb-3 pt-[calc(0.65rem+var(--app-safe-top))] sm:px-4 sm:pb-4 sm:pt-[calc(0.7rem+var(--app-safe-top))]">
       <div className="pointer-events-none absolute inset-x-0 top-[-220px] z-[-1] h-[520px] bg-[radial-gradient(78%_120%_at_50%_30%,rgba(124,145,166,0.2)_0%,rgba(124,145,166,0)_76%)]" />
       <div className="pointer-events-none absolute left-[-120px] top-[56%] z-[-1] h-[250px] w-[250px] rounded-full bg-[#5f7082]/22 blur-[130px]" />
       <div className="pointer-events-none absolute right-[-120px] top-[24%] z-[-1] h-[250px] w-[250px] rounded-full bg-[#4f6072]/20 blur-[120px]" />
 
-      <main className="mx-auto flex h-full w-full max-w-md flex-col rounded-3xl border border-white/12 bg-[#070a0e]/86 p-4 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.95)] backdrop-blur-xl">
-        <header className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className="grid h-9 w-9 place-items-center rounded-xl border border-primary/30 bg-primary/12 text-primary">
-              <Shield className="h-4 w-4" />
-            </span>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">AltShop</p>
-              <p className="text-sm font-semibold text-slate-100">{t('miniapp.navLabel')}</p>
-            </div>
-          </div>
-          <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-slate-300">
-            {isInTelegram ? t('miniapp.badge.telegram') : t('miniapp.badge.browser')}
-          </span>
-        </header>
-
-        <section className="mt-3">
-          <h1 className="text-2xl font-semibold leading-tight text-white">{t('miniapp.title')}</h1>
-          <p className="mt-1.5 text-xs leading-5 text-slate-300">{t('miniapp.subtitle')}</p>
-        </section>
-
-        {showAuthError ? (
-          <div className="mt-2 flex items-start gap-2 rounded-xl border border-rose-300/35 bg-rose-500/10 px-3 py-2">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-200" />
-            <p className="text-[11px] leading-4 text-rose-100">{t('miniapp.authFailed')}</p>
-          </div>
-        ) : null}
-
-        <section className="mt-3 grid grid-cols-2 gap-2">
-          {miniAppFeatures.map((feature) => (
-            <div
-              key={feature.titleKey}
-              className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5"
-            >
-              <div className="flex items-start gap-2">
-                <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
-                  <feature.icon className="h-3.5 w-3.5" />
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[12px] font-semibold leading-4 text-slate-100">{t(feature.titleKey)}</p>
-                  <p className="mt-0.5 text-[11px] leading-4 text-slate-400">{t(feature.descriptionKey)}</p>
-                </div>
+      <main className="mx-auto flex w-full max-w-md flex-col overflow-hidden rounded-[28px] border border-white/12 bg-[#070a0e]/86 shadow-[0_28px_80px_-52px_rgba(0,0,0,0.95)] backdrop-blur-xl max-h-[calc(100svh-var(--app-safe-top)-var(--app-safe-bottom)-0.9rem)] sm:max-h-[calc(100svh-var(--app-safe-top)-var(--app-safe-bottom)-1.1rem)]">
+        <div className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pt-4 [touch-action:pan-y] [-webkit-overflow-scrolling:touch] sm:px-5 sm:pt-5">
+          <header className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="grid h-9 w-9 place-items-center rounded-xl border border-primary/30 bg-primary/12 text-primary">
+                <Shield className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">AltShop</p>
+                <p className="text-sm font-semibold text-slate-100">{t('miniapp.navLabel')}</p>
               </div>
             </div>
-          ))}
-        </section>
+            <span className="shrink-0 rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-slate-300">
+              {isInTelegram ? t('miniapp.badge.telegram') : t('miniapp.badge.browser')}
+            </span>
+          </header>
 
-        <section className="mt-auto rounded-2xl border border-primary/25 bg-[linear-gradient(130deg,rgba(58,69,81,0.2)_0%,rgba(12,16,22,0.9)_55%,rgba(8,10,14,0.96)_100%)] p-3">
+          <section className="mt-3">
+            <h1 className="text-[1.9rem] font-semibold leading-[1.05] text-white max-[359px]:text-[1.7rem] min-[390px]:text-[2.1rem]">
+              {t('miniapp.title')}
+            </h1>
+            <p className="mt-2 text-[12px] leading-5 text-slate-300 min-[390px]:text-[13px]">
+              {t('miniapp.subtitle')}
+            </p>
+          </section>
+
+          {showAuthError ? (
+            <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-300/35 bg-rose-500/10 px-3 py-2">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-200" />
+              <p className="text-[11px] leading-4 text-rose-100">{t('miniapp.authFailed')}</p>
+            </div>
+          ) : null}
+
+          <section className="mt-3 grid grid-cols-1 gap-2 min-[340px]:grid-cols-2">
+            {miniAppFeatures.map((feature) => (
+              <div
+                key={feature.titleKey}
+                className="rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
+                    <feature.icon className="h-3.5 w-3.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[12px] font-semibold leading-4 text-slate-100">{t(feature.titleKey)}</p>
+                    <p className="mt-0.5 text-[11px] leading-4 text-slate-400">{t(feature.descriptionKey)}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </section>
+          <div className="h-3 sm:h-4" />
+        </div>
+
+        <section className="sticky bottom-0 z-10 border-t border-primary/18 bg-[linear-gradient(180deg,rgba(7,10,14,0.6)_0%,rgba(8,10,14,0.92)_18%,rgba(8,10,14,0.98)_100%)] px-4 pb-[calc(0.85rem+var(--app-safe-bottom))] pt-3 backdrop-blur-xl sm:px-5 sm:pb-4">
           {isInTelegram ? (
             <Button className="h-11 w-full gap-2 text-sm font-semibold" onClick={handleOpenPanel}>
               <IconoirTelegram className="h-4 w-4" />
