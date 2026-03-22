@@ -63,8 +63,7 @@ from .handlers import (
 
 menu = Window(
     Banner(BannerName.MENU),
-    I18nFormat("msg-main-menu-default", when=~F["invite_locked"]),
-    I18nFormat("msg-main-menu-invite-locked", when=F["invite_locked"]),
+    I18nFormat("{menu_message_key}"),
     Row(
         SwitchTo(
             text=I18nFormat("btn-menu-connect"),
@@ -78,7 +77,7 @@ menu = Window(
             on_click=show_reason,
             when=~F["connectable"],
         ),
-        when=F["has_subscription"] & ~F["invite_locked"],
+        when=F["has_subscription"] & F["product_sections_enabled"],
     ),
     Row(
         Button(
@@ -87,7 +86,7 @@ menu = Window(
             on_click=on_get_trial,
             when=F["trial_available"],
         ),
-        when=~F["invite_locked"],
+        when=F["product_sections_enabled"],
     ),
     Row(
         SwitchTo(
@@ -101,7 +100,7 @@ menu = Window(
             id=f"{PURCHASE_PREFIX}subscription",
             state=Subscription.MAIN,
         ),
-        when=~F["invite_locked"],
+        when=F["product_sections_enabled"],
     ),
     Row(
         SwitchTo(
@@ -110,7 +109,7 @@ menu = Window(
             state=MainMenu.EXCHANGE,
             when=F["can_show_referral_exchange"],
         ),
-        when=~F["invite_locked"],
+        when=F["product_sections_enabled"],
     ),
     Row(
         Start(
@@ -119,7 +118,7 @@ menu = Window(
             state=UserPartner.MAIN,
             when=F["is_partner"],
         ),
-        when=~F["invite_locked"],
+        when=F["product_sections_enabled"],
     ),
     Row(
         Button(
@@ -142,7 +141,7 @@ menu = Window(
             id="support",
             url=Format("{support}"),
         ),
-        when=~F["invite_locked"],
+        when=F["product_sections_enabled"],
     ),
     Row(
         Start(

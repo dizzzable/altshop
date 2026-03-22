@@ -69,6 +69,12 @@ def _gift_plan_name(options: Any, plan_id: int | None) -> str | None:
     return None
 
 
+def _resolve_main_menu_view_state(invite_locked: bool) -> tuple[str, bool]:
+    if invite_locked:
+        return "msg-main-menu-invite-locked", False
+    return "msg-main-menu-default", True
+
+
 @inject
 async def menu_getter(
     dialog_manager: DialogManager,
@@ -91,6 +97,7 @@ async def menu_getter(
     support_link = format_username_to_url(support_username, i18n.get("contact-support-help"))
     access_mode = await settings_service.get_access_mode()
     invite_locked = await access_service.is_invite_locked(user, mode=access_mode)
+    menu_message_key, product_sections_enabled = _resolve_main_menu_view_state(invite_locked)
     invite_state = await referral_service.get_invite_state(user, create_if_missing=True)
     has_active_invite = (
         invite_state.invite is not None
@@ -147,8 +154,8 @@ async def menu_getter(
         "has_subscription": user.has_subscription,
         "is_app": is_app_enabled,
         "is_referral_enable": is_referral_enabled,
-        "can_show_referral_exchange": can_show_referral_controls and not invite_locked,
-        "can_show_referral_invite": can_show_referral_invite and not invite_locked,
+        "can_show_referral_exchange": can_show_referral_controls,
+        "can_show_referral_invite": can_show_referral_invite,
         "can_show_referral_send_inline": can_show_referral_inline_send and bool(ref_link),
         "is_points_reward": is_points_reward,
         "subscriptions_count": subscriptions_count,
@@ -156,6 +163,8 @@ async def menu_getter(
         "is_partner": is_partner_active,
         "is_partner_active": is_partner_active,
         "invite_locked": invite_locked,
+        "menu_message_key": menu_message_key,
+        "product_sections_enabled": product_sections_enabled,
     }
 
     subscription = user.current_subscription
