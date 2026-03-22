@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fluentogram.exceptions import KeyNotFoundError
 
-from src.core.i18n.translator import humanize_i18n_key, safe_i18n_get
+from src.core.i18n.translator import build_i18n_fallback, humanize_i18n_key, safe_i18n_get
 
 
 class FakeTranslator:
@@ -26,4 +26,11 @@ def test_safe_i18n_get_returns_real_translation_when_key_exists() -> None:
 def test_safe_i18n_get_returns_humanized_fallback_when_key_missing() -> None:
     translator = FakeTranslator()
 
-    assert safe_i18n_get(translator, "msg-plan-archived-renew-mode") == "Plan Archived Renew Mode"
+    assert safe_i18n_get(translator, "msg-plan-archived-renew-mode") == (
+        "📝 Plan Archived Renew Mode"
+    )
+
+
+def test_build_i18n_fallback_adds_prefix_emoji() -> None:
+    assert build_i18n_fallback("btn-plan-archived") == "🔘 Plan Archived"
+    assert build_i18n_fallback("ntf-user-subscription-empty") == "⚠️ User Subscription Empty"

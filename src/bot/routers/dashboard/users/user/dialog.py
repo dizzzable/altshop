@@ -49,6 +49,7 @@ from .getters import (
     squads_getter,
     subscription_duration_getter,
     subscription_getter,
+    subscriptions_getter,
     traffic_limit_getter,
     transaction_getter,
     transactions_getter,
@@ -102,6 +103,7 @@ from .handlers import (
     on_reset_web_password,
     on_role_select,
     on_send,
+    on_subscription_back,
     on_subscription_delete,
     on_subscription_duration_select,
     on_subscription_select,
@@ -110,6 +112,7 @@ from .handlers import (
     on_traffic_limit_select,
     on_transaction_select,
     on_transactions,
+    on_user_subscription_select,
 )
 
 user = Window(
@@ -117,7 +120,7 @@ user = Window(
     I18nFormat("msg-user-main"),
     Row(
         Button(
-            text=I18nFormat("btn-user-current-subscription"),
+            text=I18nFormat("btn-user-subscriptions", count=F["subscriptions_count"]),
             id="subscription",
             on_click=on_current_subscription,
         ),
@@ -243,6 +246,41 @@ user = Window(
     getter=user_getter,
 )
 
+subscriptions = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-subscriptions", count=F["count"]),
+    ScrollingGroup(
+        Select(
+            text=I18nFormat(
+                "btn-user-subscription-choice",
+                status=F["item"]["status"],
+                device_name=F["item"]["device_name"],
+                expire_time=F["item"]["expire_time"],
+                is_current=F["item"]["is_current"],
+            ),
+            id="user_subscription_select",
+            item_id_getter=lambda item: item["id"],
+            items="subscriptions",
+            type_factory=int,
+            on_click=on_user_subscription_select,
+        ),
+        id="subscriptions_scroll",
+        width=1,
+        height=7,
+        hide_on_single_page=True,
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.MAIN,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.SUBSCRIPTIONS,
+    getter=subscriptions_getter,
+)
+
 subscription = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-user-subscription-info"),
@@ -304,10 +342,10 @@ subscription = Window(
         ),
     ),
     Row(
-        SwitchTo(
+        Button(
             text=I18nFormat("btn-back"),
             id="back",
-            state=DashboardUser.MAIN,
+            on_click=on_subscription_back,
         ),
     ),
     IgnoreUpdate(),
@@ -1181,6 +1219,7 @@ max_subscriptions = Window(
 
 router = Dialog(
     user,
+    subscriptions,
     subscription,
     traffic_limit,
     device_limit,

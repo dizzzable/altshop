@@ -1,22 +1,35 @@
+from pathlib import Path
 from typing import Optional
 
 from dishka import Provider, Scope, provide
 from dishka.integrations.aiogram import AiogramMiddlewareData
 from fluentogram import TranslatorHub, TranslatorRunner
-from fluentogram.storage import FileStorage
 from loguru import logger
 
 from src.core.config import AppConfig
 from src.core.constants import USER_KEY
+from src.core.i18n.storage import OverlayFileStorage
 from src.infrastructure.database.models.dto import UserDto
 
 
 class I18nProvider(Provider):
     scope = Scope.APP
 
+    @staticmethod
+    def _get_fallback_translations_dir(config: AppConfig) -> Path | None:
+        fallback_dir = config.assets_dir.parent / "assets.default" / "translations"
+        if fallback_dir.exists():
+            return fallback_dir
+        return None
+
     @provide
     def get_hub(self, config: AppConfig) -> TranslatorHub:
-        storage = FileStorage(path=config.translations_dir / "{locale}")
+        fallback_dir = self._get_fallback_translations_dir(config)
+        storage_paths: list[Path] = [config.translations_dir / "{locale}"]
+        if fallback_dir and fallback_dir != config.translations_dir:
+            storage_paths.append(fallback_dir / "{locale}")
+
+        storage = OverlayFileStorage(*storage_paths)
         locales_map: dict[str, tuple[str, ...]] = {}
 
         for locale_code in config.locales:
@@ -33,7 +46,8 @@ class I18nProvider(Provider):
         logger.debug(
             f"Loaded TranslatorHub with locales: "
             f"{[locale.value for locale in locales_map.keys()]}, "  # type: ignore[attr-defined]
-            f"default={config.default_locale.value}"
+            f"default={config.default_locale.value}, "
+            f"fallback_dir={fallback_dir.as_posix() if fallback_dir else 'disabled'}"
         )
 
         return TranslatorHub(locales_map, root_locale=config.default_locale, storage=storage)

@@ -146,6 +146,20 @@ btn-user-transactions = 🧾 Transactions
 btn-user-referrals = 👥 Invited Users
 btn-user-give-access = 🔑 Plan Access
 btn-user-current-subscription = 💳 Current Subscription
+btn-user-subscriptions = 💳 { $count ->
+    [1] Subscription ({ $count })
+    *[other] Subscriptions ({ $count })
+    }
+btn-user-subscription-choice = { $is_current ->
+    [1] ⭐
+    *[0] ▫️
+    } { $status ->
+    [ACTIVE] 🟢
+    [EXPIRED] 🔴
+    [LIMITED] 🟠
+    [DISABLED] 🚫
+    *[other] ⚪
+    } { $device_name } - { $expire_time }
 btn-user-subscription-traffic-limit = 🌐 Traffic Limit
 btn-user-subscription-device-limit = 📱 Device Limit
 btn-user-subscription-expire-time = ⏳ Expiry Time

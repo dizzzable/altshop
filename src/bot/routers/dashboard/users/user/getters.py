@@ -28,6 +28,40 @@ from src.services.subscription import SubscriptionService
 from src.services.transaction import TransactionService
 from src.services.user import UserService
 
+from .subscription_selection import get_subscription_index, resolve_selected_subscription
+
+DEVICE_TYPE_EMOJIS = {
+    "ANDROID": "📱",
+    "IPHONE": "🍏",
+    "WINDOWS": "🖥",
+    "MAC": "💻",
+    "OTHER": "🛩️",
+}
+
+DEVICE_TYPE_NAMES = {
+    "ANDROID": "Android",
+    "IPHONE": "iPhone",
+    "WINDOWS": "Windows",
+    "MAC": "Mac",
+    "OTHER": "Other",
+}
+
+
+def _resolve_device_type_meta(device_type: Any) -> tuple[str, str]:
+    if device_type is None:
+        return DEVICE_TYPE_EMOJIS["OTHER"], DEVICE_TYPE_NAMES["OTHER"]
+
+    device_type_key = getattr(device_type, "value", str(device_type)).upper()
+    return (
+        DEVICE_TYPE_EMOJIS.get(device_type_key, DEVICE_TYPE_EMOJIS["OTHER"]),
+        DEVICE_TYPE_NAMES.get(device_type_key, DEVICE_TYPE_NAMES["OTHER"]),
+    )
+
+
+def _format_subscription_title(plan_name: str, device_type: Any) -> str:
+    emoji, device_name = _resolve_device_type_meta(device_type)
+    return f"{emoji} {device_name} - {plan_name}"
+
 
 @inject
 async def user_getter(
@@ -50,9 +84,17 @@ async def user_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    subscription = target_user.current_subscription
     all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
-    subscriptions_count = len(all_subscriptions)
+    current_subscription_id = (
+        target_user.current_subscription.id if target_user.current_subscription else None
+    )
+    visible_subscriptions, selected_subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        current_subscription_id,
+    )
+    subscription = target_user.current_subscription or selected_subscription
+    subscriptions_count = len(visible_subscriptions)
 
     # Проверяем партнерский статус
     partner = await partner_service.get_partner_by_user(target_telegram_id)
@@ -74,8 +116,9 @@ async def user_getter(
         "can_edit": user.role > target_user.role or user.telegram_id in config.bot.dev_id,
         "status": None,
         "is_trial": False,
-        "has_subscription": subscription is not None,
+        "has_subscription": bool(visible_subscriptions),
         "subscriptions_count": subscriptions_count,
+        "has_multiple_subscriptions": subscriptions_count > 1,
         # Партнерская программа
         "is_partner": is_partner,
         "partner_balance": partner.balance_rub if partner else 0,
@@ -96,9 +139,57 @@ async def user_getter(
 
 
 @inject
+async def subscriptions_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    subscription_service: FromDishka[SubscriptionService],
+    i18n: FromDishka[TranslatorRunner],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    current_subscription_id = (
+        target_user.current_subscription.id if target_user.current_subscription else None
+    )
+    visible_subscriptions, _ = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        current_subscription_id,
+    )
+
+    formatted_subscriptions = []
+    for subscription in visible_subscriptions:
+        expire_parts = i18n_format_expire_time(subscription.expire_at)
+        expire_time_str = " ".join(i18n.get(key, **kw) for key, kw in expire_parts)
+        plan_name = subscription.plan.name if subscription.plan else "—"
+
+        formatted_subscriptions.append(
+            {
+                "id": subscription.id,
+                "status": subscription.status.value,
+                "device_name": _format_subscription_title(plan_name, subscription.device_type),
+                "expire_time": expire_time_str,
+                "is_current": current_subscription_id == subscription.id,
+            }
+        )
+
+    return {
+        "count": len(formatted_subscriptions),
+        "subscriptions": formatted_subscriptions,
+        "has_multiple_subscriptions": len(formatted_subscriptions) > 1,
+    }
+
+
+@inject
 async def subscription_getter(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
+    subscription_service: FromDishka[SubscriptionService],
     remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -108,10 +199,18 @@ async def subscription_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    subscription = target_user.current_subscription
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    current_subscription_id = (
+        target_user.current_subscription.id if target_user.current_subscription else None
+    )
+    visible_subscriptions, subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        current_subscription_id,
+    )
 
     if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+        raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
     remna_user = await remnawave_service.get_user(subscription.user_remna_id)
 
@@ -135,6 +234,9 @@ async def subscription_getter(
     )
 
     return {
+        "subscriptions_count": len(visible_subscriptions),
+        "subscription_index": get_subscription_index(subscription.id, visible_subscriptions),
+        "is_current_subscription": current_subscription_id == subscription.id,
         "is_trial": subscription.is_trial,
         "is_active": subscription.is_active,
         "has_devices_limit": subscription.has_devices_limit,
@@ -176,6 +278,7 @@ async def subscription_getter(
 async def devices_getter(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
+    subscription_service: FromDishka[SubscriptionService],
     remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -185,12 +288,17 @@ async def devices_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    subscription = target_user.current_subscription
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    visible_subscriptions, subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        target_user.current_subscription.id if target_user.current_subscription else None,
+    )
 
     if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+        raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
-    devices = await remnawave_service.get_devices_user(target_user)
+    devices = await remnawave_service.get_devices_by_subscription_uuid(subscription.user_remna_id)
 
     if not devices:
         raise ValueError(f"Devices not found for user '{target_telegram_id}'")
@@ -209,6 +317,7 @@ async def devices_getter(
         "current_count": len(devices),
         "max_count": i18n_format_device_limit(subscription.device_limit),
         "devices": formatted_devices,
+        "subscriptions_count": len(visible_subscriptions),
     }
 
 
@@ -277,16 +386,27 @@ async def device_limit_getter(
 @inject
 async def squads_getter(
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     remnawave: FromDishka[RemnawaveSDK],
     remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscription = await subscription_service.get_current(telegram_id=target_telegram_id)
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    _, subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        target_user.current_subscription.id if target_user.current_subscription else None,
+    )
 
     if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+        raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
     internal_response = await remnawave.internal_squads.get_internal_squads()
     if not isinstance(internal_response, GetAllInternalSquadsResponseDto):
@@ -312,15 +432,26 @@ async def squads_getter(
 @inject
 async def internal_squads_getter(
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     remnawave: FromDishka[RemnawaveSDK],
     **kwargs: Any,
 ) -> dict[str, Any]:
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscription = await subscription_service.get_current(telegram_id=target_telegram_id)
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    _, subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        target_user.current_subscription.id if target_user.current_subscription else None,
+    )
 
     if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+        raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
     response = await remnawave.internal_squads.get_internal_squads()
 
@@ -342,15 +473,26 @@ async def internal_squads_getter(
 @inject
 async def external_squads_getter(
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscription = await subscription_service.get_current(telegram_id=target_telegram_id)
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    _, subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        target_user.current_subscription.id if target_user.current_subscription else None,
+    )
 
     if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+        raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
     external_squads = await remnawave_service.get_external_squads_safe()
     existing_squad_uuids = {squad["uuid"] for squad in external_squads}
@@ -375,6 +517,7 @@ async def expire_time_getter(
     dialog_manager: DialogManager,
     i18n: FromDishka[TranslatorRunner],
     user_service: FromDishka[UserService],
+    subscription_service: FromDishka[SubscriptionService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
@@ -383,10 +526,15 @@ async def expire_time_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    subscription = target_user.current_subscription
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    _, subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        target_user.current_subscription.id if target_user.current_subscription else None,
+    )
 
     if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+        raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
     formatted_durations = []
     for value in [1, -1, 3, -3, 7, -7, 14, -14, 30, -30]:

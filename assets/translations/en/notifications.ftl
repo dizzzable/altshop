@@ -315,7 +315,7 @@ ntf-subscription-not-found = <i>❌ Subscription not found.</i>
 
 ntf-user-not-found = <i>❌ User not found.</i>
 ntf-user-transactions-empty = <i>❌ Transaction list is empty.</i>
-ntf-user-subscription-empty = <i>❌ Current subscription not found.</i>
+ntf-user-subscription-empty = <i>❌ No subscriptions found for this user.</i>
 ntf-user-plans-empty = <i>❌ No available plans to issue.</i>
 ntf-user-devices-empty = <i>❌ Device list is empty.</i>
 ntf-user-invalid-number = <i>❌ Invalid number.</i>

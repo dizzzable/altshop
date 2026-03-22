@@ -340,7 +340,7 @@ ntf-subscription-not-found = <i>❌ Подписка не найдена.</i>
 
 ntf-user-not-found = <i>❌ Пользователь не найден.</i>
 ntf-user-transactions-empty = <i>❌ Список транзакций пуст.</i>
-ntf-user-subscription-empty = <i>❌ Текущая подписка не найдена.</i>
+ntf-user-subscription-empty = <i>❌ Подписки пользователя не найдены.</i>
 ntf-user-plans-empty = <i>❌ Нет доступных планов для выдачи.</i>
 ntf-user-devices-empty = <i>❌ Список устройств пуст.</i>
 ntf-user-invalid-number = <i>❌ Некорректное число.</i>

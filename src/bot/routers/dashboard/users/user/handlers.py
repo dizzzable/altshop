@@ -39,6 +39,12 @@ from src.services.subscription import SubscriptionService
 from src.services.transaction import TransactionService
 from src.services.user import UserService
 
+from .subscription_selection import (
+    clear_selected_subscription,
+    resolve_selected_subscription,
+    set_selected_subscription,
+)
+
 
 async def start_user_window(
     manager: Union[DialogManager, SubManager],
@@ -49,6 +55,30 @@ async def start_user_window(
         data={"target_telegram_id": target_telegram_id},
         mode=StartMode.RESET_STACK,
     )
+
+
+async def _get_target_user_subscription_context(
+    dialog_manager: Union[DialogManager, SubManager],
+    user_service: UserService,
+    subscription_service: SubscriptionService,
+) -> tuple[UserDto, list[SubscriptionDto], SubscriptionDto]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    visible_subscriptions, subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        target_user.current_subscription.id if target_user.current_subscription else None,
+    )
+
+    if not subscription:
+        raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
+
+    return target_user, visible_subscriptions, subscription
 
 
 @inject
@@ -167,21 +197,75 @@ async def on_current_subscription(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscription = await subscription_service.get_current(target_telegram_id)
+    target_user = await user_service.get(telegram_id=target_telegram_id)
 
-    if not subscription:
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    visible_subscriptions, selected_subscription = resolve_selected_subscription(
+        dialog_manager,
+        all_subscriptions,
+        target_user.current_subscription.id if target_user.current_subscription else None,
+    )
+
+    if not visible_subscriptions or not selected_subscription:
         await notification_service.notify_user(
             user=user,
             payload=MessagePayload(i18n_key="ntf-user-subscription-empty"),
         )
         return
 
+    if len(visible_subscriptions) > 1:
+        await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTIONS)
+        return
+
     await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTION)
+
+
+@inject
+async def on_user_subscription_select(
+    callback: CallbackQuery,
+    widget: Select[int],
+    dialog_manager: DialogManager,
+    selected_subscription_id: int,
+    subscription_service: FromDishka[SubscriptionService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    logger.info(f"{log(user)} Selected user subscription '{selected_subscription_id}'")
+
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    set_selected_subscription(dialog_manager, selected_subscription_id, subscriptions)
+    logger.info(
+        f"{log(user)} Opened selected subscription '{selected_subscription_id}' "
+        f"for user '{target_telegram_id}'"
+    )
+    await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTION)
+
+
+@inject
+async def on_subscription_back(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    subscription_service: FromDishka[SubscriptionService],
+) -> None:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    visible_subscriptions, _ = resolve_selected_subscription(dialog_manager, subscriptions)
+
+    if len(visible_subscriptions) > 1:
+        await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTIONS)
+        return
+
+    await dialog_manager.switch_to(state=DashboardUser.MAIN)
 
 
 @inject
@@ -189,15 +273,16 @@ async def on_active_toggle(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     remnawave: FromDishka[RemnawaveSDK],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     new_status = (
         SubscriptionStatus.DISABLED if subscription.is_active else SubscriptionStatus.ACTIVE
@@ -211,7 +296,8 @@ async def on_active_toggle(
     subscription.status = new_status
     await subscription_service.update(subscription)
     logger.info(
-        f"{log(user)} Toggled subscription status to '{new_status}' for '{target_telegram_id}'"
+        f"{log(user)} Toggled subscription '{subscription.id}' status "
+        f"to '{new_status}' for '{target_user.telegram_id}'"
     )
 
 
@@ -226,16 +312,12 @@ async def on_subscription_delete(
     notification_service: FromDishka[NotificationService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
-
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, visible_subscriptions, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
+    target_telegram_id = target_user.telegram_id
 
     if is_double_click(dialog_manager, key="subscription_delete_confirm", cooldown=10):
         subscription.status = SubscriptionStatus.DELETED
@@ -252,11 +334,10 @@ async def on_subscription_delete(
                 )
 
         # If deleted subscription is current — switch to another non-deleted subscription.
-        all_subs = await subscription_service.get_all_by_user(target_telegram_id)
         active_subs = [
-            s
-            for s in all_subs
-            if s.status != SubscriptionStatus.DELETED and s.id != subscription.id
+            candidate
+            for candidate in visible_subscriptions
+            if candidate.id != subscription.id and candidate.status != SubscriptionStatus.DELETED
         ]
 
         if active_subs and active_subs[0].id:
@@ -264,8 +345,20 @@ async def on_subscription_delete(
         else:
             await user_service.delete_current_subscription(target_telegram_id)
 
-        logger.info(f"{log(user)} Deleted subscription for user '{target_telegram_id}'")
-        await dialog_manager.switch_to(state=DashboardUser.MAIN)
+        if active_subs and active_subs[0].id:
+            set_selected_subscription(dialog_manager, active_subs[0].id, active_subs)
+        else:
+            clear_selected_subscription(dialog_manager)
+
+        logger.info(
+            f"{log(user)} Deleted subscription '{subscription.id}' for user '{target_telegram_id}'"
+        )
+        if len(active_subs) > 1:
+            await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTIONS)
+        elif active_subs:
+            await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTION)
+        else:
+            await dialog_manager.switch_to(state=DashboardUser.MAIN)
         return
 
     await notification_service.notify_user(
@@ -284,17 +377,18 @@ async def on_devices(
     widget: Button,
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
+    subscription_service: FromDishka[SubscriptionService],
     remnawave_service: FromDishka[RemnawaveService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    devices = await remnawave_service.get_devices_user(target_user)
+    devices = await remnawave_service.get_devices_by_subscription_uuid(subscription.user_remna_id)
 
     if not devices:
         await notification_service.notify_user(
@@ -312,20 +406,27 @@ async def on_device_delete(
     widget: Button,
     sub_manager: SubManager,
     user_service: FromDishka[UserService],
+    subscription_service: FromDishka[SubscriptionService],
     remnawave_service: FromDishka[RemnawaveService],
 ) -> None:
     await sub_manager.load_data()
     selected_device = sub_manager.item_id
 
     user: UserDto = sub_manager.middleware_data[USER_KEY]
-    target_telegram_id = sub_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        sub_manager,
+        user_service,
+        subscription_service,
+    )
 
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    devices = await remnawave_service.delete_device(user=target_user, hwid=selected_device)
-    logger.info(f"{log(user)} Deleted device '{selected_device}' for user '{target_telegram_id}'")
+    devices = await remnawave_service.delete_device_by_subscription_uuid(
+        user_remna_id=subscription.user_remna_id,
+        hwid=selected_device,
+    )
+    logger.info(
+        f"{log(user)} Deleted device '{selected_device}' "
+        f"for subscription '{subscription.id}' and user '{target_user.telegram_id}'"
+    )
 
     if devices:
         return
@@ -338,18 +439,22 @@ async def on_reset_traffic(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     remnawave: FromDishka[RemnawaveSDK],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     await remnawave.users.reset_user_traffic(uuid=str(subscription.user_remna_id))
-    logger.info(f"{log(user)} Reset trafic for user '{target_telegram_id}'")
+    logger.info(
+        f"{log(user)} Reset traffic for subscription '{subscription.id}' "
+        f"for user '{target_user.telegram_id}'"
+    )
 
 
 @inject
@@ -560,16 +665,11 @@ async def on_traffic_limit_select(
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     logger.info(f"{log(user)} Selected traffic '{selected_traffic}'")
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
-
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     subscription.traffic_limit = selected_traffic
     await subscription_service.update(subscription)
@@ -581,7 +681,8 @@ async def on_traffic_limit_select(
     )
 
     logger.info(
-        f"{log(user)} Changed traffic limit to '{selected_traffic}' for '{target_telegram_id}'"
+        f"{log(user)} Changed traffic limit to '{selected_traffic}' "
+        f"for subscription '{subscription.id}'"
     )
     await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTION)
 
@@ -598,16 +699,11 @@ async def on_traffic_limit_input(
 ) -> None:
     dialog_manager.show_mode = ShowMode.EDIT
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
-
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     if message.text is None or not (message.text.isdigit() and int(message.text) > 0):
         logger.warning(f"{log(user)} Invalid traffic limit input: '{message.text}'")
@@ -627,7 +723,9 @@ async def on_traffic_limit_input(
         subscription=subscription,
     )
 
-    logger.info(f"{log(user)} Changed traffic limit to '{number}' for '{target_telegram_id}'")
+    logger.info(
+        f"{log(user)} Changed traffic limit to '{number}' for subscription '{subscription.id}'"
+    )
     await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTION)
 
 
@@ -643,16 +741,11 @@ async def on_device_limit_select(
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     logger.info(f"{log(user)} Selected device limit '{selected_device}'")
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
-
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     subscription.device_limit = selected_device
     await subscription_service.update(subscription)
@@ -664,7 +757,8 @@ async def on_device_limit_select(
     )
 
     logger.info(
-        f"{log(user)} Changed device limit to '{selected_device}' for '{target_telegram_id}'"
+        f"{log(user)} Changed device limit to '{selected_device}' "
+        f"for subscription '{subscription.id}'"
     )
     await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTION)
 
@@ -681,16 +775,11 @@ async def on_device_limit_input(
 ) -> None:
     dialog_manager.show_mode = ShowMode.EDIT
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
-
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     if message.text is None or not (message.text.isdigit() and int(message.text) > 0):
         logger.warning(f"{log(user)} Invalid device limit input: '{message.text}'")
@@ -710,7 +799,9 @@ async def on_device_limit_input(
         subscription=subscription,
     )
 
-    logger.info(f"{log(user)} Changed device limit to '{number}' for '{target_telegram_id}'")
+    logger.info(
+        f"{log(user)} Changed device limit to '{number}' for subscription '{subscription.id}'"
+    )
     await dialog_manager.switch_to(state=DashboardUser.SUBSCRIPTION)
 
 
@@ -725,16 +816,11 @@ async def on_internal_squad_select(
     remnawave_service: FromDishka[RemnawaveService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
-
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     if selected_squad in subscription.internal_squads:
         updated_internal_squads = [s for s in subscription.internal_squads if s != selected_squad]
@@ -763,16 +849,11 @@ async def on_external_squad_select(
     remnawave_service: FromDishka[RemnawaveService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
-
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     if selected_squad == subscription.external_squad:
         subscription.external_squad = None
@@ -904,16 +985,11 @@ async def on_duration_select(
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     logger.info(f"{log(user)} Selected duration '{selected_duration}'")
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
-
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     new_expire = subscription.expire_at + timedelta(days=selected_duration)
 
@@ -936,7 +1012,7 @@ async def on_duration_select(
     )
     logger.info(
         f"{log(user)} {'Added' if selected_duration > 0 else 'Subtracted'} "
-        f"'{abs(selected_duration)}' days to subscription for '{target_telegram_id}'"
+        f"'{abs(selected_duration)}' days to subscription '{subscription.id}'"
     )
 
 
@@ -952,16 +1028,11 @@ async def on_duration_input(
 ) -> None:
     dialog_manager.show_mode = ShowMode.EDIT
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    target_user = await user_service.get(telegram_id=target_telegram_id)
-
-    if not target_user:
-        raise ValueError(f"User '{target_telegram_id}' not found")
-
-    subscription = await subscription_service.get_current(target_telegram_id)
-
-    if not subscription:
-        raise ValueError(f"Current subscription for user '{target_telegram_id}' not found")
+    target_user, _, subscription = await _get_target_user_subscription_context(
+        dialog_manager,
+        user_service,
+        subscription_service,
+    )
 
     number = parse_int(message.text)
 
@@ -994,7 +1065,7 @@ async def on_duration_input(
     )
     logger.info(
         f"{log(user)} {'Added' if number > 0 else 'Subtracted'} "
-        f"'{abs(number)}' days to subscription for '{target_telegram_id}'"
+        f"'{abs(number)}' days to subscription '{subscription.id}'"
     )
 
 

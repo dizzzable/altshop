@@ -149,6 +149,13 @@ configurator = Window(
             when=F["is_archived"],
         ),
     ),
+    I18nFormat(
+        "msg-plan-configurator-transitions",
+        is_archived=F["is_archived"],
+        renew_mode=F["archived_renew_mode"],
+        replacement_count=F["replacement_count"],
+        upgrade_count=F["upgrade_count"],
+    ),
     Row(
         SwitchTo(
             text=I18nFormat("btn-plan-name"),

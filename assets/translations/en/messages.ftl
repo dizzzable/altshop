@@ -595,6 +595,12 @@ msg-user-give-subscription =
 
     Select the plan you want to give to the user.
 
+msg-user-subscriptions =
+    <b>📋 User Subscriptions ({ $count })</b>
+
+    Choose which subscription you want to inspect or modify.
+    ⭐ marks the user's current subscription.
+
 msg-user-give-subscription-duration =
     <b>⏳ Select Duration</b>
 
@@ -658,7 +664,15 @@ msg-user-subscription-external-squads =
     Select which external group will be assigned to this user.
 
 msg-user-subscription-info =
-    <b>💳 Current Subscription Info</b>
+    <b>💳 Subscription Info</b>
+
+    <blockquote>
+    • <b>Selected</b>: { $subscription_index } / { $subscriptions_count }
+    • <b>Current</b>: { $is_current_subscription ->
+    [1] Yes
+    *[0] No
+    }
+    </blockquote>
     
     { hdr-subscription }
     { frg-subscription-details }
@@ -2299,17 +2313,36 @@ msg-subscription-payment-asset =
 msg-plan-archived-renew-mode =
     <b>🔁 Archived renewal mode</b>
 
-    Choose whether this archived plan can be renewed as-is
-    or should be replaced by one of the available plans during renewal.
+    <b>Renew the same plan</b>:
+    the user can keep paying for this archived plan without switching away from it.
+
+    <b>Replace on renewal</b>:
+    this archived plan can no longer be renewed directly and will be replaced
+    with one of the plans from the renewal replacement list.
 
 msg-plan-replacement-plans =
     <b>🔄 Replacement plans on renewal</b>
 
-    Select which plans can be offered to the user
-    when the archived plan can no longer be renewed directly.
+    Select which public plans can be offered when this archived plan
+    can no longer be renewed as-is.
+
+    After payment, the existing subscription will be switched to the newly
+    selected plan and start using that plan's settings.
 
 msg-plan-upgrade-plans =
     <b>⬆️ Upgrade targets</b>
 
-    Select which plans are allowed as upgrade targets
-    from the current plan.
+    Select which plans are allowed as upgrade targets specifically from this plan.
+
+    This is not the full storefront list: users may upgrade only to the plans
+    explicitly selected here.
+
+msg-plan-configurator-transitions =
+    <i>{ $is_archived ->
+    [1] 🗃️ Archived plans are hidden from the public storefront. { $renew_mode ->
+        [SELF_RENEW] Users can renew this archived plan as-is.
+        [REPLACE_ON_RENEW] Renewal will replace it with one of the { $replacement_count } selected plans.
+        *[other] Renewal mode is configured separately.
+        }
+    *[0] 🛒 Public plans are available for direct purchase.
+    } ⬆️ Upgrade targets configured from this plan: { $upgrade_count }.</i>

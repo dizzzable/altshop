@@ -146,6 +146,20 @@ btn-user-transactions = 🧾 Транзакции
 btn-user-referrals = 👥 Приглашенные
 btn-user-give-access = 🔑 Доступ к планам
 btn-user-current-subscription = 💳 Текущая подписка
+btn-user-subscriptions = 💳 { $count ->
+    [1] Подписка ({ $count })
+    *[other] Подписки ({ $count })
+    }
+btn-user-subscription-choice = { $is_current ->
+    [1] ⭐
+    *[0] ▫️
+    } { $status ->
+    [ACTIVE] 🟢
+    [EXPIRED] 🔴
+    [LIMITED] 🟠
+    [DISABLED] 🚫
+    *[other] ⚪
+    } { $device_name } - { $expire_time }
 btn-user-subscription-traffic-limit = 🌐 Лимит трафика
 btn-user-subscription-device-limit = 📱 Лимит устройств
 btn-user-subscription-expire-time = ⏳ Время истечения

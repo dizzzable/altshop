@@ -5,6 +5,13 @@ from fluentogram.exceptions import KeyNotFoundError
 from loguru import logger
 
 I18N_FALLBACK_PREFIXES = {"btn", "msg", "ntf", "hdr", "frg"}
+I18N_FALLBACK_EMOJIS = {
+    "btn": "🔘",
+    "msg": "📝",
+    "ntf": "⚠️",
+    "hdr": "🏷️",
+    "frg": "🧩",
+}
 
 
 def humanize_i18n_key(key: str) -> str:
@@ -23,6 +30,21 @@ def humanize_i18n_key(key: str) -> str:
     return " ".join(part.capitalize() for part in parts)
 
 
+def build_i18n_fallback(key: str) -> str:
+    label = humanize_i18n_key(key)
+    if not key:
+        return label
+
+    normalized_key = key.replace("_", "-")
+    prefix = next((part for part in normalized_key.split("-") if part), "")
+    emoji = I18N_FALLBACK_EMOJIS.get(prefix)
+
+    if not emoji:
+        return label
+
+    return f"{emoji} {label}"
+
+
 def safe_i18n_get(i18n: TranslatorRunner, key: str, **kwargs: Any) -> str:
     if not key:
         return key
@@ -30,7 +52,7 @@ def safe_i18n_get(i18n: TranslatorRunner, key: str, **kwargs: Any) -> str:
     try:
         return i18n.get(key, **kwargs)
     except KeyNotFoundError:
-        fallback = humanize_i18n_key(key)
+        fallback = build_i18n_fallback(key)
         logger.warning(
             f"Translation key '{key}' not found. Falling back to generated label '{fallback}'"
         )
