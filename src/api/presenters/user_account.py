@@ -47,6 +47,7 @@ class UserProfileResponse(BaseModel):
 
     telegram_id: int
     username: str | None
+    web_login: str | None = None
     name: str | None
     role: str
     points: int
@@ -335,6 +336,7 @@ def _build_user_profile_response(profile: UserProfileSnapshot) -> UserProfileRes
     return UserProfileResponse(
         telegram_id=profile.telegram_id,
         username=profile.username,
+        web_login=profile.web_login,
         name=profile.safe_name,
         role=profile.role,
         points=profile.points,

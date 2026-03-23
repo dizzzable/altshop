@@ -2,6 +2,7 @@
 export interface User {
   telegram_id: number
   username: string | null
+  web_login?: string | null
   name: string | null
   photo_url?: string
   role: UserRole

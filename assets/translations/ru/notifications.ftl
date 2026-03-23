@@ -692,7 +692,7 @@ ntf-event-web-user-registered =
 
     <b>🌐 Web:</b>
     <blockquote>
-    • <b>Логин</b>: <code>{ $web_username }</code>
+    • <b>Web login</b>: <code>{ $web_username }</code>
     • <b>Источник</b>: { $auth_source }
     </blockquote>
 
@@ -706,7 +706,7 @@ ntf-event-web-account-linked =
 
     <b>🌐 Связка:</b>
     <blockquote>
-    • <b>Логин</b>: <code>{ $web_username }</code>
+    • <b>Web login</b>: <code>{ $web_username }</code>
     • <b>Старый ID профиля</b>: <code>{ $old_user_id }</code>
     • <b>Новый Telegram ID</b>: <code>{ $linked_telegram_id }</code>
     </blockquote>

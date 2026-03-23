@@ -18,6 +18,7 @@ _WEB_ACCOUNT_UNSET = object()
 class UserProfileSnapshot:
     telegram_id: int
     username: str | None
+    web_login: str | None
     name: str | None
     safe_name: str | None
     role: str
@@ -107,6 +108,7 @@ class UserProfileService:
         return UserProfileSnapshot(
             telegram_id=user.telegram_id,
             username=username,
+            web_login=resolved_web_account.username if resolved_web_account else None,
             name=user.name,
             safe_name=user.name or username,
             role=self._enum_value(user.role),

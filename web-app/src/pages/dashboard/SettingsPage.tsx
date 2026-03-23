@@ -277,6 +277,11 @@ export function SettingsPage() {
 
   const displayName = userProfile?.name || userProfile?.username || t('common.userFallback')
   const displayUsername = userProfile?.username || `id${userProfile?.telegram_id || ''}`
+  const webLogin = userProfile?.web_login?.trim() || ''
+  const profileUsername = userProfile?.username?.trim() || ''
+  const showSeparateProfileUsername = Boolean(
+    profileUsername && (!webLogin || profileUsername !== webLogin)
+  )
   const avatarFallback = displayName.charAt(0).toUpperCase() || 'U'
   const isTelegramLinked = Boolean(userProfile?.telegram_linked && userProfile?.linked_telegram_id)
   const isEmailVerified = Boolean(userProfile?.email_verified)
@@ -293,7 +298,7 @@ export function SettingsPage() {
   )
   const hasWebAccount = Boolean(userProfile?.has_web_account)
   const hasBootstrappedWebCredentials = !userProfile?.needs_web_credentials_bootstrap
-  const resetUsername = userProfile?.username?.trim() || ''
+  const resetUsername = webLogin
   const canUseTelegramPasswordReset = Boolean(
     hasWebAccount && hasBootstrappedWebCredentials && isTelegramLinked && resetUsername
   )
@@ -303,8 +308,8 @@ export function SettingsPage() {
       ? t('layout.tgBootstrapDesc')
     : !isTelegramLinked
       ? t('settings.password.hintLinkTelegram')
-      : !resetUsername
-        ? t('settings.password.hintNoUsername')
+    : !resetUsername
+        ? t('settings.password.hintNoWebLogin')
         : t('settings.password.hintLinked', { telegramId: userProfile?.linked_telegram_id ?? '-' })
   const currentLanguageLabel = isAutoLocale ? t('settings.language.option.auto') : locale.toUpperCase()
   const partnerBalanceCurrencyValue = userProfile?.partner_balance_currency_override ?? 'AUTO'
@@ -477,7 +482,7 @@ export function SettingsPage() {
       return
     }
     if (!resetUsername) {
-      setError(t('settings.password.errorUsernameRequired'))
+      setError(t('settings.password.errorWebLoginRequired'))
       return
     }
 
@@ -501,7 +506,7 @@ export function SettingsPage() {
     setMessage(null)
     setTelegramPasswordError(null)
     if (!resetUsername) {
-      setTelegramPasswordError(t('settings.password.errorUsernameRequired'))
+      setTelegramPasswordError(t('settings.password.errorWebLoginRequired'))
       return
     }
     if (!telegramPasswordCode.trim() || !telegramPassword || !telegramPasswordConfirm) {
@@ -617,9 +622,15 @@ export function SettingsPage() {
         <Input id="name" value={userProfile?.name || ''} readOnly disabled />
       </div>
       <div className="grid gap-2">
-        <Label htmlFor="username">{t('settings.section.username')}</Label>
-        <Input id="username" value={userProfile?.username || ''} readOnly disabled />
+        <Label htmlFor="web-login">{t('settings.section.webLogin')}</Label>
+        <Input id="web-login" value={userProfile?.web_login || ''} readOnly disabled />
       </div>
+      {showSeparateProfileUsername ? (
+        <div className="grid gap-2">
+          <Label htmlFor="profile-username">{t('settings.section.profileUsername')}</Label>
+          <Input id="profile-username" value={userProfile?.username || ''} readOnly disabled />
+        </div>
+      ) : null}
       {userProfile?.is_partner ? (
         <div className="grid gap-2">
           <Label htmlFor="partner-balance-currency">{t('settings.partnerBalanceCurrency.label')}</Label>

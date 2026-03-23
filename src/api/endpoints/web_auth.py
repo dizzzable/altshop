@@ -722,12 +722,6 @@ async def telegram_auth(
                 referral_service=referral_service,
                 partner_service=partner_service,
             )
-            await _notify_web_user_registered(
-                notification_service=notification_service,
-                user=user,
-                web_username=user.username or str(user.telegram_id),
-                auth_source="WEB_TELEGRAM",
-            )
 
         await _track_web_analytics_event(
             web_analytics_event_service=web_analytics_event_service,
@@ -752,6 +746,14 @@ async def telegram_auth(
             user=user,
             preferred_username=auth_data.username or user.username,
         )
+
+        if is_new_user:
+            await _notify_web_user_registered(
+                notification_service=notification_service,
+                user=user,
+                web_username=web_auth_result.web_account.username,
+                auth_source="WEB_TELEGRAM",
+            )
 
         return build_session_response(
             access_token=web_auth_result.access_token,

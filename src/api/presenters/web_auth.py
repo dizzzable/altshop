@@ -25,6 +25,7 @@ class LogoutResponse(BaseModel):
 class AuthMeResponse(BaseModel):
     telegram_id: int
     username: str | None
+    web_login: str | None = None
     name: str | None
     role: str
     points: int
@@ -115,6 +116,7 @@ def _build_auth_me_response(profile: UserProfileSnapshot) -> AuthMeResponse:
     return AuthMeResponse(
         telegram_id=profile.telegram_id,
         username=profile.username,
+        web_login=profile.web_login,
         name=profile.name,
         role=profile.role,
         points=profile.points,

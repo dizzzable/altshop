@@ -194,10 +194,11 @@ export function DashboardLayout() {
     if (!openBootstrapPrompt) {
       return
     }
-    if (!bootstrapUsername && user?.username) {
-      setBootstrapUsername(user.username)
+    const preferredWebLogin = user?.web_login || user?.username
+    if (!bootstrapUsername && preferredWebLogin) {
+      setBootstrapUsername(preferredWebLogin)
     }
-  }, [bootstrapUsername, openBootstrapPrompt, user?.username])
+  }, [bootstrapUsername, openBootstrapPrompt, user?.username, user?.web_login])
 
   useEffect(() => {
     if (!openForcePasswordPrompt) {

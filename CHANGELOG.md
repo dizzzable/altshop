@@ -6,6 +6,19 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.10] - 2026-03-23
+
+### Fixed
+
+- Telegram linking no longer creates the impression that a user's web login changed: the auth login is now exposed separately as `web_login`, while `username` remains the public profile username
+- Telegram-based password recovery in the web settings now uses the real web login instead of the public profile username, so linked accounts keep working even when their visible username differs from their login
+- DEV web-account registration and linking notifications now label the auth field explicitly as `Web login`, which removes the ambiguity between login credentials and the profile username
+
+### Changed
+
+- `/api/v1/auth/me` and `/api/v1/user/me` now return both `username` and `web_login`, letting clients distinguish profile identity from the actual web sign-in credential
+- the settings screen now shows `Web login` separately from `Profile username`, and the Telegram Mini App web-credential bootstrap flow prefers the real web login when pre-filling auth fields
+
 ## [1.1.9] - 2026-03-23
 
 ### Fixed
