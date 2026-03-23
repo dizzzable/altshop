@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-03-23
+
+### Fixed
+
+- Platega webhooks now resolve the local internal payment UUID from `GET /transaction/{id}` `payload` instead of incorrectly treating the callback `id` as the local `payment_id`
+- payment processing no longer silently swallows missing local transactions or users after a webhook arrives; these cases now fail fast so the webhook inbox stays failed instead of being marked processed
+- legacy stuck Platega webhook events are now automatically reconciled in the background by restoring the internal payment UUID from Platega and replaying the correct local success or cancel flow
+
+### Changed
+
+- Platega callback handling now verifies headers, restores the real local payment UUID from the provider transaction details, and logs both the external transaction id and the resolved internal payment id for diagnostics
+- payment webhook processing now keeps `PENDING` events out of the terminal `PROCESSED` state, so a later final callback can still finish the purchase normally
+- application startup and the payment worker now schedule periodic recovery for orphaned Platega webhook inbox events that were stored with the external provider UUID under the old implementation
+
 ## [1.1.8] - 2026-03-23
 
 ### Fixed

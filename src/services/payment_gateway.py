@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 from typing import Optional
 from uuid import UUID
@@ -21,6 +22,7 @@ from src.core.enums import (
     SystemNotificationType,
     TransactionStatus,
 )
+from src.core.observability import emit_counter
 from src.core.utils.formatters import (
     i18n_format_days,
     i18n_format_device_limit,
@@ -53,8 +55,12 @@ from src.infrastructure.database.models.dto import (
     normalize_platega_payment_method,
 )
 from src.infrastructure.database.models.dto.user import BaseUserDto
-from src.infrastructure.database.models.sql import PaymentGateway
+from src.infrastructure.database.models.sql import PaymentGateway, PaymentWebhookEvent
 from src.infrastructure.payment_gateways import BasePaymentGateway, PaymentGatewayFactory
+from src.infrastructure.payment_gateways.platega import (
+    PlategaGateway,
+    PlategaWebhookResolutionError,
+)
 from src.infrastructure.redis import RedisRepository
 from src.infrastructure.taskiq.tasks.notifications import (
     send_system_notification_task,
@@ -67,6 +73,7 @@ from src.services.subscription import SubscriptionService
 from src.services.user import UserService
 
 from .base import BaseService
+from .payment_webhook_event import PaymentWebhookEventService
 from .transaction import TransactionService
 
 
@@ -75,6 +82,7 @@ class PaymentGatewayService(BaseService):
     transaction_service: TransactionService
     subscription_service: SubscriptionService
     payment_gateway_factory: PaymentGatewayFactory
+    payment_webhook_event_service: PaymentWebhookEventService
     referral_service: ReferralService
     partner_service: PartnerService
     user_service: UserService
@@ -91,6 +99,7 @@ class PaymentGatewayService(BaseService):
         transaction_service: TransactionService,
         subscription_service: SubscriptionService,
         payment_gateway_factory: PaymentGatewayFactory,
+        payment_webhook_event_service: PaymentWebhookEventService,
         referral_service: ReferralService,
         partner_service: PartnerService,
         user_service: UserService,
@@ -100,6 +109,7 @@ class PaymentGatewayService(BaseService):
         self.transaction_service = transaction_service
         self.subscription_service = subscription_service
         self.payment_gateway_factory = payment_gateway_factory
+        self.payment_webhook_event_service = payment_webhook_event_service
         self.referral_service = referral_service
         self.partner_service = partner_service
         self.user_service = user_service
@@ -608,9 +618,12 @@ class PaymentGatewayService(BaseService):
     async def handle_payment_succeeded(self, payment_id: UUID) -> None:
         transaction = await self.transaction_service.get(payment_id)
 
-        if not transaction or not transaction.user:
-            logger.critical(f"Transaction or user not found for '{payment_id}'")
-            return
+        if transaction is None:
+            logger.critical(f"Transaction not found for '{payment_id}'")
+            raise LookupError(f"Transaction '{payment_id}' not found")
+        if transaction.user is None:
+            logger.critical(f"Transaction user not found for '{payment_id}'")
+            raise LookupError(f"Transaction '{payment_id}' is missing user context")
         transaction_user = transaction.user
 
         if transaction.is_completed:
@@ -697,14 +710,230 @@ class PaymentGatewayService(BaseService):
     async def handle_payment_canceled(self, payment_id: UUID) -> None:
         transaction = await self.transaction_service.get(payment_id)
 
-        if not transaction or not transaction.user:
-            logger.critical(f"Transaction or user not found for '{payment_id}'")
-            return
+        if transaction is None:
+            logger.critical(f"Transaction not found for '{payment_id}'")
+            raise LookupError(f"Transaction '{payment_id}' not found")
+        if transaction.user is None:
+            logger.critical(f"Transaction user not found for '{payment_id}'")
+            raise LookupError(f"Transaction '{payment_id}' is missing user context")
         transaction_user = transaction.user
 
         transaction.status = TransactionStatus.CANCELED
         await self.transaction_service.update(transaction)
         logger.info(f"Payment canceled '{payment_id}' for user '{transaction_user.telegram_id}'")
+
+    async def recover_stuck_platega_payments(self, *, limit: int = 100) -> int:
+        orphan_events = await self.payment_webhook_event_service.get_platega_orphan_events(
+            limit=limit
+        )
+        if not orphan_events:
+            logger.debug("No legacy Platega webhook events require recovery")
+            return 0
+
+        gateway_instance = await self._get_gateway_instance(PaymentGatewayType.PLATEGA)
+        if not isinstance(gateway_instance, PlategaGateway):
+            raise TypeError("PLATEGA gateway instance must be PlategaGateway")
+
+        recovered_count = 0
+        for event in orphan_events:
+            if await self._recover_single_platega_event(
+                gateway_instance=gateway_instance,
+                event=event,
+            ):
+                recovered_count += 1
+
+        logger.info(
+            "Platega legacy webhook recovery completed. recovered='{}' scanned='{}'",
+            recovered_count,
+            len(orphan_events),
+        )
+        return recovered_count
+
+    async def _recover_single_platega_event(
+        self,
+        *,
+        gateway_instance: PlategaGateway,
+        event: PaymentWebhookEvent,
+    ) -> bool:
+        external_transaction_id = event.payment_id
+
+        try:
+            transaction_details = await gateway_instance.get_transaction(
+                str(external_transaction_id)
+            )
+            internal_payment_id = gateway_instance.extract_internal_payment_id_from_transaction(
+                transaction_details=transaction_details,
+                external_transaction_id=str(external_transaction_id),
+            )
+            resolved_status = gateway_instance.resolve_transaction_status_from_transaction(
+                transaction_details=transaction_details,
+                external_transaction_id=str(external_transaction_id),
+            )
+        except PlategaWebhookResolutionError as exception:
+            diagnostic = str(exception)
+            await self.payment_webhook_event_service.mark_reconcile_failed(
+                gateway_type=PaymentGatewayType.PLATEGA.value,
+                payment_id=external_transaction_id,
+                diagnostic=diagnostic,
+            )
+            emit_counter(
+                "payment_gateway_platega_recovery_total",
+                result="reconcile_failed",
+            )
+            logger.error(
+                "Platega recovery failed permanently. external_transaction_id='{}' error='{}'",
+                external_transaction_id,
+                diagnostic,
+            )
+            return False
+        except Exception as exception:
+            emit_counter(
+                "payment_gateway_platega_recovery_total",
+                result="fetch_failed",
+            )
+            logger.exception(
+                "Platega recovery fetch failed. external_transaction_id='{}' error='{}'",
+                external_transaction_id,
+                exception,
+            )
+            return False
+
+        logger.info(
+            "Recovered Platega mapping. external_transaction_id='{}' payment_id='{}' status='{}'",
+            external_transaction_id,
+            internal_payment_id,
+            resolved_status.value,
+        )
+
+        if resolved_status == TransactionStatus.PENDING:
+            emit_counter(
+                "payment_gateway_platega_recovery_total",
+                result="pending",
+            )
+            logger.info(
+                "Skipping Platega recovery until transaction reaches a final status. "
+                "external_transaction_id='{}' payment_id='{}'",
+                external_transaction_id,
+                internal_payment_id,
+            )
+            return False
+
+        transaction = await self.transaction_service.get(internal_payment_id)
+        if transaction is None:
+            diagnostic = (
+                "Resolved internal payment UUID is missing locally: "
+                f"{internal_payment_id}"
+            )
+            await self.payment_webhook_event_service.mark_reconcile_failed(
+                gateway_type=PaymentGatewayType.PLATEGA.value,
+                payment_id=external_transaction_id,
+                diagnostic=diagnostic,
+            )
+            emit_counter(
+                "payment_gateway_platega_recovery_total",
+                result="local_transaction_missing",
+            )
+            logger.error(
+                "Platega recovery could not find local transaction. "
+                "external_transaction_id='{}' payment_id='{}'",
+                external_transaction_id,
+                internal_payment_id,
+            )
+            return False
+
+        if transaction.is_completed or transaction.status == TransactionStatus.CANCELED:
+            await self.payment_webhook_event_service.mark_reconciled(
+                gateway_type=PaymentGatewayType.PLATEGA.value,
+                payment_id=external_transaction_id,
+                diagnostic=f"already_terminal:{internal_payment_id}:{transaction.status.value}",
+            )
+            emit_counter(
+                "payment_gateway_platega_recovery_total",
+                result="already_terminal",
+            )
+            return True
+
+        payload_hash = hashlib.sha256(
+            (
+                f"platega-recovery:{external_transaction_id}:"
+                f"{internal_payment_id}:{resolved_status.value}"
+            ).encode("utf-8")
+        ).hexdigest()
+        receive_result = await self.payment_webhook_event_service.record_received(
+            gateway_type=PaymentGatewayType.PLATEGA.value,
+            payment_id=internal_payment_id,
+            payload_hash=payload_hash,
+        )
+
+        if receive_result.already_processed:
+            await self.payment_webhook_event_service.mark_reconciled(
+                gateway_type=PaymentGatewayType.PLATEGA.value,
+                payment_id=external_transaction_id,
+                diagnostic=f"already_processed:{internal_payment_id}",
+            )
+            emit_counter(
+                "payment_gateway_platega_recovery_total",
+                result="already_processed",
+            )
+            return True
+
+        await self.payment_webhook_event_service.mark_processing(
+            gateway_type=PaymentGatewayType.PLATEGA.value,
+            payment_id=internal_payment_id,
+        )
+        try:
+            if resolved_status == TransactionStatus.COMPLETED:
+                await self.handle_payment_succeeded(internal_payment_id)
+            else:
+                await self.handle_payment_canceled(internal_payment_id)
+            await self.payment_webhook_event_service.mark_processed(
+                gateway_type=PaymentGatewayType.PLATEGA.value,
+                payment_id=internal_payment_id,
+            )
+            await self.payment_webhook_event_service.mark_reconciled(
+                gateway_type=PaymentGatewayType.PLATEGA.value,
+                payment_id=external_transaction_id,
+                diagnostic=f"recovered_to:{internal_payment_id}",
+            )
+            emit_counter(
+                "payment_gateway_platega_recovery_total",
+                result="recovered",
+            )
+            logger.info(
+                (
+                    "Recovered legacy Platega webhook event. "
+                    "external_transaction_id='{}' payment_id='{}'"
+                ),
+                external_transaction_id,
+                internal_payment_id,
+            )
+            return True
+        except Exception as exception:
+            await self.payment_webhook_event_service.mark_failed(
+                gateway_type=PaymentGatewayType.PLATEGA.value,
+                payment_id=internal_payment_id,
+                error_message=f"recovery_failed: {exception}",
+            )
+            if isinstance(exception, LookupError):
+                await self.payment_webhook_event_service.mark_reconcile_failed(
+                    gateway_type=PaymentGatewayType.PLATEGA.value,
+                    payment_id=external_transaction_id,
+                    diagnostic=f"processing_lookup_failed:{exception}",
+                )
+            emit_counter(
+                "payment_gateway_platega_recovery_total",
+                result="processing_failed",
+            )
+            logger.exception(
+                (
+                    "Platega recovery processing failed. "
+                    "external_transaction_id='{}' payment_id='{}' error='{}'"
+                ),
+                external_transaction_id,
+                internal_payment_id,
+                exception,
+            )
+            return False
 
     #
 

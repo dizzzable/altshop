@@ -20,6 +20,7 @@ from src.infrastructure.taskiq.tasks.notifications import (
     send_remnashop_notification_task,
     send_system_notification_task,
 )
+from src.infrastructure.taskiq.tasks.payments import recover_platega_webhooks_task
 from src.infrastructure.taskiq.tasks.updates import check_bot_update
 from src.services.backup import BackupService
 from src.services.command import CommandService
@@ -95,6 +96,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         """  # noqa: W605
     )
     await check_bot_update.kiq()
+    await recover_platega_webhooks_task.kiq()
     await send_remnashop_notification_task.kiq()
     await asyncio.sleep(2)
     await send_system_notification_task.kiq(

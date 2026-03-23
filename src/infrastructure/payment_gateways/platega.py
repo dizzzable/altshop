@@ -24,6 +24,10 @@ from src.infrastructure.database.models.dto import (
 from .base import BasePaymentGateway
 
 
+class PlategaWebhookResolutionError(RuntimeError):
+    """Raised when a valid Platega callback cannot be matched to a local payment."""
+
+
 class PlategaGateway(BasePaymentGateway):
     """Platega payment gateway."""
 
@@ -149,23 +153,26 @@ class PlategaGateway(BasePaymentGateway):
 
             status = webhook_data.get("status")
             auth_mode = self._verify_webhook_headers(request)
-            payment_id, mode = self._extract_payment_id(webhook_data)
+            external_transaction_id, mode = self._extract_external_transaction_id(webhook_data)
+            payment_id = await self.resolve_internal_payment_id(external_transaction_id)
             self._emit_webhook_mode(mode=mode, auth_mode=auth_mode)
-
-            match str(status or "").upper():
-                case "CONFIRMED" | "COMPLETED" | "SUCCESS":
-                    transaction_status = TransactionStatus.COMPLETED
-                case "CANCELED" | "CANCELLED" | "CHARGEBACK" | "FAILED" | "EXPIRED":
-                    transaction_status = TransactionStatus.CANCELED
-                case "PENDING" | "PROCESSING":
-                    transaction_status = TransactionStatus.PENDING
-                case _:
-                    logger.info(f"Ignoring Platega webhook status: {status}")
-                    raise ValueError(f"Unsupported status: {status}")
-
+            transaction_status = self._map_transaction_status(
+                status,
+                source="callback",
+                external_transaction_id=str(external_transaction_id),
+            )
+            logger.info(
+                (
+                    "Resolved Platega webhook. external_transaction_id='{}' "
+                    "payment_id='{}' status='{}'"
+                ),
+                external_transaction_id,
+                payment_id,
+                transaction_status.value,
+            )
             return payment_id, transaction_status
 
-        except (orjson.JSONDecodeError, ValueError) as exception:
+        except orjson.JSONDecodeError as exception:
             logger.error(f"Failed to parse or validate Platega webhook payload: {exception}")
             raise ValueError("Invalid webhook payload") from exception
 
@@ -175,8 +182,98 @@ class PlategaGateway(BasePaymentGateway):
             response.raise_for_status()
             return orjson.loads(response.content)
         except Exception as exception:
-            logger.error(f"Failed to get Platega transaction info: {exception}")
+            logger.error(
+                "Failed to get Platega transaction info for external_transaction_id='{}': {}",
+                transaction_id,
+                exception,
+            )
             raise
+
+    async def resolve_internal_payment_id(self, external_transaction_id: UUID | str) -> UUID:
+        try:
+            transaction_details = await self.get_transaction(str(external_transaction_id))
+        except Exception as exception:
+            emit_counter(
+                "payment_gateway_platega_resolution_failures_total",
+                reason="transaction_lookup_failed",
+            )
+            raise PlategaWebhookResolutionError(
+                "Failed to load Platega transaction details for webhook resolution"
+            ) from exception
+        return self.extract_internal_payment_id_from_transaction(
+            transaction_details=transaction_details,
+            external_transaction_id=str(external_transaction_id),
+        )
+
+    @classmethod
+    def extract_internal_payment_id_from_transaction(
+        cls,
+        *,
+        transaction_details: dict[str, Any],
+        external_transaction_id: str,
+    ) -> UUID:
+        if not isinstance(transaction_details, dict):
+            emit_counter(
+                "payment_gateway_platega_resolution_failures_total",
+                reason="invalid_transaction_payload",
+            )
+            raise PlategaWebhookResolutionError(
+                "Platega transaction lookup returned an invalid payload"
+            )
+
+        raw_payload = transaction_details.get("payload")
+        if raw_payload in (None, ""):
+            emit_counter(
+                "payment_gateway_platega_resolution_failures_total",
+                reason="missing_payload",
+            )
+            logger.error(
+                "Platega transaction is missing payload. external_transaction_id='{}'",
+                external_transaction_id,
+            )
+            raise PlategaWebhookResolutionError(
+                "Platega transaction payload is missing and local payment cannot be restored"
+            )
+
+        try:
+            payment_id = UUID(str(raw_payload))
+        except ValueError as exception:
+            emit_counter(
+                "payment_gateway_platega_resolution_failures_total",
+                reason="invalid_payload_uuid",
+            )
+            logger.error(
+                "Platega payload is not a valid UUID. external_transaction_id='{}' payload='{}'",
+                external_transaction_id,
+                raw_payload,
+            )
+            raise PlategaWebhookResolutionError(
+                "Platega transaction payload is not a valid internal payment UUID"
+            ) from exception
+
+        return payment_id
+
+    @classmethod
+    def resolve_transaction_status_from_transaction(
+        cls,
+        *,
+        transaction_details: dict[str, Any],
+        external_transaction_id: str,
+    ) -> TransactionStatus:
+        if not isinstance(transaction_details, dict):
+            emit_counter(
+                "payment_gateway_platega_resolution_failures_total",
+                reason="invalid_transaction_payload",
+            )
+            raise PlategaWebhookResolutionError(
+                "Platega transaction lookup returned an invalid payload"
+            )
+
+        return cls._map_transaction_status(
+            transaction_details.get("status"),
+            source="transaction",
+            external_transaction_id=external_transaction_id,
+        )
 
     async def _create_transaction(self, payload: dict[str, Any]) -> dict[str, Any]:
         response = await self._client.post("/transaction/process", json=payload)
@@ -239,12 +336,39 @@ class PlategaGateway(BasePaymentGateway):
             raise PermissionError("Invalid Platega webhook secret")
         return "callback_headers"
 
-    def _extract_payment_id(self, webhook_data: dict[str, Any]) -> tuple[UUID, str]:
+    def _extract_external_transaction_id(self, webhook_data: dict[str, Any]) -> tuple[UUID, str]:
         raw_payment_id = webhook_data.get("id")
         try:
             return UUID(str(raw_payment_id)), "official_callback"
         except ValueError as exception:
             raise ValueError("Invalid UUID format for id") from exception
+
+    @classmethod
+    def _map_transaction_status(
+        cls,
+        status: Any,
+        *,
+        source: str,
+        external_transaction_id: str,
+    ) -> TransactionStatus:
+        match str(status or "").upper():
+            case "CONFIRMED" | "COMPLETED" | "SUCCESS":
+                return TransactionStatus.COMPLETED
+            case "CANCELED" | "CANCELLED" | "CHARGEBACK" | "FAILED" | "EXPIRED":
+                return TransactionStatus.CANCELED
+            case "PENDING" | "PROCESSING":
+                return TransactionStatus.PENDING
+            case _:
+                logger.info(
+                    (
+                        "Ignoring unsupported Platega status='{}' from {} "
+                        "for external_transaction_id='{}'"
+                    ),
+                    status,
+                    source,
+                    external_transaction_id,
+                )
+                raise ValueError(f"Unsupported status: {status}")
 
     def _emit_webhook_mode(self, *, mode: str, auth_mode: str) -> None:
         emit_counter(

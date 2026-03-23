@@ -15,6 +15,8 @@ PAYMENT_WEBHOOK_STATUS_ENQUEUED = "ENQUEUED"
 PAYMENT_WEBHOOK_STATUS_PROCESSING = "PROCESSING"
 PAYMENT_WEBHOOK_STATUS_PROCESSED = "PROCESSED"
 PAYMENT_WEBHOOK_STATUS_FAILED = "FAILED"
+PAYMENT_WEBHOOK_STATUS_RECONCILED = "RECONCILED"
+PAYMENT_WEBHOOK_STATUS_RECONCILE_FAILED = "RECONCILE_FAILED"
 
 
 @dataclass(slots=True)
@@ -128,6 +130,42 @@ class PaymentWebhookEventService:
             status=PAYMENT_WEBHOOK_STATUS_FAILED,
             last_error=error_message[:2048],
         )
+
+    async def mark_reconciled(
+        self,
+        *,
+        gateway_type: str,
+        payment_id: UUID,
+        diagnostic: str | None = None,
+    ) -> None:
+        await self._mark_status(
+            gateway_type=gateway_type,
+            payment_id=payment_id,
+            status=PAYMENT_WEBHOOK_STATUS_RECONCILED,
+            processed_at=datetime_now(),
+            last_error=diagnostic[:2048] if diagnostic else None,
+        )
+
+    async def mark_reconcile_failed(
+        self,
+        *,
+        gateway_type: str,
+        payment_id: UUID,
+        diagnostic: str,
+    ) -> None:
+        await self._mark_status(
+            gateway_type=gateway_type,
+            payment_id=payment_id,
+            status=PAYMENT_WEBHOOK_STATUS_RECONCILE_FAILED,
+            processed_at=datetime_now(),
+            last_error=diagnostic[:2048],
+        )
+
+    async def get_platega_orphan_events(self, *, limit: int = 100) -> list[PaymentWebhookEvent]:
+        async with self.uow:
+            return await self.uow.repository.payment_webhook_events.get_platega_orphan_events(
+                limit=limit
+            )
 
     async def _mark_status(
         self,

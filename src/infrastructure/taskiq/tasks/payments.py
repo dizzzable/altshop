@@ -34,6 +34,17 @@ async def handle_payment_transaction_task(
                 await payment_gateway_service.handle_payment_succeeded(payment_uuid)
             case TransactionStatus.CANCELED:
                 await payment_gateway_service.handle_payment_canceled(payment_uuid)
+            case TransactionStatus.PENDING:
+                logger.info(
+                    "Payment '{}' for gateway '{}' is still pending; waiting for a final webhook",
+                    payment_uuid,
+                    gateway_enum.value,
+                )
+                await payment_webhook_event_service.mark_enqueued(
+                    gateway_type=gateway_enum.value,
+                    payment_id=payment_uuid,
+                )
+                return
         await payment_webhook_event_service.mark_processed(
             gateway_type=gateway_enum.value,
             payment_id=payment_uuid,
@@ -63,3 +74,12 @@ async def cancel_transaction_task(transaction_service: FromDishka[TransactionSer
         transaction.status = TransactionStatus.CANCELED
         await transaction_service.update(transaction)
         logger.debug(f"Transaction '{transaction.id}' canceled")
+
+
+@broker.task(schedule=[{"cron": "*/15 * * * *"}])
+@inject(patch_module=True)
+async def recover_platega_webhooks_task(
+    payment_gateway_service: FromDishka[PaymentGatewayService],
+) -> None:
+    recovered = await payment_gateway_service.recover_stuck_platega_payments(limit=100)
+    logger.info("Recovered '{}' stuck Platega webhook events", recovered)
