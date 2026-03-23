@@ -8,10 +8,12 @@ from src.core.logger import setup_logger
 from src.infrastructure.di import create_container
 
 from .broker import broker
+from .registry import register_task_modules
 
 
 def worker() -> RedisStreamBroker:
     setup_logger()
+    register_task_modules()
 
     config = AppConfig.get()
     dispatcher = create_dispatcher(config=config)

@@ -9,7 +9,6 @@ from src.core.constants import (
     ALTSHOP_GITHUB_RELEASES_LATEST_URL,
     ALTSHOP_GITHUB_UPGRADE_GUIDE_URL,
 )
-from src.infrastructure.taskiq.tasks import updates
 from src.infrastructure.taskiq.tasks.updates import (
     GitHubReleaseSnapshot,
     build_update_notification_payload,
@@ -96,45 +95,51 @@ def test_build_update_notification_payload_includes_release_details() -> None:
 
 
 def test_maybe_notify_about_release_update_sends_once(monkeypatch) -> None:
-    send_mock = AsyncMock()
-    monkeypatch.setattr(
-        updates,
-        "send_system_notification_task",
-        SimpleNamespace(kiq=send_mock),
-    )
+    events: list[str] = []
+
+    async def notify(*, payload, ntf_type):
+        del payload, ntf_type
+        events.append("notify")
+        return [True]
+
+    async def remember_version(*args, **kwargs):
+        del args, kwargs
+        events.append("set")
+
     redis_repository = SimpleNamespace(
         get=AsyncMock(return_value=None),
-        set=AsyncMock(),
+        set=AsyncMock(side_effect=remember_version),
+    )
+    notification_service = SimpleNamespace(
+        system_notify=AsyncMock(side_effect=notify),
     )
 
     notified = run_async(
         maybe_notify_about_release_update(
             redis_repository=redis_repository,
+            notification_service=notification_service,
             latest_release=build_release(),
             current_version="1.1.4",
         )
     )
 
     assert notified is True
+    assert events == ["notify", "set"]
     redis_repository.set.assert_awaited_once()
-    send_mock.assert_awaited_once()
+    notification_service.system_notify.assert_awaited_once()
 
 
 def test_maybe_notify_about_release_update_skips_same_release(monkeypatch) -> None:
-    send_mock = AsyncMock()
-    monkeypatch.setattr(
-        updates,
-        "send_system_notification_task",
-        SimpleNamespace(kiq=send_mock),
-    )
     redis_repository = SimpleNamespace(
         get=AsyncMock(return_value="1.1.5"),
         set=AsyncMock(),
     )
+    notification_service = SimpleNamespace(system_notify=AsyncMock())
 
     notified = run_async(
         maybe_notify_about_release_update(
             redis_repository=redis_repository,
+            notification_service=notification_service,
             latest_release=build_release(),
             current_version="1.1.4",
         )
@@ -142,24 +147,20 @@ def test_maybe_notify_about_release_update_skips_same_release(monkeypatch) -> No
 
     assert notified is False
     redis_repository.set.assert_not_awaited()
-    send_mock.assert_not_awaited()
+    notification_service.system_notify.assert_not_awaited()
 
 
 def test_maybe_notify_about_release_update_skips_when_local_is_current(monkeypatch) -> None:
-    send_mock = AsyncMock()
-    monkeypatch.setattr(
-        updates,
-        "send_system_notification_task",
-        SimpleNamespace(kiq=send_mock),
-    )
     redis_repository = SimpleNamespace(
         get=AsyncMock(return_value=None),
         set=AsyncMock(),
     )
+    notification_service = SimpleNamespace(system_notify=AsyncMock())
 
     notified = run_async(
         maybe_notify_about_release_update(
             redis_repository=redis_repository,
+            notification_service=notification_service,
             latest_release=build_release(tag_name="v1.1.4"),
             current_version="1.1.4",
         )
@@ -167,7 +168,53 @@ def test_maybe_notify_about_release_update_skips_when_local_is_current(monkeypat
 
     assert notified is False
     redis_repository.set.assert_not_awaited()
-    send_mock.assert_not_awaited()
+    notification_service.system_notify.assert_not_awaited()
+
+
+def test_maybe_notify_about_release_update_skips_dedupe_when_notification_not_delivered() -> None:
+    redis_repository = SimpleNamespace(
+        get=AsyncMock(return_value=None),
+        set=AsyncMock(),
+    )
+    notification_service = SimpleNamespace(
+        system_notify=AsyncMock(return_value=[]),
+    )
+
+    notified = run_async(
+        maybe_notify_about_release_update(
+            redis_repository=redis_repository,
+            notification_service=notification_service,
+            latest_release=build_release(),
+            current_version="1.1.4",
+        )
+    )
+
+    assert notified is False
+    redis_repository.set.assert_not_awaited()
+    notification_service.system_notify.assert_awaited_once()
+
+
+def test_maybe_notify_about_release_update_skips_dedupe_when_notification_errors() -> None:
+    redis_repository = SimpleNamespace(
+        get=AsyncMock(return_value=None),
+        set=AsyncMock(),
+    )
+    notification_service = SimpleNamespace(
+        system_notify=AsyncMock(side_effect=RuntimeError("telegram down")),
+    )
+
+    notified = run_async(
+        maybe_notify_about_release_update(
+            redis_repository=redis_repository,
+            notification_service=notification_service,
+            latest_release=build_release(),
+            current_version="1.1.4",
+        )
+    )
+
+    assert notified is False
+    redis_repository.set.assert_not_awaited()
+    notification_service.system_notify.assert_awaited_once()
 
 
 def test_update_keyboard_uses_official_release_urls() -> None:

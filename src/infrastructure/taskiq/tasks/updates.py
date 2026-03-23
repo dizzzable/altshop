@@ -17,7 +17,7 @@ from src.core.storage.keys import LastNotifiedVersionKey
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.redis.repository import RedisRepository
 from src.infrastructure.taskiq.broker import broker
-from src.infrastructure.taskiq.tasks.notifications import send_system_notification_task
+from src.services.notification import NotificationService
 
 GITHUB_API_TIMEOUT_SECONDS: Final[float] = 10.0
 GITHUB_API_HEADERS: Final[dict[str, str]] = {
@@ -144,6 +144,7 @@ def build_update_notification_payload(
 async def maybe_notify_about_release_update(
     *,
     redis_repository: RedisRepository,
+    notification_service: NotificationService,
     latest_release: GitHubReleaseSnapshot,
     current_version: str = local_version,
 ) -> bool:
@@ -171,18 +172,33 @@ async def maybe_notify_about_release_update(
         logger.debug(f"Version {latest_release.version} already notified.")
         return False
 
-    await redis_repository.set(key, value=latest_release.version)
+    try:
+        delivery_results = await notification_service.system_notify(
+            ntf_type=SystemNotificationType.BOT_UPDATE,
+            payload=build_update_notification_payload(
+                current_version=current_version,
+                latest_release=latest_release,
+            ),
+        )
+    except Exception as exception:
+        logger.error(f"Failed to send AltShop update notification: {exception}")
+        return False
+
+    if not any(delivery_results):
+        logger.debug(
+            f"Skipping release {latest_release.version}: update notification was not delivered"
+        )
+        return False
+
+    try:
+        await redis_repository.set(key, value=latest_release.version)
+    except Exception as exception:
+        logger.error(f"Failed to persist last notified AltShop release version: {exception}")
+        return True
 
     logger.info(
         "New AltShop release available: "
         f"{latest_release.version} (local: {normalize_release_version(current_version)})"
-    )
-    await send_system_notification_task.kiq(
-        ntf_type=SystemNotificationType.BOT_UPDATE,
-        payload=build_update_notification_payload(
-            current_version=current_version,
-            latest_release=latest_release,
-        ),
     )
     return True
 
@@ -191,6 +207,7 @@ async def maybe_notify_about_release_update(
 @inject(patch_module=True)
 async def check_bot_update(
     redis_repository: FromDishka[RedisRepository],
+    notification_service: FromDishka[NotificationService],
 ) -> None:
     latest_release = await fetch_latest_github_release()
     if latest_release is None:
@@ -198,5 +215,6 @@ async def check_bot_update(
 
     await maybe_notify_about_release_update(
         redis_repository=redis_repository,
+        notification_service=notification_service,
         latest_release=latest_release,
     )

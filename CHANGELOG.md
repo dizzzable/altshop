@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.8] - 2026-03-23
+
+### Fixed
+
+- Taskiq worker and scheduler now explicitly register AltShop task modules at startup, which fixes the missing `check_bot_update` task and restores hourly plus startup release checks
+- DEV GitHub release notifications now mark a version as notified only after the update message is actually delivered, so transient queue or delivery failures no longer permanently swallow update alerts
+
 ## [1.1.7] - 2026-03-23
 
 ### Fixed
