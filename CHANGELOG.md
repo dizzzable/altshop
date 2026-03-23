@@ -6,6 +6,23 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.12] - 2026-03-23
+
+### Added
+
+- every GitHub release update check now stores an internal Redis audit snapshot with the final outcome, compared versions, dedupe value, recipient resolution, and delivery counts for later diagnosis
+- startup coverage now verifies that application boot still queues the update checker, in addition to the existing worker and scheduler task registration regression tests
+
+### Changed
+
+- the AltShop update checker now emits explicit structured outcomes such as `up_to_date`, `already_notified`, `toggle_disabled`, `delivery_failed`, and `notified` instead of only ad-hoc logs
+- DEV recipient resolution for update notifications is now audited explicitly, including whether a real DEV recipient was found or the fallback temp-DEV path was used
+
+### Fixed
+
+- missed DEV update notifications are now easier to diagnose because failed fetch, parse, toggle, dedupe, and delivery branches each leave a persistent audit trail instead of disappearing into generic logs
+- future update alerts no longer require guessing whether the checker ran, found recipients, or skipped dedupe: the final reason is now recorded on every run
+
 ## [1.1.11] - 2026-03-23
 
 ### Added

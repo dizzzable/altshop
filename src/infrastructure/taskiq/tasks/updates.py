@@ -2,22 +2,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 import httpx
 from dishka.integrations.taskiq import FromDishka, inject
 from loguru import logger
 from packaging.version import InvalidVersion, Version
+from pydantic import BaseModel
 
 from src.__version__ import __version__ as local_version
 from src.bot.keyboards import get_remnashop_update_keyboard
 from src.core.constants import ALTSHOP_GITHUB_RELEASES_LATEST_API_URL
-from src.core.enums import SystemNotificationType
-from src.core.storage.keys import LastNotifiedVersionKey
+from src.core.enums import SystemNotificationType, UserRole
+from src.core.storage.keys import LastNotifiedVersionKey, LastUpdateCheckAuditKey
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.redis.repository import RedisRepository
 from src.infrastructure.taskiq.broker import broker
 from src.services.notification import NotificationService
+from src.services.settings import SettingsService
+from src.services.user import UserService
 
 GITHUB_API_TIMEOUT_SECONDS: Final[float] = 10.0
 GITHUB_API_HEADERS: Final[dict[str, str]] = {
@@ -25,6 +28,17 @@ GITHUB_API_HEADERS: Final[dict[str, str]] = {
     "User-Agent": "AltShop-Update-Checker",
 }
 RELEASE_PUBLISHED_AT_FORMAT: Final[str] = "%Y-%m-%d %H:%M UTC"
+UpdateCheckOutcome = Literal[
+    "github_fetch_failed",
+    "payload_parse_failed",
+    "up_to_date",
+    "local_ahead",
+    "toggle_disabled",
+    "already_notified",
+    "no_recipients",
+    "delivery_failed",
+    "notified",
+]
 
 
 @dataclass(slots=True, frozen=True)
@@ -54,6 +68,56 @@ class GitHubReleaseSnapshot:
     @property
     def published_at_label(self) -> str:
         return self.published_at.astimezone(timezone.utc).strftime(RELEASE_PUBLISHED_AT_FORMAT)
+
+
+@dataclass(slots=True, frozen=True)
+class GitHubReleaseFetchResult:
+    outcome: UpdateCheckOutcome
+    release: GitHubReleaseSnapshot | None = None
+
+
+class UpdateCheckAuditSnapshot(BaseModel):
+    outcome: UpdateCheckOutcome
+    local_version: str
+    remote_version: str | None = None
+    remote_tag: str | None = None
+    release_published_at: str | None = None
+    dedupe_version: str | None = None
+    recipient_count: int = 0
+    dev_recipient_count: int = 0
+    used_fallback_recipient: bool = False
+    delivery_success_count: int = 0
+    toggle_enabled: bool | None = None
+
+    @classmethod
+    def build(
+        cls,
+        *,
+        outcome: UpdateCheckOutcome,
+        current_version: str,
+        latest_release: GitHubReleaseSnapshot | None = None,
+        dedupe_version: str | None = None,
+        recipient_count: int = 0,
+        dev_recipient_count: int = 0,
+        used_fallback_recipient: bool = False,
+        delivery_success_count: int = 0,
+        toggle_enabled: bool | None = None,
+    ) -> "UpdateCheckAuditSnapshot":
+        return cls(
+            outcome=outcome,
+            local_version=normalize_release_version(current_version),
+            remote_version=latest_release.version if latest_release else None,
+            remote_tag=latest_release.tag_name if latest_release else None,
+            release_published_at=(
+                latest_release.published_at_label if latest_release else None
+            ),
+            dedupe_version=dedupe_version,
+            recipient_count=recipient_count,
+            dev_recipient_count=dev_recipient_count,
+            used_fallback_recipient=used_fallback_recipient,
+            delivery_success_count=delivery_success_count,
+            toggle_enabled=toggle_enabled,
+        )
 
 
 def normalize_release_version(raw_version: str) -> str:
@@ -96,7 +160,7 @@ def parse_github_release_snapshot(payload: dict[str, Any]) -> GitHubReleaseSnaps
     )
 
 
-async def fetch_latest_github_release() -> GitHubReleaseSnapshot | None:
+async def fetch_latest_github_release() -> GitHubReleaseFetchResult:
     try:
         async with httpx.AsyncClient(
             timeout=GITHUB_API_TIMEOUT_SECONDS,
@@ -105,20 +169,26 @@ async def fetch_latest_github_release() -> GitHubReleaseSnapshot | None:
             response = await client.get(ALTSHOP_GITHUB_RELEASES_LATEST_API_URL)
     except Exception as exception:
         logger.error(f"Failed to fetch latest AltShop release from GitHub: {exception}")
-        return None
+        return GitHubReleaseFetchResult(outcome="github_fetch_failed")
 
     if response.status_code != 200:
         logger.error(
             "Failed to fetch latest AltShop release from GitHub: "
             f"status={response.status_code} body={response.text[:256]}"
         )
-        return None
+        return GitHubReleaseFetchResult(outcome="github_fetch_failed")
 
     try:
-        return parse_github_release_snapshot(response.json())
+        release = parse_github_release_snapshot(response.json())
     except Exception as exception:
         logger.error(f"Failed to parse latest AltShop release from GitHub: {exception}")
-        return None
+        return GitHubReleaseFetchResult(outcome="payload_parse_failed")
+
+    if release is None:
+        logger.error("Latest AltShop GitHub release payload did not resolve to a stable release")
+        return GitHubReleaseFetchResult(outcome="payload_parse_failed")
+
+    return GitHubReleaseFetchResult(outcome="notified", release=release)
 
 
 def build_update_notification_payload(
@@ -141,36 +211,105 @@ def build_update_notification_payload(
     )
 
 
+def log_update_check_audit(snapshot: UpdateCheckAuditSnapshot) -> None:
+    logger.bind(**snapshot.model_dump()).info("AltShop update check completed")
+
+
+async def persist_update_check_audit(
+    *,
+    redis_repository: RedisRepository,
+    snapshot: UpdateCheckAuditSnapshot,
+) -> None:
+    await redis_repository.set(LastUpdateCheckAuditKey(), snapshot)
+
+
 async def maybe_notify_about_release_update(
     *,
     redis_repository: RedisRepository,
     notification_service: NotificationService,
+    settings_service: SettingsService,
+    user_service: UserService,
     latest_release: GitHubReleaseSnapshot,
     current_version: str = local_version,
-) -> bool:
+) -> UpdateCheckAuditSnapshot:
     try:
         local_semver = Version(normalize_release_version(current_version))
         remote_semver = Version(latest_release.version)
     except InvalidVersion as exception:
         logger.error(f"Failed to compare release versions: {exception}")
-        return False
+        return UpdateCheckAuditSnapshot.build(
+            outcome="payload_parse_failed",
+            current_version=current_version,
+            latest_release=latest_release,
+        )
 
     if remote_semver < local_semver:
         logger.debug(
             "Local version is ahead of remote "
             f"({current_version} > {latest_release.version})"
         )
-        return False
+        return UpdateCheckAuditSnapshot.build(
+            outcome="local_ahead",
+            current_version=current_version,
+            latest_release=latest_release,
+        )
 
     if remote_semver == local_semver:
         logger.debug(f"Project is up to date ({current_version})")
-        return False
+        return UpdateCheckAuditSnapshot.build(
+            outcome="up_to_date",
+            current_version=current_version,
+            latest_release=latest_release,
+        )
 
-    key = LastNotifiedVersionKey()
-    last_notified_version = await redis_repository.get(key, str)
+    toggle_enabled = await settings_service.is_notification_enabled(
+        SystemNotificationType.BOT_UPDATE
+    )
+    if not toggle_enabled:
+        logger.debug("Skipping AltShop update notification: BOT_UPDATE toggle is disabled")
+        return UpdateCheckAuditSnapshot.build(
+            outcome="toggle_disabled",
+            current_version=current_version,
+            latest_release=latest_release,
+            toggle_enabled=False,
+        )
+
+    last_notified_version = await redis_repository.get(LastNotifiedVersionKey(), str)
     if last_notified_version == latest_release.version:
         logger.debug(f"Version {latest_release.version} already notified.")
-        return False
+        return UpdateCheckAuditSnapshot.build(
+            outcome="already_notified",
+            current_version=current_version,
+            latest_release=latest_release,
+            dedupe_version=last_notified_version,
+            toggle_enabled=True,
+        )
+
+    devs = await user_service.get_by_role(role=UserRole.DEV)
+    dev_recipient_count = len(devs)
+    fallback_dev_ids = list(notification_service.config.bot.dev_id or [])
+    used_fallback_recipient = dev_recipient_count == 0 and bool(fallback_dev_ids)
+    recipient_count = dev_recipient_count or (1 if used_fallback_recipient else 0)
+
+    logger.bind(
+        dev_recipient_count=dev_recipient_count,
+        recipient_count=recipient_count,
+        used_fallback_recipient=used_fallback_recipient,
+        remote_version=latest_release.version,
+    ).info("Resolved AltShop update notification recipients")
+
+    if recipient_count == 0:
+        logger.warning("Skipping AltShop update notification: no DEV recipients available")
+        return UpdateCheckAuditSnapshot.build(
+            outcome="no_recipients",
+            current_version=current_version,
+            latest_release=latest_release,
+            dedupe_version=last_notified_version,
+            recipient_count=recipient_count,
+            dev_recipient_count=dev_recipient_count,
+            used_fallback_recipient=used_fallback_recipient,
+            toggle_enabled=True,
+        )
 
     try:
         delivery_results = await notification_service.system_notify(
@@ -182,25 +321,86 @@ async def maybe_notify_about_release_update(
         )
     except Exception as exception:
         logger.error(f"Failed to send AltShop update notification: {exception}")
-        return False
-
-    if not any(delivery_results):
-        logger.debug(
-            f"Skipping release {latest_release.version}: update notification was not delivered"
+        return UpdateCheckAuditSnapshot.build(
+            outcome="delivery_failed",
+            current_version=current_version,
+            latest_release=latest_release,
+            dedupe_version=last_notified_version,
+            recipient_count=recipient_count,
+            dev_recipient_count=dev_recipient_count,
+            used_fallback_recipient=used_fallback_recipient,
+            toggle_enabled=True,
         )
-        return False
+
+    delivery_success_count = sum(bool(result) for result in delivery_results)
+    if delivery_success_count < 1:
+        logger.warning(
+            "Skipping AltShop update dedupe write: notification delivery failed for all recipients"
+        )
+        return UpdateCheckAuditSnapshot.build(
+            outcome="delivery_failed",
+            current_version=current_version,
+            latest_release=latest_release,
+            dedupe_version=last_notified_version,
+            recipient_count=recipient_count,
+            dev_recipient_count=dev_recipient_count,
+            used_fallback_recipient=used_fallback_recipient,
+            delivery_success_count=delivery_success_count,
+            toggle_enabled=True,
+        )
 
     try:
-        await redis_repository.set(key, value=latest_release.version)
+        await redis_repository.set(LastNotifiedVersionKey(), value=latest_release.version)
+        dedupe_version: str | None = latest_release.version
     except Exception as exception:
         logger.error(f"Failed to persist last notified AltShop release version: {exception}")
-        return True
+        dedupe_version = last_notified_version
 
     logger.info(
         "New AltShop release available: "
         f"{latest_release.version} (local: {normalize_release_version(current_version)})"
     )
-    return True
+    return UpdateCheckAuditSnapshot.build(
+        outcome="notified",
+        current_version=current_version,
+        latest_release=latest_release,
+        dedupe_version=dedupe_version,
+        recipient_count=recipient_count,
+        dev_recipient_count=dev_recipient_count,
+        used_fallback_recipient=used_fallback_recipient,
+        delivery_success_count=delivery_success_count,
+        toggle_enabled=True,
+    )
+
+
+async def run_check_bot_update(
+    *,
+    redis_repository: RedisRepository,
+    notification_service: NotificationService,
+    settings_service: SettingsService,
+    user_service: UserService,
+) -> UpdateCheckAuditSnapshot:
+    fetch_result = await fetch_latest_github_release()
+    if fetch_result.release is None:
+        snapshot = UpdateCheckAuditSnapshot.build(
+            outcome=fetch_result.outcome,
+            current_version=local_version,
+        )
+    else:
+        snapshot = await maybe_notify_about_release_update(
+            redis_repository=redis_repository,
+            notification_service=notification_service,
+            settings_service=settings_service,
+            user_service=user_service,
+            latest_release=fetch_result.release,
+        )
+
+    await persist_update_check_audit(
+        redis_repository=redis_repository,
+        snapshot=snapshot,
+    )
+    log_update_check_audit(snapshot)
+    return snapshot
 
 
 @broker.task(schedule=[{"cron": "*/60 * * * *"}])
@@ -208,13 +408,12 @@ async def maybe_notify_about_release_update(
 async def check_bot_update(
     redis_repository: FromDishka[RedisRepository],
     notification_service: FromDishka[NotificationService],
+    settings_service: FromDishka[SettingsService],
+    user_service: FromDishka[UserService],
 ) -> None:
-    latest_release = await fetch_latest_github_release()
-    if latest_release is None:
-        return
-
-    await maybe_notify_about_release_update(
+    await run_check_bot_update(
         redis_repository=redis_repository,
         notification_service=notification_service,
-        latest_release=latest_release,
+        settings_service=settings_service,
+        user_service=user_service,
     )

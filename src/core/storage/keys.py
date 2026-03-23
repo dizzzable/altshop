@@ -9,6 +9,9 @@ class WebhookLockKey(StorageKey, prefix="webhook_lock"):
 class LastNotifiedVersionKey(StorageKey, prefix="last_notified_version"): ...
 
 
+class LastUpdateCheckAuditKey(StorageKey, prefix="last_update_check_audit"): ...
+
+
 class AccessWaitListKey(StorageKey, prefix="access_wait_list"): ...
 
 
