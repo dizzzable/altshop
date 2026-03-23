@@ -53,7 +53,7 @@ def test_overlay_storage_uses_fallback_locale_files_when_primary_missing_file(
     assert translator.get("btn-default-only") == "Default button"
 
 
-def test_overlay_storage_uses_fallback_for_main_menu_default_when_primary_is_stale(
+def test_overlay_storage_uses_fallback_for_public_main_menu_key_when_primary_is_stale(
     tmp_path: Path,
 ) -> None:
     primary_root = tmp_path / "assets" / "translations"
@@ -69,7 +69,7 @@ def test_overlay_storage_uses_fallback_for_main_menu_default_when_primary_is_sta
         fallback_root,
         "en",
         "messages.ftl",
-        "msg-main-menu-default = Fresh main menu\n",
+        "msg-main-menu-public = Fresh main menu\n",
     )
 
     storage = OverlayFileStorage(primary_root / "{locale}", fallback_root / "{locale}")
@@ -77,4 +77,4 @@ def test_overlay_storage_uses_fallback_for_main_menu_default_when_primary_is_sta
 
     assert translator is not None
     assert translator.get("msg-main-menu") == "Legacy main menu"
-    assert translator.get("msg-main-menu-default") == "Fresh main menu"
+    assert translator.get("msg-main-menu-public") == "Fresh main menu"

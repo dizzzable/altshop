@@ -87,7 +87,7 @@ def _contains_button(buttons: list[str], label: str) -> bool:
 
 
 def test_resolve_main_menu_view_state_is_single_source() -> None:
-    assert _resolve_main_menu_view_state(False) == ("msg-main-menu-default", True)
+    assert _resolve_main_menu_view_state(False) == ("msg-main-menu-public", True)
     assert _resolve_main_menu_view_state(True) == ("msg-main-menu-invite-locked", False)
 
 
@@ -133,3 +133,37 @@ def test_main_menu_locked_and_buttons_cannot_drift_into_hybrid_state() -> None:
         not _contains_button(locked_buttons, label)
         for label in ("Connect", "Subscription (2)", "Invite", "Partner")
     )
+
+
+def test_main_menu_public_none_status_renders_human_readable_copy_in_ru() -> None:
+    manager = _build_manager(locale="ru")
+    data = _build_menu_data(locked=False) | {
+        "status": "NONE",
+        "subscriptions_count": 0,
+        "count": 0,
+        "has_subscription": False,
+        "has_device_limit": False,
+    }
+
+    text = run_async(menu.render_text(data, manager))
+
+    assert "У вас нет оформленной подписки." in text
+    assert "вЂ" not in text
+    assert "рџ" not in text
+
+
+def test_main_menu_public_none_status_renders_human_readable_copy_in_en() -> None:
+    manager = _build_manager(locale="en")
+    data = _build_menu_data(locked=False) | {
+        "status": "NONE",
+        "subscriptions_count": 0,
+        "count": 0,
+        "has_subscription": False,
+        "has_device_limit": False,
+    }
+
+    text = run_async(menu.render_text(data, manager))
+
+    assert "You don't have an active subscription." in text
+    assert "вЂ" not in text
+    assert "рџ" not in text

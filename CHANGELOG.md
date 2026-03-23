@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.7] - 2026-03-23
+
+### Fixed
+
+- mobile auth inputs now keep a `16px` text size on narrow screens, which prevents iPhone and Telegram WebView from zooming into login and recovery forms on focus
+- new users without a subscription now see normal readable main-menu subscription copy again instead of mojibake, even on deployments that still have older bind-mounted translation assets
+
 ## [1.1.6] - 2026-03-22
 
 ### Fixed

@@ -8,7 +8,7 @@ ntf-remnashop-info =
 
 
 # Menu
-msg-main-menu =
+msg-main-menu-body =
     { hdr-user-profile }
     { frg-user }
 
@@ -42,39 +42,9 @@ msg-main-menu =
     </blockquote>
     }
 
-msg-main-menu-default =
-    { hdr-user-profile }
-    { frg-user }
-
-    { hdr-subscription }
-    { $status ->
-    [ACTIVE]
-    { frg-subscription }
-    [EXPIRED]
-    <blockquote>
-    вЂў РЎСЂРѕРє РґРµР№СЃС‚РІРёСЏ РёСЃС‚РµРє.
-
-    <i>Р§С‚РѕР±С‹ РїСЂРѕРґР»РёС‚СЊ, РїРµСЂРµР№РґРёС‚Рµ РІ РјРµРЅСЋ В«рџ’і РџРѕРґРїРёСЃРєР°В»</i>
-    </blockquote>
-    [LIMITED]
-    <blockquote>
-    вЂў Р’С‹ РїСЂРёРІС‹СЃРёР»Рё Р»РёРјРёС‚ С‚СЂР°С„РёРєР°.
-
-    <i>Р§С‚РѕР±С‹ СЃР±СЂРѕСЃРёС‚СЊ С‚СЂР°С„РёРє, РїРµСЂРµР№РґРёС‚Рµ РІ РјРµРЅСЋ В«рџ’і РџРѕРґРїРёСЃРєР°В»</i>
-    </blockquote>
-    [DISABLED]
-    <blockquote>
-    вЂў Р’Р°С€Р° РїРѕРґРїРёСЃРєР° РѕС‚РєР»СЋС‡РµРЅР°.
-
-    <i>РЎРІСЏР¶РёС‚РµСЃСЊ СЃ С‚РµС…РїРѕРґРґРµСЂР¶РєРѕР№ РґР»СЏ РІС‹СЏСЃРЅРµРЅРёСЏ РїСЂРёС‡РёРЅС‹!</i>
-    </blockquote>
-    *[NONE]
-    <blockquote>
-    вЂў РЈ РІР°СЃ РЅРµС‚ РѕС„РѕСЂРјР»РµРЅРЅРѕР№ РїРѕРґРїРёСЃРєРё.
-
-    <i>Р”Р»СЏ РѕС„РѕСЂРјР»РµРЅРёСЏ РїРµСЂРµР№РґРёС‚Рµ РІ РјРµРЅСЋ В«рџ’і РџРѕРґРїРёСЃРєР°В»</i>
-    </blockquote>
-    }
+msg-main-menu = { msg-main-menu-body }
+msg-main-menu-default = { msg-main-menu-body }
+msg-main-menu-public = { msg-main-menu-body }
 
 msg-menu-connect-device =
     <b>🚀 Выберите устройство для подключения</b>

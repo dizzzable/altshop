@@ -72,7 +72,7 @@ def _gift_plan_name(options: Any, plan_id: int | None) -> str | None:
 def _resolve_main_menu_view_state(invite_locked: bool) -> tuple[str, bool]:
     if invite_locked:
         return "msg-main-menu-invite-locked", False
-    return "msg-main-menu-default", True
+    return "msg-main-menu-public", True
 
 
 @inject
