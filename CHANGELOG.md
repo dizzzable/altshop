@@ -6,6 +6,25 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.14] - 2026-03-24
+
+### Added
+
+- selective backup scopes in the dashboard: admins can now create `Database only`, `Assets only`, or `Full backup` archives instead of being limited to a single full-database flow
+- backup manifests and backup list metadata now record scope, included database/assets content, asset root, and asset file counts, making it clear what each archive actually contains
+- regression coverage for selective backup creation/restoration and lazy access-mode application without recent-user menu refresh
+
+### Changed
+
+- any database-containing backup now explicitly preserves plans, durations, prices, users, subscriptions, referrals, partner data, transactions, withdrawals, broadcasts, and instance settings as part of the supported backup contract
+- access-mode switches now apply lazily on the next bot click, message, web request, or Mini App request instead of proactively resending users' profiles and main menus
+- when access reopens, only targeted waitlist notifications are sent; regular users no longer receive spontaneous “menu/profile updated” messages from access-mode changes
+
+### Fixed
+
+- assets-only restore now merges and overwrites included runtime assets without deleting unrelated custom files in the instance `assets/` directory
+- selective restore now correctly restores only the archive contents that were actually backed up, so DB-only restore leaves assets untouched and assets-only restore leaves the database untouched
+
 ## [1.1.13] - 2026-03-23
 
 ### Added

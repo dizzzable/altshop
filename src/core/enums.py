@@ -412,6 +412,12 @@ class AccessMode(UpperStrEnum):
     RESTRICTED = auto()  # All actions are completely forbidden
 
 
+class BackupScope(UpperStrEnum):
+    DB = auto()
+    ASSETS = auto()
+    FULL = auto()
+
+
 class Command(Enum):
     START = BotCommand(command="start", description="cmd-start")
     PAYSUPPORT = BotCommand(command="paysupport", description="cmd-paysupport")

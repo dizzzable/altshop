@@ -1,6 +1,7 @@
 import asyncio
 import gzip
 import json as json_lib
+import shutil
 import tarfile
 import tempfile
 from dataclasses import dataclass
@@ -18,6 +19,7 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
+from src.core.enums import BackupScope
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.sql import (
     Broadcast,
@@ -51,9 +53,12 @@ class BackupMetadata:
     """Метаданные бэкапа."""
 
     timestamp: str
-    version: str = "1.0"
+    version: str = "3.0"
     database_type: str = "postgresql"
-    backup_type: str = "full"
+    backup_scope: BackupScope = BackupScope.FULL
+    includes_database: bool = True
+    includes_assets: bool = False
+    assets_root: Optional[str] = None
     tables_count: int = 0
     total_records: int = 0
     compressed: bool = True
@@ -76,6 +81,12 @@ class BackupInfo:
     created_by: Optional[int]
     database_type: str
     version: str
+    backup_scope: BackupScope = BackupScope.FULL
+    includes_database: bool = True
+    includes_assets: bool = False
+    assets_root: Optional[str] = None
+    assets_files_count: int = 0
+    assets_size_bytes: int = 0
     error: Optional[str] = None
 
 
@@ -170,6 +181,7 @@ class BackupService(BaseService):
         created_by: Optional[int] = None,
         compress: Optional[bool] = None,
         include_logs: Optional[bool] = None,
+        scope: BackupScope = BackupScope.FULL,
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Создаёт бэкап базы данных.
@@ -190,12 +202,17 @@ class BackupService(BaseService):
             if include_logs is None:
                 include_logs = self.config.backup.include_logs
 
+            includes_database = scope in (BackupScope.DB, BackupScope.FULL)
+            includes_assets = scope in (BackupScope.ASSETS, BackupScope.FULL)
+
             # Собираем статистику
-            overview = await self._collect_database_overview()
+            overview: Dict[str, Any] = {"tables_count": 0, "total_records": 0}
+            if includes_database:
+                overview = await self._collect_database_overview()
 
             timestamp = datetime_now().strftime("%Y%m%d_%H%M%S")
             archive_suffix = ".tar.gz" if compress else ".tar"
-            filename = f"backup_{timestamp}{archive_suffix}"
+            filename = f"backup_{scope.lower()}_{timestamp}{archive_suffix}"
             backup_path = self.backup_dir / filename
 
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -204,19 +221,30 @@ class BackupService(BaseService):
                 staging_dir.mkdir(parents=True, exist_ok=True)
 
                 # Экспортируем БД через ORM
-                database_info = await self._dump_database_json(staging_dir)
+                database_info: Optional[Dict[str, Any]] = None
+                assets_info: Optional[Dict[str, Any]] = None
+                if includes_database:
+                    database_info = await self._dump_database_json(staging_dir)
+                if includes_assets:
+                    assets_info = await self._dump_assets(staging_dir)
 
                 # Метаданные
                 metadata = {
-                    "format_version": "2.0",
+                    "format_version": "3.0",
                     "timestamp": datetime_now().isoformat(),
                     "database_type": "postgresql",
-                    "backup_type": "full",
+                    "backup_scope": scope.value,
+                    "backup_type": scope.value,
+                    "includes_database": includes_database,
+                    "includes_assets": includes_assets,
+                    "assets_root": str(self.config.assets_dir) if includes_assets else None,
                     "tables_count": overview.get("tables_count", 0),
                     "total_records": overview.get("total_records", 0),
                     "compressed": compress,
                     "created_by": created_by,
                     "database": database_info,
+                    "assets": assets_info,
+                    "include_logs": include_logs,
                 }
 
                 metadata_path = staging_dir / "metadata.json"
@@ -241,6 +269,14 @@ class BackupService(BaseService):
                 f"💾 Размер: {size_mb:.2f} MB"
             )
 
+            message = self._build_backup_result_message(
+                scope=scope,
+                filename=filename,
+                size_mb=size_mb,
+                overview=overview,
+                includes_database=includes_database,
+                assets_info=assets_info,
+            )
             logger.info(message)
 
             # Отправляем бэкап в Telegram если включено
@@ -300,26 +336,7 @@ class BackupService(BaseService):
                     metadata = await self._read_backup_metadata(backup_file)
                     file_stats = backup_file.stat()
 
-                    backups.append(
-                        BackupInfo(
-                            filename=backup_file.name,
-                            filepath=str(backup_file),
-                            timestamp=metadata.get(
-                                "timestamp",
-                                datetime.fromtimestamp(
-                                    file_stats.st_mtime, tz=timezone.utc
-                                ).isoformat(),
-                            ),
-                            tables_count=metadata.get("tables_count", 0),
-                            total_records=metadata.get("total_records", 0),
-                            compressed=self._is_archive_backup(backup_file),
-                            file_size_bytes=file_stats.st_size,
-                            file_size_mb=round(file_stats.st_size / 1024 / 1024, 2),
-                            created_by=metadata.get("created_by"),
-                            database_type=metadata.get("database_type", "unknown"),
-                            version=metadata.get("format_version", "1.0"),
-                        )
-                    )
+                    backups.append(self._metadata_to_backup_info(backup_file, file_stats, metadata))
 
                 except Exception as e:
                     logger.error(f"Ошибка чтения метаданных {backup_file}: {e}")
@@ -333,12 +350,15 @@ class BackupService(BaseService):
                             ).isoformat(),
                             tables_count=0,
                             total_records=0,
-                            compressed=backup_file.suffix == ".gz",
+                            compressed=self._is_archive_backup(backup_file),
                             file_size_bytes=file_stats.st_size,
                             file_size_mb=round(file_stats.st_size / 1024 / 1024, 2),
                             created_by=None,
                             database_type="unknown",
                             version="unknown",
+                            backup_scope=BackupScope.FULL,
+                            includes_database=True,
+                            includes_assets=False,
                             error=str(e),
                         )
                     )
@@ -512,6 +532,119 @@ class BackupService(BaseService):
             "total_records": total_records,
         }
 
+    async def _dump_assets(self, staging_dir: Path) -> Dict[str, Any]:
+        """Copy mutable runtime assets into the backup staging directory."""
+        source_dir = self.config.assets_dir
+        assets_dir = staging_dir / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+
+        files_count = 0
+        total_size = 0
+
+        if source_dir.exists():
+            for source_file in source_dir.rglob("*"):
+                if not source_file.is_file():
+                    continue
+
+                relative_path = source_file.relative_to(source_dir)
+                target_file = assets_dir / relative_path
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_file, target_file)
+                files_count += 1
+                total_size += source_file.stat().st_size
+
+        logger.info(
+            "Backed up assets from '{}' ({} files)",
+            source_dir,
+            files_count,
+        )
+
+        return {
+            "path": assets_dir.name,
+            "root": str(source_dir),
+            "files_count": files_count,
+            "size_bytes": total_size,
+        }
+
+    @staticmethod
+    def _format_scope_label(scope: BackupScope) -> str:
+        mapping = {
+            BackupScope.DB: "Database only",
+            BackupScope.ASSETS: "Assets only",
+            BackupScope.FULL: "Full backup",
+        }
+        return mapping[scope]
+
+    def _build_backup_result_message(
+        self,
+        *,
+        scope: BackupScope,
+        filename: str,
+        size_mb: float,
+        overview: Dict[str, Any],
+        includes_database: bool,
+        assets_info: Optional[Dict[str, Any]],
+    ) -> str:
+        lines = [
+            "Backup created successfully!",
+            f"Scope: {self._format_scope_label(scope)}",
+            f"File: {filename}",
+            f"Size: {size_mb:.2f} MB",
+        ]
+        if includes_database:
+            lines.append(f"Tables: {overview.get('tables_count', 0)}")
+            lines.append(f"Records: {overview.get('total_records', 0):,}")
+        if assets_info is not None:
+            lines.append(f"Assets files: {assets_info.get('files_count', 0)}")
+        return "\n".join(lines)
+
+    def _normalize_backup_scope(self, metadata: Dict[str, Any]) -> BackupScope:
+        scope_value = str(
+            metadata.get("backup_scope") or metadata.get("backup_type") or BackupScope.FULL
+        ).upper()
+        try:
+            scope = BackupScope(scope_value)
+        except ValueError:
+            scope = BackupScope.FULL
+
+        if not metadata.get("includes_database") and metadata.get("database"):
+            return BackupScope.DB if not metadata.get("includes_assets") else BackupScope.FULL
+        return scope
+
+    def _metadata_to_backup_info(
+        self,
+        backup_file: Path,
+        file_stats: Any,
+        metadata: Dict[str, Any],
+    ) -> BackupInfo:
+        scope = self._normalize_backup_scope(metadata)
+        includes_database = bool(metadata.get("includes_database", metadata.get("database")))
+        includes_assets = bool(metadata.get("includes_assets", metadata.get("assets")))
+        assets_info = metadata.get("assets") or {}
+
+        return BackupInfo(
+            filename=backup_file.name,
+            filepath=str(backup_file),
+            timestamp=metadata.get(
+                "timestamp",
+                datetime.fromtimestamp(file_stats.st_mtime, tz=timezone.utc).isoformat(),
+            ),
+            tables_count=metadata.get("tables_count", 0),
+            total_records=metadata.get("total_records", 0),
+            compressed=self._is_archive_backup(backup_file),
+            file_size_bytes=file_stats.st_size,
+            file_size_mb=round(file_stats.st_size / 1024 / 1024, 2),
+            created_by=metadata.get("created_by"),
+            database_type=metadata.get("database_type", "unknown"),
+            version=metadata.get("format_version", "1.0"),
+            backup_scope=scope,
+            includes_database=includes_database,
+            includes_assets=includes_assets,
+            assets_root=metadata.get("assets_root") or assets_info.get("root"),
+            assets_files_count=int(assets_info.get("files_count", 0) or 0),
+            assets_size_bytes=int(assets_info.get("size_bytes", 0) or 0),
+        )
+
     def _model_to_dict(self, record: Any, model: Any) -> Dict[str, Any]:
         """Конвертирует ORM модель в словарь."""
         record_dict: Dict[str, Any] = {}
@@ -576,30 +709,83 @@ class BackupService(BaseService):
         backup_path: Path,
         clear_existing: bool,
     ) -> Tuple[bool, str]:
-        """Восстановление из tar-архива."""
+        """Restore a selective backup archive."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
 
             mode = "r:gz" if backup_path.suffixes and backup_path.suffixes[-1] == ".gz" else "r"
             with tarfile.open(str(backup_path), mode) as tar:
-                tar.extractall(temp_path)
+                tar.extractall(temp_path, filter="data")
 
             metadata_path = temp_path / "metadata.json"
             if not metadata_path.exists():
-                return False, "❌ Метаданные бэкапа отсутствуют"
+                return False, "Backup metadata file is missing"
 
             async with _aiofiles_open(metadata_path, "r", encoding="utf-8") as meta_file:
                 metadata = json_lib.loads(await meta_file.read())
 
-            logger.info(f"📊 Загружен бэкап формата {metadata.get('format_version', 'unknown')}")
+            logger.info(
+                "Loaded archive backup format {}",
+                metadata.get("format_version", "unknown"),
+            )
 
-            database_info = metadata.get("database", {})
-            dump_file = temp_path / database_info.get("path", "database.json")
+            includes_database = bool(metadata.get("includes_database", metadata.get("database")))
+            includes_assets = bool(metadata.get("includes_assets", metadata.get("assets")))
+            result_parts: list[str] = []
 
-            if not dump_file.exists():
-                return False, f"❌ Файл дампа БД не найден: {dump_file}"
+            if includes_database:
+                database_info = metadata.get("database", {})
+                dump_file = temp_path / database_info.get("path", "database.json")
+                if not dump_file.exists():
+                    return False, f"Database dump file not found: {dump_file}"
 
-            return await self._restore_from_json(dump_file, clear_existing)
+                db_success, db_message = await self._restore_from_json(dump_file, clear_existing)
+                if not db_success:
+                    return db_success, db_message
+                result_parts.append(db_message)
+
+            if includes_assets:
+                assets_info = metadata.get("assets", {})
+                assets_dir = temp_path / assets_info.get("path", "assets")
+                if not assets_dir.exists():
+                    return False, f"Assets directory not found: {assets_dir}"
+
+                assets_message = await self._restore_assets_from_dir(assets_dir)
+                result_parts.append(assets_message)
+
+            if not result_parts:
+                return False, "Backup does not contain restorable data"
+
+            return True, "\n\n".join(result_parts)
+
+
+    async def _restore_assets_from_dir(self, source_dir: Path) -> str:
+        """Restore bundled runtime assets without wiping unrelated files."""
+        target_dir = self.config.assets_dir
+        restored_files = 0
+
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        for source_file in source_dir.rglob("*"):
+            if not source_file.is_file():
+                continue
+
+            relative_path = source_file.relative_to(source_dir)
+            target_file = target_dir / relative_path
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_file, target_file)
+            restored_files += 1
+
+        logger.info(
+            "Restored {} asset file(s) into '{}'",
+            restored_files,
+            target_dir,
+        )
+        return (
+            "Assets restored successfully!\n"
+            f"Files: {restored_files}\n"
+            f"Target: {target_dir}"
+        )
 
     async def _restore_from_json(
         self,

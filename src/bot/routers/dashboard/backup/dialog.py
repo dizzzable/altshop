@@ -14,11 +14,13 @@ from .getters import (
     backup_main_getter,
     backup_manage_getter,
     backup_restore_confirm_getter,
+    backup_scope_getter,
     backup_settings_getter,
 )
 from .handlers import (
     on_backup_select,
     on_create_backup,
+    on_create_backup_scope,
     on_delete_backup,
     on_delete_confirm,
     on_restore_backup,
@@ -26,7 +28,6 @@ from .handlers import (
     on_restore_confirm,
 )
 
-# Главное окно системы бэкапов
 backup_main = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-backup-main"),
@@ -63,13 +64,38 @@ backup_main = Window(
     getter=backup_main_getter,
 )
 
-# Список бэкапов
+
+backup_create_scope = Window(
+    Banner(BannerName.DASHBOARD),
+    Const("Choose backup scope"),
+    Column(
+        Select(
+            Format("{item[label]}\n{item[description]}"),
+            id="backup_scope",
+            item_id_getter=lambda item: item["id"],
+            items="scopes",
+            on_click=on_create_backup_scope,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardBackup.MAIN,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardBackup.CREATE_SCOPE,
+    getter=backup_scope_getter,
+)
+
+
 backup_list = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-backup-list"),
     Column(
         Select(
-            Format("📦 {item[timestamp]} • {item[file_size_mb]}MB • {item[total_records]} зап."),
+            Format("{item[scope_label]} • {item[timestamp]} • {item[file_size_mb]}MB"),
             id="backup_select",
             item_id_getter=lambda item: item["filename"],
             items="backups",
@@ -78,7 +104,7 @@ backup_list = Window(
         when=F["has_backups"],
     ),
     Const(
-        "📭 Бэкапы отсутствуют",
+        "No backups found",
         when=~F["has_backups"],
     ),
     Row(
@@ -93,7 +119,7 @@ backup_list = Window(
     getter=backup_list_getter,
 )
 
-# Управление конкретным бэкапом
+
 backup_manage = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-backup-manage"),
@@ -133,7 +159,7 @@ backup_manage = Window(
     getter=backup_manage_getter,
 )
 
-# Настройки бэкапов
+
 backup_settings = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-backup-settings"),
@@ -149,7 +175,7 @@ backup_settings = Window(
     getter=backup_settings_getter,
 )
 
-# Подтверждение восстановления
+
 backup_restore_confirm = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-backup-restore-confirm"),
@@ -170,7 +196,7 @@ backup_restore_confirm = Window(
     getter=backup_restore_confirm_getter,
 )
 
-# Подтверждение удаления
+
 backup_delete_confirm = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-backup-delete-confirm"),
@@ -194,9 +220,11 @@ backup_delete_confirm = Window(
 
 router = Dialog(
     backup_main,
+    backup_create_scope,
     backup_list,
     backup_manage,
     backup_settings,
     backup_restore_confirm,
     backup_delete_confirm,
 )
+

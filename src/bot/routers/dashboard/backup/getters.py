@@ -8,6 +8,15 @@ from src.core.config import AppConfig
 from src.services.backup import BackupService
 
 
+def _scope_label(scope_value: str) -> str:
+    mapping = {
+        "DB": "Database only",
+        "ASSETS": "Assets only",
+        "FULL": "Full backup",
+    }
+    return mapping.get(scope_value, scope_value.title())
+
+
 @inject
 async def backup_main_getter(
     dialog_manager: DialogManager,
@@ -15,7 +24,7 @@ async def backup_main_getter(
     config: AppConfig,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Геттер для главного окна системы бэкапов."""
+    del dialog_manager, kwargs
     backup_config = config.backup
     backups = await backup_service.get_backup_list()
 
@@ -31,16 +40,37 @@ async def backup_main_getter(
     }
 
 
+async def backup_scope_getter(
+    dialog_manager: DialogManager,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    del dialog_manager, kwargs
+    return {
+        "scopes": [
+            {
+                "id": "db",
+                "label": "Database only",
+                "description": "Plans, subscriptions, users, settings",
+            },
+            {
+                "id": "assets",
+                "label": "Assets only",
+                "description": "Banners, translations, logo and runtime assets",
+            },
+            {"id": "full", "label": "Full backup", "description": "Database + assets together"},
+        ]
+    }
+
+
 @inject
 async def backup_list_getter(
     dialog_manager: DialogManager,
     backup_service: FromDishka[BackupService],
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Геттер для списка бэкапов."""
+    del dialog_manager, kwargs
     backups = await backup_service.get_backup_list()
 
-    # Преобразуем BackupInfo в словари для отображения
     backups_list = []
     for backup in backups:
         backups_list.append(
@@ -49,6 +79,7 @@ async def backup_list_getter(
                 "timestamp": backup.timestamp[:16].replace("T", " ") if backup.timestamp else "?",
                 "file_size_mb": backup.file_size_mb,
                 "total_records": backup.total_records,
+                "scope_label": _scope_label(backup.backup_scope.value),
             }
         )
 
@@ -65,16 +96,11 @@ async def backup_manage_getter(
     backup_service: FromDishka[BackupService],
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Геттер для управления конкретным бэкапом."""
+    del kwargs
     filename = dialog_manager.dialog_data.get("backup_filename", "")
 
     backups = await backup_service.get_backup_list()
-    backup_info = None
-
-    for backup in backups:
-        if backup.filename == filename:
-            backup_info = backup
-            break
+    backup_info = next((backup for backup in backups if backup.filename == filename), None)
 
     if not backup_info:
         return {
@@ -83,16 +109,23 @@ async def backup_manage_getter(
             "content_details": "",
         }
 
-    # Форматирование даты
     try:
         timestamp_str = backup_info.timestamp[:19].replace("T", " ")
     except Exception:
-        timestamp_str = "Неизвестно"
+        timestamp_str = "Unknown"
 
-    # Формируем content_details с базовой информацией
-    content_details = (
-        f"• Таблиц: {backup_info.tables_count}\n• Записей: {backup_info.total_records}"
-    )
+    content_lines = []
+    if backup_info.includes_database:
+        content_lines.append(f"• Database tables: {backup_info.tables_count}")
+        content_lines.append(f"• Database records: {backup_info.total_records}")
+        content_lines.append("• Includes plans, prices, subscriptions, users and settings")
+    if backup_info.includes_assets:
+        content_lines.append(f"• Assets files: {backup_info.assets_files_count}")
+        if backup_info.assets_root:
+            content_lines.append(f"• Assets root: {backup_info.assets_root}")
+
+    scope_label = _scope_label(backup_info.backup_scope.value)
+    dialog_manager.dialog_data["backup_scope_label"] = scope_label
 
     return {
         "found": True,
@@ -104,9 +137,12 @@ async def backup_manage_getter(
         "compressed": backup_info.compressed,
         "database_type": backup_info.database_type,
         "version": backup_info.version,
-        "created_by": backup_info.created_by or "Система",
+        "created_by": backup_info.created_by or "System",
         "error": backup_info.error,
-        "content_details": content_details,
+        "content_details": "\n".join(content_lines),
+        "scope_label": scope_label,
+        "includes_database": backup_info.includes_database,
+        "includes_assets": backup_info.includes_assets,
     }
 
 
@@ -116,7 +152,7 @@ async def backup_settings_getter(
     config: AppConfig,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Геттер для настроек бэкапов."""
+    del dialog_manager, kwargs
     backup_config = config.backup
 
     return {
@@ -127,8 +163,8 @@ async def backup_settings_getter(
         "compression": backup_config.compression,
         "include_logs": backup_config.include_logs,
         "send_enabled": backup_config.send_enabled,
-        "send_chat_id": backup_config.send_chat_id or "Не указан",
-        "send_topic_id": backup_config.send_topic_id or "Не указан",
+        "send_chat_id": backup_config.send_chat_id or "Not set",
+        "send_topic_id": backup_config.send_topic_id or "Not set",
         "backup_location": str(backup_config.location),
     }
 
@@ -139,32 +175,30 @@ async def backup_restore_confirm_getter(
     backup_service: FromDishka[BackupService],
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Геттер для подтверждения восстановления."""
+    del kwargs
     filename = dialog_manager.dialog_data.get("backup_filename", "")
     clear_before = dialog_manager.dialog_data.get("clear_existing", False)
 
-    # Получаем информацию о бэкапе для отображения timestamp и total_records
     backups = await backup_service.get_backup_list()
-    backup_info = None
-    for backup in backups:
-        if backup.filename == filename:
-            backup_info = backup
-            break
+    backup_info = next((backup for backup in backups if backup.filename == filename), None)
 
-    timestamp = "Неизвестно"
+    timestamp = "Unknown"
     total_records = 0
+    scope_label = "Unknown"
     if backup_info:
         try:
             timestamp = backup_info.timestamp[:19].replace("T", " ")
         except Exception:
             pass
         total_records = backup_info.total_records
+        scope_label = _scope_label(backup_info.backup_scope.value)
 
     return {
         "filename": filename,
         "clear_before": 1 if clear_before else 0,
         "timestamp": timestamp,
         "total_records": total_records,
+        "scope_label": scope_label,
     }
 
 
@@ -174,18 +208,13 @@ async def backup_delete_confirm_getter(
     backup_service: FromDishka[BackupService],
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Геттер для подтверждения удаления."""
+    del kwargs
     filename = dialog_manager.dialog_data.get("backup_filename", "")
 
-    # Получаем информацию о бэкапе для отображения timestamp
     backups = await backup_service.get_backup_list()
-    backup_info = None
-    for backup in backups:
-        if backup.filename == filename:
-            backup_info = backup
-            break
+    backup_info = next((backup for backup in backups if backup.filename == filename), None)
 
-    timestamp = "Неизвестно"
+    timestamp = "Unknown"
     if backup_info:
         try:
             timestamp = backup_info.timestamp[:19].replace("T", " ")

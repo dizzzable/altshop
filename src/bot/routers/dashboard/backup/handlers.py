@@ -8,10 +8,20 @@ from dishka.integrations.aiogram_dialog import inject
 
 from src.bot.states import DashboardBackup, DashboardRemnashop
 from src.core.constants import USER_KEY
+from src.core.enums import BackupScope
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.database.models.dto import UserDto
 from src.services.backup import BackupService
 from src.services.notification import NotificationService
+
+
+def _scope_label(scope: BackupScope) -> str:
+    labels = {
+        BackupScope.DB: "Database only",
+        BackupScope.ASSETS: "Assets only",
+        BackupScope.FULL: "Full backup",
+    }
+    return labels[scope]
 
 
 @inject
@@ -19,27 +29,42 @@ async def on_create_backup(
     callback: CallbackQuery,
     button: Button,
     manager: DialogManager,
+) -> None:
+    """Open backup scope selection."""
+    del callback, button
+    await manager.switch_to(DashboardBackup.CREATE_SCOPE)
+
+
+@inject
+async def on_create_backup_scope(
+    callback: CallbackQuery,
+    widget: Any,
+    manager: DialogManager,
+    item_id: str,
     backup_service: FromDishka[BackupService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
-    """Обработчик создания бэкапа."""
-    await callback.answer("🔄 Создание бэкапа запущено...")
+    """Create a backup for the selected scope."""
+    del widget
+    await callback.answer("Backup creation started...")
 
     user: UserDto = manager.middleware_data.get(USER_KEY)
     created_by = user.telegram_id if user else None
+    scope = BackupScope(item_id.upper())
 
-    # Показываем прогресс через уведомление
     progress_notification = await notification_service.notify_user(
         user=user,
         payload=MessagePayload.not_deleted(
             i18n_key="ntf-backup-creating",
+            i18n_kwargs={"scope": _scope_label(scope)},
         ),
     )
 
-    # Создаём бэкап
-    success, message, file_path = await backup_service.create_backup(created_by=created_by)
+    success, message, _file_path = await backup_service.create_backup(
+        created_by=created_by,
+        scope=scope,
+    )
 
-    # Удаляем уведомление о прогрессе
     if progress_notification:
         await progress_notification.delete()
 
@@ -60,7 +85,6 @@ async def on_create_backup(
             ),
         )
 
-    # Возвращаемся на главный экран бэкапов
     await manager.switch_to(DashboardBackup.MAIN, show_mode=ShowMode.SEND)
 
 
@@ -71,7 +95,8 @@ async def on_backup_select(
     manager: DialogManager,
     item_id: str,
 ) -> None:
-    """Обработчик выбора бэкапа из списка."""
+    """Handle selecting a backup from the list."""
+    del callback, widget
     manager.dialog_data["backup_filename"] = item_id
     await manager.switch_to(DashboardBackup.MANAGE)
 
@@ -82,7 +107,8 @@ async def on_restore_backup(
     button: Button,
     manager: DialogManager,
 ) -> None:
-    """Обработчик начала восстановления бэкапа."""
+    """Start restore without clearing database."""
+    del callback, button
     manager.dialog_data["clear_existing"] = False
     await manager.switch_to(DashboardBackup.RESTORE_CONFIRM)
 
@@ -93,7 +119,8 @@ async def on_restore_backup_clear(
     button: Button,
     manager: DialogManager,
 ) -> None:
-    """Обработчик восстановления с очисткой данных."""
+    """Start restore with database cleanup."""
+    del callback, button
     manager.dialog_data["clear_existing"] = True
     await manager.switch_to(DashboardBackup.RESTORE_CONFIRM)
 
@@ -106,14 +133,15 @@ async def on_restore_confirm(
     backup_service: FromDishka[BackupService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
-    """Обработчик подтверждения восстановления."""
+    """Confirm backup restore."""
+    del button
     user: UserDto = manager.middleware_data.get(USER_KEY)
     filename = manager.dialog_data.get("backup_filename", "")
     clear_existing = manager.dialog_data.get("clear_existing", False)
+    backup_scope = manager.dialog_data.get("backup_scope_label", "Unknown")
 
-    await callback.answer("🔄 Восстановление запущено...")
+    await callback.answer("Restore started...")
 
-    # Показываем прогресс через уведомление
     progress_notification = await notification_service.notify_user(
         user=user,
         payload=MessagePayload.not_deleted(
@@ -121,6 +149,7 @@ async def on_restore_confirm(
             i18n_kwargs={
                 "filename": filename,
                 "clear_existing": clear_existing,
+                "scope": backup_scope,
             },
         ),
     )
@@ -131,7 +160,6 @@ async def on_restore_confirm(
         clear_existing=clear_existing,
     )
 
-    # Удаляем уведомление о прогрессе
     if progress_notification:
         await progress_notification.delete()
 
@@ -161,7 +189,8 @@ async def on_delete_backup(
     button: Button,
     manager: DialogManager,
 ) -> None:
-    """Обработчик начала удаления бэкапа."""
+    """Open backup delete confirmation."""
+    del callback, button
     await manager.switch_to(DashboardBackup.DELETE_CONFIRM)
 
 
@@ -172,15 +201,16 @@ async def on_delete_confirm(
     manager: DialogManager,
     backup_service: FromDishka[BackupService],
 ) -> None:
-    """Обработчик подтверждения удаления."""
+    """Delete selected backup."""
+    del button
     filename = manager.dialog_data.get("backup_filename", "")
 
     success, message = await backup_service.delete_backup(filename)
 
     if success:
-        await callback.answer("✅ Бэкап удалён", show_alert=True)
+        await callback.answer("Backup deleted", show_alert=True)
     else:
-        await callback.answer(f"❌ {message}", show_alert=True)
+        await callback.answer(message, show_alert=True)
 
     await manager.switch_to(DashboardBackup.LIST)
 
@@ -190,5 +220,6 @@ async def on_back_to_remnashop(
     button: Button,
     manager: DialogManager,
 ) -> None:
-    """Возврат в меню RemnaShop."""
+    """Return to RemnaShop menu."""
+    del callback, button
     await manager.start(DashboardRemnashop.MAIN)

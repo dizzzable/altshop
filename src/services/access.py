@@ -21,7 +21,6 @@ from src.infrastructure.taskiq.tasks.notifications import (
     send_access_denied_notification_task,
     send_access_opened_notifications_task,
 )
-from src.infrastructure.taskiq.tasks.redirects import redirect_to_main_menu_task
 from src.services.access_policy import AccessModePolicyService
 from src.services.referral import ReferralService
 from src.services.settings import SettingsService
@@ -220,27 +219,7 @@ class AccessService(BaseService):
                 logger.info(f"Notifying '{len(waiting_users)}' waiting users about access opening")
                 await send_access_opened_notifications_task.kiq(waiting_users)
 
-        await self._refresh_recent_non_privileged_users_main_menu()
         await self.clear_all_waiting_users()
-
-    async def _refresh_recent_non_privileged_users_main_menu(self) -> int:
-        recent_users = await self.user_service.get_recent_activity_users()
-        redirected = 0
-        seen_ids: set[int] = set()
-
-        for user in recent_users:
-            if user.telegram_id in seen_ids:
-                continue
-            seen_ids.add(user.telegram_id)
-
-            if user.is_privileged or user.is_blocked:
-                continue
-
-            await redirect_to_main_menu_task.kiq(user.telegram_id)
-            redirected += 1
-
-        logger.info(f"Refreshed main menu for '{redirected}' recent non-privileged user(s)")
-        return redirected
 
     async def _deny_existing_user(
         self,

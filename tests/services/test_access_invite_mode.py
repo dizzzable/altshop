@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from aiogram.types import CallbackQuery, Message
 
-from src.core.enums import AccessMode, Locale, UserRole
+from src.core.enums import AccessMode, Locale
 from src.infrastructure.database.models.dto import SettingsDto, UserDto
 from src.services.access import AccessService
 from src.services.access_policy import AccessModePolicyService
@@ -131,13 +131,8 @@ def test_existing_locked_user_gets_callback_alert_without_redirect(monkeypatch) 
     callback = build_callback("open_subscriptions")
     answer_mock = AsyncMock()
     object.__setattr__(callback, "answer", answer_mock)
-    redirect_mock = AsyncMock()
     notify_mock = AsyncMock()
 
-    monkeypatch.setattr(
-        "src.services.access.redirect_to_main_menu_task.kiq",
-        redirect_mock,
-    )
     monkeypatch.setattr(
         "src.services.access.send_access_denied_notification_task.kiq",
         notify_mock,
@@ -158,7 +153,6 @@ def test_existing_locked_user_gets_callback_alert_without_redirect(monkeypatch) 
 
     assert result is False
     answer_mock.assert_awaited_once_with(text="Access denied", show_alert=True)
-    redirect_mock.assert_not_awaited()
     notify_mock.assert_not_awaited()
 
 
@@ -166,13 +160,8 @@ def test_purchase_blocked_message_event_sends_notice_without_redirect(monkeypatc
     settings = SettingsDto(access_mode=AccessMode.PURCHASE_BLOCKED)
     service = build_access_service(settings)
     user = build_user(telegram_id=503)
-    redirect_mock = AsyncMock()
     notify_mock = AsyncMock()
 
-    monkeypatch.setattr(
-        "src.services.access.redirect_to_main_menu_task.kiq",
-        redirect_mock,
-    )
     monkeypatch.setattr(
         "src.services.access.send_access_denied_notification_task.kiq",
         notify_mock,
@@ -187,7 +176,6 @@ def test_purchase_blocked_message_event_sends_notice_without_redirect(monkeypatc
     )
 
     assert result is False
-    redirect_mock.assert_not_awaited()
     notify_mock.assert_not_awaited()
 
 
@@ -215,22 +203,13 @@ def test_invited_mode_grandfathers_existing_users() -> None:
     assert result is False
 
 
-def test_set_mode_refreshes_recent_non_privileged_users(monkeypatch) -> None:
+def test_set_mode_applies_lazily_without_refreshing_recent_users(monkeypatch) -> None:
     settings = SettingsDto(access_mode=AccessMode.PUBLIC)
     service = build_access_service(settings)
-    guest = build_user(telegram_id=600)
-    dev = UserDto(telegram_id=601, name="Dev", role=UserRole.DEV)
-    blocked = UserDto(telegram_id=602, name="Blocked", is_blocked=True)
-    service.user_service.get_recent_activity_users = AsyncMock(
-        return_value=[guest, dev, blocked, guest]
-    )
-    redirect_mock = AsyncMock()
     access_opened_mock = AsyncMock()
+    service.get_all_waiting_users = AsyncMock(return_value=[])
+    service.clear_all_waiting_users = AsyncMock()
 
-    monkeypatch.setattr(
-        "src.services.access.redirect_to_main_menu_task.kiq",
-        redirect_mock,
-    )
     monkeypatch.setattr(
         "src.services.access.send_access_opened_notifications_task.kiq",
         access_opened_mock,
@@ -239,5 +218,26 @@ def test_set_mode_refreshes_recent_non_privileged_users(monkeypatch) -> None:
     run_async(service.set_mode(AccessMode.PUBLIC))
 
     service.settings_service.set_access_mode.assert_awaited_once_with(AccessMode.PUBLIC)
-    redirect_mock.assert_awaited_once_with(guest.telegram_id)
+    service.user_service.get_recent_activity_users.assert_not_awaited()
     access_opened_mock.assert_not_awaited()
+    service.clear_all_waiting_users.assert_awaited_once()
+
+
+def test_set_mode_still_notifies_waitlist_users(monkeypatch) -> None:
+    settings = SettingsDto(access_mode=AccessMode.PURCHASE_BLOCKED)
+    service = build_access_service(settings)
+    access_opened_mock = AsyncMock()
+    waiting_users = [700, 701]
+    service.get_all_waiting_users = AsyncMock(return_value=waiting_users)
+    service.clear_all_waiting_users = AsyncMock()
+
+    monkeypatch.setattr(
+        "src.services.access.send_access_opened_notifications_task.kiq",
+        access_opened_mock,
+    )
+
+    run_async(service.set_mode(AccessMode.PUBLIC))
+
+    service.settings_service.set_access_mode.assert_awaited_once_with(AccessMode.PUBLIC)
+    access_opened_mock.assert_awaited_once_with(waiting_users)
+    service.clear_all_waiting_users.assert_awaited_once()
