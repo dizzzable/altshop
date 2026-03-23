@@ -1,4 +1,5 @@
 ﻿from aiogram import F, Router
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import CommandObject, CommandStart
 from aiogram.types import CallbackQuery, Message
 from aiogram_dialog import DialogManager, ShowMode, StartMode
@@ -27,6 +28,7 @@ from src.services.referral_exchange import (
 )
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
+from src.services.user import UserService
 
 router = Router(name=__name__)
 
@@ -58,13 +60,29 @@ async def _notify_exchange_error(
 async def on_start_dialog(
     user: UserDto,
     dialog_manager: DialogManager,
+    user_service: UserService,
 ) -> None:
     logger.info(f"{log(user)} Started dialog")
-    await dialog_manager.start(
-        state=MainMenu.MAIN,
-        mode=StartMode.RESET_STACK,
-        show_mode=ShowMode.DELETE_AND_SEND,
-    )
+    if user.is_bot_blocked:
+        logger.debug(
+            "Skip direct MainMenu start for '{}': bot already blocked",
+            user.telegram_id,
+        )
+        return
+
+    try:
+        await dialog_manager.start(
+            state=MainMenu.MAIN,
+            mode=StartMode.RESET_STACK,
+            show_mode=ShowMode.DELETE_AND_SEND,
+        )
+    except TelegramForbiddenError:
+        logger.info(
+            "Skip direct MainMenu start for '{}': bot was blocked by the user",
+            user.telegram_id,
+        )
+        if not user.is_bot_blocked:
+            await user_service.set_bot_blocked(user=user, blocked=True)
 
 
 @router.message(CommandStart(ignore_case=True))
@@ -76,6 +94,7 @@ async def on_start_command(
     is_new_user: bool,
     dialog_manager: DialogManager,
     referral_service: FromDishka[ReferralService],
+    user_service: FromDishka[UserService],
 ) -> None:
     if command.args and command.args.startswith(REFERRAL_PREFIX) and not user.is_invited_user:
         referral_code = command.args
@@ -86,27 +105,31 @@ async def on_start_command(
             source=ReferralInviteSource.BOT,
         )
 
-    await on_start_dialog(user, dialog_manager)
+    await on_start_dialog(user, dialog_manager, user_service)
 
 
 @router.callback_query(F.data == CALLBACK_RULES_ACCEPT)
+@aiogram_inject
 async def on_rules_accept(
     callback: CallbackQuery,
     user: UserDto,
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
 ) -> None:
     logger.info(f"{log(user)} Accepted rules")
-    await on_start_dialog(user, dialog_manager)
+    await on_start_dialog(user, dialog_manager, user_service)
 
 
 @router.callback_query(F.data == CALLBACK_CHANNEL_CONFIRM)
+@aiogram_inject
 async def on_channel_confirm(
     callback: CallbackQuery,
     user: UserDto,
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
 ) -> None:
     logger.info(f"{log(user)} Cofirmed join channel")
-    await on_start_dialog(user, dialog_manager)
+    await on_start_dialog(user, dialog_manager, user_service)
 
 
 @dialog_inject

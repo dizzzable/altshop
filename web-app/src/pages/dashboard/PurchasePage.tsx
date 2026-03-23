@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
@@ -188,6 +189,7 @@ type PurchaseText = {
   quotePreparing: string
   quoteUnavailable: string
   readOnlyNotice: string
+  purchaseBlockedNotice: string
 }
 
 const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
@@ -309,12 +311,14 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   quotePreparing: 'purchase.quotePreparing',
   quoteUnavailable: 'purchase.quoteUnavailable',
   readOnlyNotice: 'purchase.readOnlyNotice',
+  purchaseBlockedNotice: 'purchase.purchaseBlockedNotice',
 }
 
 type SubmitBlockReason =
   | 'LIMIT_REACHED'
   | 'LIMIT_WOULD_BE_EXCEEDED'
   | 'READ_ONLY_ACCESS'
+  | 'PURCHASES_DISABLED'
   | 'MISSING_PLAN'
   | 'MISSING_DURATION'
   | 'MISSING_DEVICE'
@@ -580,7 +584,13 @@ export function PurchasePage() {
   const isNewPurchaseFlow = !isRenewFlow && !isUpgradeFlow
   const purchaseType: PurchaseType = isUpgradeFlow ? 'UPGRADE' : isRenewFlow ? 'RENEW' : 'NEW'
   const isSingleSubscriptionFlow = singleSubscriptionTargetId !== null
-  const isReadOnlyAccess = accessStatus?.access_level === 'read_only'
+  const accessCapabilities = useMemo(
+    () => resolveAccessCapabilities(accessStatus),
+    [accessStatus]
+  )
+  const isReadOnlyAccess = accessCapabilities.isReadOnly
+  const isPurchaseBlocked = accessCapabilities.isPurchaseBlocked
+  const canPurchase = accessCapabilities.canPurchase
 
   const { data: catalogPlans = [], isLoading: isCatalogPlansLoading } = useQuery<Plan[]>({
     queryKey: ['plans', purchaseChannel],
@@ -804,7 +814,7 @@ export function PurchasePage() {
     && Boolean(trialEligibility)
     && hasConfiguredTrialPlan
     && !hideTrialCardForReason
-  const canActivateTrial = Boolean(trialEligibility?.eligible) && !isReadOnlyAccess
+  const canActivateTrial = Boolean(trialEligibility?.eligible) && canPurchase
   const shouldShowTrialLinkAction =
     Boolean(trialEligibility?.requires_telegram_link) ||
     trialReasonCode === 'TRIAL_TELEGRAM_LINK_REQUIRED'
@@ -846,6 +856,7 @@ export function PurchasePage() {
     effectivePlanId !== null
       && selectedDuration !== null
       && selectedGateway
+      && canPurchase
       && !purchaseBlockedByLimit
       && !exceedsPredictedLimit
       && (!requiresPaymentAsset || selectedPaymentAsset)
@@ -905,6 +916,9 @@ export function PurchasePage() {
     if (isReadOnlyAccess) {
       return 'READ_ONLY_ACCESS'
     }
+    if (isPurchaseBlocked) {
+      return 'PURCHASES_DISABLED'
+    }
     if (purchaseBlockedByLimit) {
       return 'LIMIT_REACHED'
     }
@@ -936,6 +950,7 @@ export function PurchasePage() {
     isNewPurchaseFlow,
     isPurchasing,
     isQuoteFetching,
+    isPurchaseBlocked,
     isReadOnlyAccess,
     noGatewayAvailable,
     purchaseBlockedByLimit,
@@ -959,6 +974,8 @@ export function PurchasePage() {
         return text.limitWouldExceed
       case 'READ_ONLY_ACCESS':
         return text.readOnlyNotice
+      case 'PURCHASES_DISABLED':
+        return text.purchaseBlockedNotice
       case 'MISSING_PLAN':
         return text.selectPlanError
       case 'MISSING_DURATION':
@@ -982,6 +999,7 @@ export function PurchasePage() {
     submitBlockReason,
     text.limitReached,
     text.limitWouldExceed,
+    text.purchaseBlockedNotice,
     text.readOnlyNotice,
     text.selectPlanError,
     text.selectDurationMethodError,
@@ -994,7 +1012,7 @@ export function PurchasePage() {
   const canOpenCheckout = Boolean(
     effectivePlanId !== null &&
       selectedDuration !== null &&
-      !isReadOnlyAccess &&
+      canPurchase &&
       !purchaseBlockedByLimit &&
       !exceedsPredictedLimit &&
       (!isNewPurchaseFlow || selectedDeviceType)
@@ -1098,6 +1116,10 @@ export function PurchasePage() {
   const handlePurchase = async () => {
     if (isReadOnlyAccess) {
       toast.error(text.readOnlyNotice)
+      return
+    }
+    if (isPurchaseBlocked) {
+      toast.error(text.purchaseBlockedNotice)
       return
     }
 
@@ -1602,10 +1624,12 @@ export function PurchasePage() {
         <p className="text-muted-foreground">{pageSubtitle}</p>
       </div>
 
-      {isReadOnlyAccess && (
+      {(isReadOnlyAccess || isPurchaseBlocked) && (
         <Card className="border-amber-300/25 bg-amber-500/10">
           <CardContent className="pt-6">
-            <p className="text-sm text-amber-100">{text.readOnlyNotice}</p>
+            <p className="text-sm text-amber-100">
+              {isPurchaseBlocked ? text.purchaseBlockedNotice : text.readOnlyNotice}
+            </p>
           </CardContent>
         </Card>
       )}

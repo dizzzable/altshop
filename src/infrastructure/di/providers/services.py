@@ -1,6 +1,7 @@
 from dishka import Provider, Scope, provide
 
 from src.services.access import AccessService
+from src.services.access_policy import AccessModePolicyService
 from src.services.auth_challenge import AuthChallengeService
 from src.services.backup import BackupService
 from src.services.broadcast import BroadcastService
@@ -48,6 +49,7 @@ class ServicesProvider(Provider):
     scope = Scope.APP
 
     command_service = provide(source=CommandService)
+    access_mode_policy_service = provide(source=AccessModePolicyService)
     access_service = provide(source=AccessService, scope=Scope.REQUEST)
     backup_service = provide(source=BackupService)
     notification_service = provide(source=NotificationService, scope=Scope.REQUEST)

@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -615,6 +616,7 @@ class SettingsDto(TrackableDto):
     channel_link: SecretStr = SecretStr("@remna_shop")
 
     access_mode: AccessMode = AccessMode.PUBLIC
+    invite_mode_started_at: Optional[datetime] = None
     default_currency: Currency = Currency.XTR
 
     user_notifications: UserNotificationDto = UserNotificationDto()

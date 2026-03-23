@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from aiogram.types import CallbackQuery, Message
 
-from src.core.enums import AccessMode, UserRole
-from src.infrastructure.database.models.dto import UserDto
+from src.core.enums import AccessMode, Locale, UserRole
+from src.infrastructure.database.models.dto import SettingsDto, UserDto
 from src.services.access import AccessService
+from src.services.access_policy import AccessModePolicyService
 
 
 def run_async(coroutine):
@@ -38,20 +40,27 @@ def build_callback(data: str) -> CallbackQuery:
     )
 
 
-def build_access_service() -> AccessService:
+def build_access_service(settings: SettingsDto | None = None) -> AccessService:
+    current_settings = settings or SettingsDto()
+    translator = SimpleNamespace(get=lambda key, **kwargs: key)
+    translator_hub = SimpleNamespace(
+        get_translator_by_locale=MagicMock(return_value=translator)
+    )
+
     return AccessService(
         config=MagicMock(),
         bot=MagicMock(),
-        redis_client=MagicMock(),
+        redis_client=SimpleNamespace(set=AsyncMock(return_value=True)),
         redis_repository=SimpleNamespace(
             collection_is_member=AsyncMock(return_value=False),
             collection_add=AsyncMock(return_value=1),
             collection_members=AsyncMock(return_value=[]),
             delete=AsyncMock(),
         ),
-        translator_hub=MagicMock(),
+        translator_hub=translator_hub,
         settings_service=SimpleNamespace(
-            get_access_mode=AsyncMock(),
+            get=AsyncMock(return_value=current_settings),
+            get_access_mode=AsyncMock(return_value=current_settings.access_mode),
             set_access_mode=AsyncMock(),
         ),
         user_service=SimpleNamespace(
@@ -59,6 +68,16 @@ def build_access_service() -> AccessService:
             get_recent_activity_users=AsyncMock(return_value=[]),
         ),
         referral_service=SimpleNamespace(is_referral_event=AsyncMock(return_value=False)),
+        access_mode_policy_service=AccessModePolicyService(),
+    )
+
+
+def build_user(*, telegram_id: int, created_at: datetime | None = None) -> UserDto:
+    return UserDto(
+        telegram_id=telegram_id,
+        name="Guest",
+        language=Locale.RU,
+        created_at=created_at,
     )
 
 
@@ -81,9 +100,14 @@ def test_new_user_in_invited_mode_is_soft_allowed() -> None:
     assert result is True
 
 
-def test_existing_uninvited_user_can_open_safe_start_event() -> None:
-    service = build_access_service()
-    user = UserDto(telegram_id=501, name="Guest")
+def test_existing_locked_user_can_open_safe_start_event() -> None:
+    started_at = datetime.now(timezone.utc)
+    settings = SettingsDto(
+        access_mode=AccessMode.INVITED,
+        invite_mode_started_at=started_at,
+    )
+    service = build_access_service(settings)
+    user = build_user(telegram_id=501, created_at=started_at + timedelta(minutes=1))
 
     result = run_async(
         service._handle_existing_user_access(
@@ -96,9 +120,52 @@ def test_existing_uninvited_user_can_open_safe_start_event() -> None:
     assert result is True
 
 
-def test_existing_uninvited_user_is_blocked_on_product_callback(monkeypatch) -> None:
-    service = build_access_service()
-    user = UserDto(telegram_id=502, name="Guest")
+def test_existing_locked_user_gets_callback_alert_without_redirect(monkeypatch) -> None:
+    started_at = datetime.now(timezone.utc)
+    settings = SettingsDto(
+        access_mode=AccessMode.INVITED,
+        invite_mode_started_at=started_at,
+    )
+    service = build_access_service(settings)
+    user = build_user(telegram_id=502, created_at=started_at + timedelta(minutes=1))
+    callback = build_callback("open_subscriptions")
+    answer_mock = AsyncMock()
+    object.__setattr__(callback, "answer", answer_mock)
+    redirect_mock = AsyncMock()
+    notify_mock = AsyncMock()
+
+    monkeypatch.setattr(
+        "src.services.access.redirect_to_main_menu_task.kiq",
+        redirect_mock,
+    )
+    monkeypatch.setattr(
+        "src.services.access.send_access_denied_notification_task.kiq",
+        notify_mock,
+    )
+    monkeypatch.setattr(
+        service,
+        "_render_plain_i18n",
+        lambda **kwargs: "Access denied",
+    )
+
+    result = run_async(
+        service._handle_existing_user_access(
+            user=user,
+            mode=AccessMode.INVITED,
+            event=callback,
+        )
+    )
+
+    assert result is False
+    answer_mock.assert_awaited_once_with(text="Access denied", show_alert=True)
+    redirect_mock.assert_not_awaited()
+    notify_mock.assert_not_awaited()
+
+
+def test_purchase_blocked_message_event_sends_notice_without_redirect(monkeypatch) -> None:
+    settings = SettingsDto(access_mode=AccessMode.PURCHASE_BLOCKED)
+    service = build_access_service(settings)
+    user = build_user(telegram_id=503)
     redirect_mock = AsyncMock()
     notify_mock = AsyncMock()
 
@@ -114,28 +181,44 @@ def test_existing_uninvited_user_is_blocked_on_product_callback(monkeypatch) -> 
     result = run_async(
         service._handle_existing_user_access(
             user=user,
-            mode=AccessMode.INVITED,
-            event=build_callback("open_subscriptions"),
+            mode=AccessMode.PURCHASE_BLOCKED,
+            event=build_callback("purchase_new"),
         )
     )
 
     assert result is False
-    redirect_mock.assert_awaited_once_with(user.telegram_id)
-    notify_mock.assert_awaited_once()
+    redirect_mock.assert_not_awaited()
+    notify_mock.assert_not_awaited()
 
 
 def test_public_mode_never_marks_user_as_invite_locked() -> None:
-    service = build_access_service()
-    user = UserDto(telegram_id=503, name="Guest")
+    service = build_access_service(SettingsDto(access_mode=AccessMode.PUBLIC))
+    user = build_user(telegram_id=504)
 
     result = run_async(service.is_invite_locked(user, mode=AccessMode.PUBLIC))
 
     assert result is False
 
 
+def test_invited_mode_grandfathers_existing_users() -> None:
+    started_at = datetime.now(timezone.utc)
+    service = build_access_service(
+        SettingsDto(
+            access_mode=AccessMode.INVITED,
+            invite_mode_started_at=started_at,
+        )
+    )
+    user = build_user(telegram_id=505, created_at=started_at - timedelta(minutes=1))
+
+    result = run_async(service.is_invite_locked(user, mode=AccessMode.INVITED))
+
+    assert result is False
+
+
 def test_set_mode_refreshes_recent_non_privileged_users(monkeypatch) -> None:
-    service = build_access_service()
-    guest = UserDto(telegram_id=600, name="Guest")
+    settings = SettingsDto(access_mode=AccessMode.PUBLIC)
+    service = build_access_service(settings)
+    guest = build_user(telegram_id=600)
     dev = UserDto(telegram_id=601, name="Dev", role=UserRole.DEV)
     blocked = UserDto(telegram_id=602, name="Blocked", is_blocked=True)
     service.user_service.get_recent_activity_users = AsyncMock(

@@ -1,6 +1,7 @@
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import JSON, BigInteger, Boolean, Enum, Integer, String
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.enums import AccessMode, Currency
@@ -36,6 +37,10 @@ class Settings(BaseSql):
             validate_strings=True,
         ),
         nullable=False,
+    )
+    invite_mode_started_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
     default_currency: Mapped[Currency] = mapped_column(
         Enum(

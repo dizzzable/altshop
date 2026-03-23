@@ -1,6 +1,7 @@
 import traceback
 from typing import Any, Awaitable, Callable, Optional, cast
 
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import CallbackQuery, ErrorEvent, TelegramObject
 from aiogram.types import User as AiogramUser
 from aiogram.utils.formatting import Text
@@ -33,6 +34,12 @@ class ErrorMiddleware(EventTypedMiddleware):
         if locale == Locale.EN:
             return "⚠️ An error occurred. Dialog restarted."
         return "⚠️ Произошла ошибка. Диалог перезапущен."
+
+    @staticmethod
+    def _is_blocked_bot_exception(exception: Exception) -> bool:
+        return isinstance(exception, TelegramForbiddenError) and (
+            "blocked by the user" in str(exception).lower()
+        )
 
     async def _handle_lost_context_callback(
         self, callback: CallbackQuery, user: Optional[UserDto]
@@ -91,9 +98,15 @@ class ErrorMiddleware(EventTypedMiddleware):
         error_message = Text(str(exception)[:512])
 
         user: Optional[UserDto] = None
+        user_service: Optional[UserService] = None
         if aiogram_user:
-            user_service: UserService = await container.get(UserService)
+            user_service = await container.get(UserService)
             user = await user_service.get(telegram_id=aiogram_user.id)
+
+        if self._is_blocked_bot_exception(exception):
+            if user and user_service and not user.is_bot_blocked:
+                await user_service.set_bot_blocked(user=user, blocked=True)
+            return True
 
         if is_lost_context:
             if error_event.update.callback_query:

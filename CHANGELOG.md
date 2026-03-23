@@ -6,6 +6,25 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.13] - 2026-03-23
+
+### Added
+
+- unified access-mode policy now applies across the Telegram bot, web dashboard, and Telegram Mini App, including capability-based web access flags and a new `invite_mode_started_at` timestamp for invite-only grandfathering
+- regression coverage now checks safe direct `MainMenu` starts and middleware handling for users who blocked the bot
+
+### Changed
+
+- `INVITED` mode now keeps users who existed before invite-only was enabled fully operational, while newly created non-invited users are blocked consistently in bot, web, and mini app
+- `PURCHASE_BLOCKED` now behaves as a true cross-surface read-only purchase mode: subscriptions and devices stay visible, but buy, renew, upgrade, and trial actions are disabled everywhere
+- bot access denials no longer re-send the profile/main menu on every forbidden click; callback denials use alerts and message denials are rate-limited notices
+
+### Fixed
+
+- switching access modes no longer produces `TelegramForbiddenError: bot was blocked by the user` error files when recent-user menu refresh touches users who blocked the bot
+- direct `MainMenu` dialog starts now mark blocked users safely instead of crashing the dispatcher when the menu banner/photo cannot be delivered
+- web and Telegram Mini App now respect global access modes instead of letting users buy through the web when purchases are blocked globally
+
 ## [1.1.12] - 2026-03-23
 
 ### Added

@@ -57,14 +57,9 @@ async def validate_web_invite_code(
 
 
 def assert_web_general_access(user: UserDto, mode: AccessMode) -> None:
-    if user.is_privileged:
-        return
-
-    if mode == AccessMode.RESTRICTED:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=ACCESS_DENIED_SERVICE_RESTRICTED,
-        )
+    # Web and Telegram Mini App should keep the session available so the user can
+    # reach the access/settings notice flow instead of being hard-logged out.
+    return None
 
 
 def assert_web_purchase_access(user: UserDto, mode: AccessMode) -> None:

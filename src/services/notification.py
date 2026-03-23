@@ -2,6 +2,7 @@ import asyncio
 from typing import Any, Optional, cast
 
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from fluentogram import TranslatorHub
@@ -210,6 +211,14 @@ class NotificationService(BaseService):
 
             return sent_message
 
+        except TelegramForbiddenError:
+            logger.info(
+                "Skipping notification '{}' for '{}': bot was blocked by the user",
+                payload.i18n_key,
+                user.telegram_id,
+            )
+            await self._mark_user_as_bot_blocked(user.telegram_id)
+            return None
         except Exception as exception:
             logger.error(
                 f"Failed to send notification '{payload.i18n_key}' "
@@ -217,6 +226,18 @@ class NotificationService(BaseService):
                 exc_info=True,
             )
             return None
+
+    async def _mark_user_as_bot_blocked(self, telegram_id: int) -> None:
+        try:
+            user = await self.user_service.get(telegram_id)
+            if user and not user.is_bot_blocked:
+                await self.user_service.set_bot_blocked(user=user, blocked=True)
+        except Exception as exc:
+            logger.warning(
+                "Failed to mark user '{}' as bot-blocked after TelegramForbiddenError: {}",
+                telegram_id,
+                exc,
+            )
 
     async def _send_media_message(
         self,

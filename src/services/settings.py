@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from aiogram import Bot
 from fluentogram import TranslatorHub
@@ -24,6 +24,7 @@ from src.core.utils.branding import (
 from src.core.utils.branding import (
     resolve_localized_text as resolve_localized_branding_text,
 )
+from src.core.utils.time import datetime_now
 from src.core.utils.types import AnyNotification
 from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import (
@@ -65,7 +66,7 @@ class SettingsService(BaseService):
 
         await self._clear_cache()
         logger.info("Default settings created in DB")
-        return SettingsDto.from_model(db_settings)  # type: ignore[return-value]
+        return cast(SettingsDto, SettingsDto.from_model(db_settings))
 
     @redis_cache(prefix="get_settings", ttl=TIME_10M)
     async def get(self) -> SettingsDto:
@@ -75,7 +76,22 @@ class SettingsService(BaseService):
         else:
             logger.debug("Retrieved settings from DB")
 
-        return SettingsDto.from_model(db_settings)  # type: ignore[return-value]
+        settings = cast(SettingsDto, SettingsDto.from_model(db_settings))
+        if (
+            settings is not None
+            and settings.access_mode == AccessMode.INVITED
+            and settings.invite_mode_started_at is None
+        ):
+            logger.info(
+                "Backfilling invite_mode_started_at for already active INVITED access mode"
+            )
+            db_settings = await self.uow.repository.settings.update(
+                invite_mode_started_at=datetime_now()
+            )
+            await self._clear_cache()
+            return cast(SettingsDto, SettingsDto.from_model(db_settings))
+
+        return settings
 
     async def update(self, settings: SettingsDto) -> SettingsDto:
         if settings.user_notifications.changed_data:
@@ -128,7 +144,12 @@ class SettingsService(BaseService):
 
     async def set_access_mode(self, mode: AccessMode) -> None:
         settings = await self.get()
+        current_mode = settings.access_mode
         settings.access_mode = mode
+        if mode == AccessMode.INVITED and (
+            current_mode != AccessMode.INVITED or settings.invite_mode_started_at is None
+        ):
+            settings.invite_mode_started_at = datetime_now()
         await self.update(settings)
         logger.debug(f"Set access mode '{mode}'")
 

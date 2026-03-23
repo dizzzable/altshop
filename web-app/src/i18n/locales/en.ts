@@ -70,6 +70,8 @@ export const enDictionary: Dictionary = {
     'layout.forcePassword.errorDefault': 'Failed to change password',
     'layout.access.readOnlyBanner':
       'Channel verification is temporarily unavailable. Purchases and other account mutations are currently blocked.',
+    'layout.access.purchaseBlockedBanner':
+      'Purchases, renewals, and upgrades are temporarily disabled by the global access mode. The rest of the dashboard remains available.',
     'layout.access.openSettings': 'Open access settings',
     'header.nextDiscount': 'Next {value}%',
     'header.nextDiscountCompact': 'Next {value}%',
@@ -104,6 +106,8 @@ export const enDictionary: Dictionary = {
     'dashboard.subtitle': 'Manage your VPN subscriptions with clear usage and account context.',
     'dashboard.readOnlyNotice':
       'Your account is currently in read-only mode: purchases and product changes are temporarily disabled.',
+    'dashboard.purchaseBlockedNotice':
+      'Purchases are temporarily disabled by the global access mode. Viewing subscriptions and devices remains available.',
     'dashboard.activeTitle': 'Active Subscriptions',
     'dashboard.activeDesc': 'Sorted by expiration date with usage and device slot visibility.',
     'dashboard.activeBadge': '{active} active / {total} total',
@@ -932,8 +936,12 @@ export const enDictionary: Dictionary = {
     'purchase.quoteUnavailable': 'Failed to prepare payment. Try changing the options or refresh the page.',
     'purchase.readOnlyNotice':
       'Purchases are temporarily unavailable while channel verification is being restored.',
+    'purchase.purchaseBlockedNotice':
+      'Purchases, renewals, upgrades, and trial activation are temporarily disabled by the global access mode.',
     'subscription.readOnlyNotice':
       'Purchases, renewals and subscription deletion are temporarily unavailable while channel verification is down.',
+    'subscription.purchaseBlockedNotice':
+      'Purchases, renewals, upgrades, and purchase-related promocode flows are temporarily disabled by the global access mode.',
     'referrals.auto.001': 'Subscription days',
     'referrals.auto.002': 'Gift subscription',
     'referrals.auto.003': 'Purchase discount',

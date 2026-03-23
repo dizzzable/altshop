@@ -1,4 +1,4 @@
-import { useState, type ElementType } from 'react'
+import { useMemo, useState, type ElementType } from 'react'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { DashboardKpiCard } from '@/components/dashboard/DashboardKpiCard'
 import { DashboardQuickActions } from '@/components/dashboard/DashboardQuickActions'
@@ -25,6 +25,7 @@ import { useQuery } from '@tanstack/react-query'
 import { AlertCircle, CreditCard, Shield, Smartphone, Ticket, Users, Wallet } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import type { PartnerInfo } from '@/types'
+import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 
 function getCurrencyFractionDigits(currency: string): number {
   if (currency === 'BTC') {
@@ -62,7 +63,13 @@ export function DashboardPage() {
   const useMobileUiV2 = useMobileTelegramUiV2()
   const isPartnerActive = Boolean(user?.is_partner_active)
   const { data: accessStatus } = useAccessStatusQuery({ enabled: !authLoading })
-  const isReadOnlyAccess = accessStatus?.access_level === 'read_only'
+  const accessCapabilities = useMemo(
+    () => resolveAccessCapabilities(accessStatus),
+    [accessStatus]
+  )
+  const isReadOnlyAccess = accessCapabilities.isReadOnly
+  const isPurchaseBlocked = accessCapabilities.isPurchaseBlocked
+  const canPurchase = accessCapabilities.canPurchase
   const [kpiDialogOpen, setKpiDialogOpen] = useState(false)
 
   const subscriptionsQuery = useSubscriptionsQuery()
@@ -204,10 +211,14 @@ export function DashboardPage() {
           )}
         </div>
 
-        {isReadOnlyAccess && (
+        {(isReadOnlyAccess || isPurchaseBlocked) && (
           <Card className="border-amber-300/25 bg-amber-500/10">
             <CardContent className="py-4">
-              <p className="text-sm text-amber-100">{t('dashboard.readOnlyNotice')}</p>
+              <p className="text-sm text-amber-100">
+                {isPurchaseBlocked
+                  ? t('dashboard.purchaseBlockedNotice')
+                  : t('dashboard.readOnlyNotice')}
+              </p>
             </CardContent>
           </Card>
         )}
@@ -249,8 +260,8 @@ export function DashboardPage() {
                   <CreditCard className="mx-auto mb-4 h-10 w-10 text-slate-500" />
                   <p className="text-base font-medium text-slate-100">{t('dashboard.noActiveTitle')}</p>
                   <p className="mt-1 text-sm text-slate-400">{t('dashboard.noActiveDesc')}</p>
-                  <Button asChild={!isReadOnlyAccess} className="mt-5" disabled={isReadOnlyAccess}>
-                    {isReadOnlyAccess ? (
+                  <Button asChild={canPurchase} className="mt-5" disabled={!canPurchase}>
+                    {!canPurchase ? (
                       <span>{t('dashboard.purchase')}</span>
                     ) : (
                       <Link to="/dashboard/subscription/purchase">{t('dashboard.purchase')}</Link>

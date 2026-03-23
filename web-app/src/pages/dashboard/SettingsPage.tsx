@@ -20,6 +20,7 @@ import {
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { api, clearLegacyAuthStorage } from '@/lib/api'
+import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { getPaymentGatewayDisplayName } from '@/lib/payment-gateway-icons'
 import { readLocaleOverride } from '@/lib/locale'
 import {
@@ -291,8 +292,9 @@ export function SettingsPage() {
   const operationHistoryTotal = operationHistoryData?.total || 0
   const operationHistoryTotalPages = Math.max(1, Math.ceil(operationHistoryTotal / OPERATION_HISTORY_PAGE_SIZE))
   const unmetRequirements = new Set(accessStatus?.unmet_requirements || [])
-  const isReadOnlyAccess = accessStatus?.access_level === 'read_only'
-  const isAccessRestricted = Boolean(accessStatus && accessStatus.access_level !== 'full')
+  const accessCapabilities = resolveAccessCapabilities(accessStatus)
+  const isReadOnlyAccess = accessCapabilities.isReadOnly
+  const isAccessRestricted = accessCapabilities.shouldRedirectToAccessScreen || isReadOnlyAccess
   const isChannelVerificationUnavailable = Boolean(
     accessStatus?.channel_check_status === 'unavailable'
     || unmetRequirements.has('CHANNEL_VERIFICATION_UNAVAILABLE')

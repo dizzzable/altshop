@@ -1,6 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { useI18n } from '@/components/common/I18nProvider'
 import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
+import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { cn } from '@/lib/utils'
 import { CreditCard, Smartphone, Ticket } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -29,14 +30,15 @@ const actions = [
 export function DashboardQuickActions() {
   const { t } = useI18n()
   const { data: accessStatus } = useAccessStatusQuery()
-  const isReadOnlyAccess = accessStatus?.access_level === 'read_only'
+  const accessCapabilities = resolveAccessCapabilities(accessStatus)
 
   return (
     <section className="space-y-3">
       <h2 className="text-lg font-semibold text-slate-100">{t('quickActions.title')}</h2>
       <div className="grid gap-3 sm:grid-cols-3">
         {actions.map((action) => {
-          const isDisabled = isReadOnlyAccess && action.href === '/dashboard/subscription/purchase'
+          const isDisabled =
+            action.href === '/dashboard/subscription/purchase' && !accessCapabilities.canPurchase
           const content = (
             <Card
               className={cn(

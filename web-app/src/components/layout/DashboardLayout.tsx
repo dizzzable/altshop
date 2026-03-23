@@ -6,6 +6,7 @@ import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
 import { api, clearLegacyAuthStorage } from '@/lib/api'
+import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { sendWebTelemetryEvent } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 import {
@@ -106,7 +107,13 @@ export function DashboardLayout() {
     () => Boolean(forceMobileShell && resolveMobileNavRootHref(location.pathname, isPartnerActive)),
     [forceMobileShell, isPartnerActive, location.pathname]
   )
-  const isReadOnlyAccess = accessStatus?.access_level === 'read_only'
+  const accessCapabilities = useMemo(
+    () => resolveAccessCapabilities(accessStatus),
+    [accessStatus]
+  )
+  const isReadOnlyAccess = accessCapabilities.isReadOnly
+  const isPurchaseBlocked = accessCapabilities.isPurchaseBlocked
+  const canPurchase = accessCapabilities.canPurchase
   const authSource =
     typeof window !== 'undefined' ? window.sessionStorage.getItem('auth_source') : null
   const isMiniAppBootstrapSession = authSource === 'telegram-miniapp'
@@ -132,6 +139,17 @@ export function DashboardLayout() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (!user || !accessCapabilities.shouldRedirectToAccessScreen) {
+      return
+    }
+    if (location.pathname === '/dashboard/settings') {
+      return
+    }
+
+    navigate('/dashboard/settings?access_blocked=1', { replace: true })
+  }, [accessCapabilities.shouldRedirectToAccessScreen, location.pathname, navigate, user])
 
   useEffect(() => {
     const shouldOpen = Boolean(
@@ -291,7 +309,7 @@ export function DashboardLayout() {
       setOpenBootstrapPrompt(false)
       setBootstrapError(null)
 
-      if (hasPendingTelegramMiniAppOnboarding() && !isReadOnlyAccess) {
+      if (hasPendingTelegramMiniAppOnboarding() && canPurchase) {
         try {
           const { data: trialEligibility } = await api.subscription.trialEligibility()
           if (trialEligibility.eligible && trialEligibility.trial_plan_id !== null) {
@@ -335,6 +353,12 @@ export function DashboardLayout() {
   }
 
   const handleActivateTrialOnboarding = async () => {
+    if (!canPurchase) {
+      setTrialOnboardingError(
+        isPurchaseBlocked ? t('purchase.purchaseBlockedNotice') : t('purchase.readOnlyNotice')
+      )
+      return
+    }
     setIsActivatingTrialOnboarding(true)
     setTrialOnboardingError(null)
     try {
@@ -482,10 +506,14 @@ export function DashboardLayout() {
                 routeSwipeAnimation === 'prev' && 'dashboard-route-swipe-prev'
               )}
             >
-              {isReadOnlyAccess && (
+              {(isReadOnlyAccess || isPurchaseBlocked) && (
                 <Alert className="mb-4 border-amber-300/25 bg-amber-500/10 text-amber-50">
                   <AlertDescription className="flex flex-col gap-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                    <span>{t('layout.access.readOnlyBanner')}</span>
+                    <span>
+                      {isPurchaseBlocked
+                        ? t('layout.access.purchaseBlockedBanner')
+                        : t('layout.access.readOnlyBanner')}
+                    </span>
                     <Button
                       type="button"
                       size="sm"

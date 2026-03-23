@@ -606,6 +606,11 @@ export interface AccessStatus {
   verification_bot_link?: string | null
   unmet_requirements: AccessUnmetRequirementCode[]
   can_use_product_features: boolean
+  can_view_product_screens: boolean
+  can_mutate_product: boolean
+  can_purchase: boolean
+  should_redirect_to_access_screen: boolean
+  invite_locked: boolean
 }
 
 export interface WebAccessBlockedErrorDetail {

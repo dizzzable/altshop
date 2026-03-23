@@ -110,6 +110,11 @@ class AccessStatusResponse(BaseModel):
     verification_bot_link: str | None = None
     unmet_requirements: list[str]
     can_use_product_features: bool
+    can_view_product_screens: bool
+    can_mutate_product: bool
+    can_purchase: bool
+    should_redirect_to_access_screen: bool
+    invite_locked: bool
 
 
 def _build_auth_me_response(profile: UserProfileSnapshot) -> AuthMeResponse:
@@ -238,6 +243,11 @@ def _build_access_status_response(access_status: WebAccessStatus) -> AccessStatu
         verification_bot_link=access_status.verification_bot_link,
         unmet_requirements=access_status.unmet_requirements,
         can_use_product_features=access_status.can_use_product_features,
+        can_view_product_screens=access_status.can_view_product_screens,
+        can_mutate_product=access_status.can_mutate_product,
+        can_purchase=access_status.can_purchase,
+        should_redirect_to_access_screen=access_status.should_redirect_to_access_screen,
+        invite_locked=access_status.invite_locked,
     )
 
 

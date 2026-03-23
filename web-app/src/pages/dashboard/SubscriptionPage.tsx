@@ -5,6 +5,7 @@ import { useAuth } from '@/components/auth/AuthProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
+import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -100,12 +101,12 @@ interface SubscriptionCardActionState {
 
 function getSubscriptionCardActionState(
   subscription: Subscription,
-  canMutateSubscriptions: boolean,
+  canPurchaseSubscriptions: boolean,
   multiRenewMode: boolean
 ): SubscriptionCardActionState {
-  const canRenew = canMutateSubscriptions && canRenewSubscription(subscription)
-  const canUpgrade = canMutateSubscriptions && canUpgradeSubscription(subscription)
-  const canMultiRenew = canMutateSubscriptions && canMultiRenewSubscription(subscription)
+  const canRenew = canPurchaseSubscriptions && canRenewSubscription(subscription)
+  const canUpgrade = canPurchaseSubscriptions && canUpgradeSubscription(subscription)
+  const canMultiRenew = canPurchaseSubscriptions && canMultiRenewSubscription(subscription)
 
   return {
     canRenew,
@@ -157,8 +158,17 @@ export function SubscriptionPage() {
     title: string
     message: string
   } | null>(null)
-  const isReadOnlyAccess = accessStatus?.access_level === 'read_only'
-  const canMutateSubscriptions = !isReadOnlyAccess
+  const accessCapabilities = useMemo(
+    () => resolveAccessCapabilities(accessStatus),
+    [accessStatus]
+  )
+  const isReadOnlyAccess = accessCapabilities.isReadOnly
+  const isPurchaseBlocked = accessCapabilities.isPurchaseBlocked
+  const canMutateSubscriptions = accessCapabilities.canMutateProduct
+  const canPurchaseSubscriptions = accessCapabilities.canPurchase
+  const purchaseAccessNotice = isPurchaseBlocked
+    ? t('subscription.purchaseBlockedNotice')
+    : t('subscription.readOnlyNotice')
 
   const { data: subscriptions = [], isLoading } = useSubscriptionsQuery({ pollWhenVisible: true })
 
@@ -286,8 +296,8 @@ export function SubscriptionPage() {
   }
 
   const handleMobileLongPressSelection = (id: number) => {
-    if (!canMutateSubscriptions) {
-      toast.error(t('subscription.readOnlyNotice'))
+    if (!canPurchaseSubscriptions) {
+      toast.error(purchaseAccessNotice)
       return
     }
 
@@ -324,6 +334,10 @@ export function SubscriptionPage() {
   }
 
   const toggleMultiRenewMode = () => {
+    if (!canPurchaseSubscriptions) {
+      toast.error(purchaseAccessNotice)
+      return
+    }
     if (isMultiRenewMode) {
       setIsMultiRenewMode(false)
       setSelectedRenewIds([])
@@ -333,8 +347,8 @@ export function SubscriptionPage() {
   }
 
   const handleToggleRenewSelection = (id: number) => {
-    if (!canMutateSubscriptions) {
-      toast.error(t('subscription.readOnlyNotice'))
+    if (!canPurchaseSubscriptions) {
+      toast.error(purchaseAccessNotice)
       return
     }
 
@@ -356,8 +370,8 @@ export function SubscriptionPage() {
   }
 
   const handleRenewSelected = () => {
-    if (!canMutateSubscriptions) {
-      toast.error(t('subscription.readOnlyNotice'))
+    if (!canPurchaseSubscriptions) {
+      toast.error(purchaseAccessNotice)
       return
     }
 
@@ -480,6 +494,10 @@ export function SubscriptionPage() {
 
   const handlePromocodeActivate = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (!canPurchaseSubscriptions) {
+      toast.error(purchaseAccessNotice)
+      return
+    }
     const normalizedCode = promocodeInput.trim().toUpperCase()
     if (!normalizedCode) {
       toast.error(t('promocodes.enterPromocode'))
@@ -492,6 +510,10 @@ export function SubscriptionPage() {
   }
 
   const handlePromocodeConfirm = () => {
+    if (!canPurchaseSubscriptions) {
+      toast.error(purchaseAccessNotice)
+      return
+    }
     if (!pendingPromocode || !pendingPromocodeResult) {
       return
     }
@@ -521,6 +543,10 @@ export function SubscriptionPage() {
   }
 
   const handleStoredPromocodeActivate = (storedCode: string) => {
+    if (!canPurchaseSubscriptions) {
+      toast.error(purchaseAccessNotice)
+      return
+    }
     const normalizedCode = storedCode.trim().toUpperCase()
     if (!normalizedCode) {
       return
@@ -546,10 +572,10 @@ export function SubscriptionPage() {
   return (
     <>
       <div className="space-y-6">
-        {isReadOnlyAccess && (
+        {(isReadOnlyAccess || isPurchaseBlocked) && (
           <Card className="border-amber-300/25 bg-amber-500/10">
             <CardContent className="py-4">
-              <p className="text-sm text-amber-100">{t('subscription.readOnlyNotice')}</p>
+              <p className="text-sm text-amber-100">{purchaseAccessNotice}</p>
             </CardContent>
           </Card>
         )}
@@ -576,6 +602,7 @@ export function SubscriptionPage() {
                   setPromocodeStatus(null)
                   setPromocodeDialogOpen(true)
                 }}
+                disabled={!canPurchaseSubscriptions}
               >
                 <Ticket className="h-4 w-4" />
               </Button>
@@ -588,7 +615,7 @@ export function SubscriptionPage() {
                 )}
                 aria-label={t('subscription.mobile.action.multiRenew')}
                 onClick={toggleMultiRenewMode}
-                disabled={isReadOnlyAccess || !renewableSubscriptions.length}
+                disabled={!canPurchaseSubscriptions || !renewableSubscriptions.length}
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
@@ -597,7 +624,7 @@ export function SubscriptionPage() {
                 className="h-11 w-11 bg-primary text-primary-foreground hover:bg-primary/90"
                 aria-label={t('subscription.mobile.action.purchase')}
                 onClick={() => navigate('/dashboard/subscription/purchase')}
-                disabled={isReadOnlyAccess}
+                disabled={!canPurchaseSubscriptions}
               >
                 <ShoppingCart className="h-4 w-4" />
               </Button>
@@ -620,6 +647,7 @@ export function SubscriptionPage() {
                   setPromocodeStatus(null)
                   setPromocodeDialogOpen(true)
                 }}
+                disabled={!canPurchaseSubscriptions}
               >
                 {t('subscription.activatePromocode')}
               </Button>
@@ -630,7 +658,7 @@ export function SubscriptionPage() {
                   isMobileActions ? 'w-full' : 'w-full sm:w-auto'
                 )}
                 onClick={toggleMultiRenewMode}
-                disabled={isReadOnlyAccess || !renewableSubscriptions.length}
+                disabled={!canPurchaseSubscriptions || !renewableSubscriptions.length}
               >
                 {isMultiRenewMode ? t('subscription.cancelMultiRenew') : t('subscription.renewMultiple')}
               </Button>
@@ -640,7 +668,7 @@ export function SubscriptionPage() {
                   isMobileActions ? 'w-full' : 'w-full sm:w-auto'
                 )}
                 onClick={() => navigate('/dashboard/subscription/purchase')}
-                disabled={isReadOnlyAccess}
+                disabled={!canPurchaseSubscriptions}
               >
                 {t('subscription.purchaseNew')}
               </Button>
@@ -675,7 +703,7 @@ export function SubscriptionPage() {
                 <Button
                   className={cn(useMobileTelegramUiV2 ? 'flex-1' : '')}
                   onClick={handleRenewSelected}
-                  disabled={isReadOnlyAccess || !selectedRenewIds.length}
+                  disabled={!canPurchaseSubscriptions || !selectedRenewIds.length}
                 >
                   {t('subscription.renewSelected')}
                 </Button>
@@ -744,7 +772,7 @@ export function SubscriptionPage() {
               {subscriptions.map((sub) => {
                 const actions = getSubscriptionCardActionState(
                   sub,
-                  canMutateSubscriptions,
+                  canPurchaseSubscriptions,
                   isMultiRenewMode
                 )
 
@@ -770,7 +798,7 @@ export function SubscriptionPage() {
               {subscriptions.map((sub) => {
                 const actions = getSubscriptionCardActionState(
                   sub,
-                  canMutateSubscriptions,
+                  canPurchaseSubscriptions,
                   isMultiRenewMode
                 )
 
@@ -803,7 +831,7 @@ export function SubscriptionPage() {
                 <Button
                   className="bg-primary text-primary-foreground hover:bg-primary/90"
                   onClick={() => navigate('/dashboard/subscription/purchase')}
-                  disabled={isReadOnlyAccess}
+                  disabled={!canPurchaseSubscriptions}
                 >
                   {t('subscription.emptyCta')}
                 </Button>
@@ -879,7 +907,7 @@ export function SubscriptionPage() {
               subscription={activeSubscriptionDetails}
               actions={getSubscriptionCardActionState(
                 activeSubscriptionDetails,
-                canMutateSubscriptions,
+                canPurchaseSubscriptions,
                 false
               )}
               canDelete={canMutateSubscriptions}

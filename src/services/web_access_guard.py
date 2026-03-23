@@ -17,6 +17,7 @@ from src.core.observability import emit_counter
 from src.core.storage.key_builder import build_key
 from src.infrastructure.database.models.dto import SettingsDto, UserDto, WebAccountDto
 from src.infrastructure.redis import RedisRepository
+from src.services.access_policy import AccessModePolicyService
 from src.services.base import BaseService
 from src.services.settings import SettingsService
 from src.services.web_account import WebAccountService
@@ -68,6 +69,11 @@ class WebAccessStatus:
     verification_bot_link: str | None
     unmet_requirements: list[UnmetRequirementCode]
     can_use_product_features: bool
+    can_view_product_screens: bool
+    can_mutate_product: bool
+    can_purchase: bool
+    should_redirect_to_access_screen: bool
+    invite_locked: bool
 
 
 @dataclass(slots=True)
@@ -87,10 +93,12 @@ class WebAccessGuardService(BaseService):
         #
         settings_service: SettingsService,
         web_account_service: WebAccountService,
+        access_mode_policy_service: AccessModePolicyService,
     ) -> None:
         super().__init__(config, bot, redis_client, redis_repository, translator_hub)
         self.settings_service = settings_service
         self.web_account_service = web_account_service
+        self.access_mode_policy_service = access_mode_policy_service
 
     async def evaluate_user_access(
         self,
@@ -99,6 +107,7 @@ class WebAccessGuardService(BaseService):
         force_channel_recheck: bool = False,
     ) -> WebAccessStatus:
         settings = await self.settings_service.get()
+        mode_policy = self.access_mode_policy_service.resolve(user=user, settings=settings)
         verification_bot_link = await self.get_verification_bot_link()
 
         if user.is_privileged:
@@ -121,6 +130,11 @@ class WebAccessGuardService(BaseService):
                 verification_bot_link=verification_bot_link,
                 unmet_requirements=[],
                 can_use_product_features=True,
+                can_view_product_screens=True,
+                can_mutate_product=True,
+                can_purchase=True,
+                should_redirect_to_access_screen=False,
+                invite_locked=False,
             )
 
         web_account = await self.web_account_service.get_by_user_telegram_id(user.telegram_id)
@@ -157,12 +171,15 @@ class WebAccessGuardService(BaseService):
         if channel_required and telegram_linked and channel_result.status == "unavailable":
             unmet_requirements.append(CHANNEL_VERIFICATION_UNAVAILABLE)
 
-        if not unmet_requirements:
-            access_level: AccessLevel = "full"
-        elif unmet_requirements == [CHANNEL_VERIFICATION_UNAVAILABLE]:
-            access_level = "read_only"
-        else:
-            access_level = "blocked"
+        access_level = self._resolve_access_level(
+            unmet_requirements=unmet_requirements,
+            should_redirect_to_access_screen=mode_policy.should_redirect_to_access_screen,
+        )
+        can_view_product_screens = (
+            mode_policy.can_view_product_screens and access_level != "blocked"
+        )
+        can_mutate_product = mode_policy.can_mutate_product and access_level == "full"
+        can_purchase = mode_policy.can_purchase and access_level == "full"
 
         return WebAccessStatus(
             access_mode=settings.access_mode.value,
@@ -181,7 +198,30 @@ class WebAccessGuardService(BaseService):
             verification_bot_link=verification_bot_link,
             unmet_requirements=unmet_requirements,
             can_use_product_features=access_level == "full",
+            can_view_product_screens=can_view_product_screens,
+            can_mutate_product=can_mutate_product,
+            can_purchase=can_purchase,
+            should_redirect_to_access_screen=mode_policy.should_redirect_to_access_screen
+            or access_level == "blocked",
+            invite_locked=mode_policy.invite_locked,
         )
+
+    @staticmethod
+    def _resolve_access_level(
+        *,
+        unmet_requirements: list[UnmetRequirementCode],
+        should_redirect_to_access_screen: bool,
+    ) -> AccessLevel:
+        if should_redirect_to_access_screen:
+            return "blocked"
+
+        if not unmet_requirements:
+            return "full"
+
+        if unmet_requirements == [CHANNEL_VERIFICATION_UNAVAILABLE]:
+            return "read_only"
+
+        return "blocked"
 
     @staticmethod
     def assert_can_use_product_features(

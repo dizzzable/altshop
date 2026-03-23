@@ -70,6 +70,8 @@ export const ruDictionary: Dictionary = {
     'layout.forcePassword.errorDefault': 'Не удалось сменить пароль',
     'layout.access.readOnlyBanner':
       'Проверка подписки на канал временно недоступна. Покупки и другие изменения аккаунта сейчас заблокированы.',
+    'layout.access.purchaseBlockedBanner':
+      'Покупки, продления и улучшения временно отключены глобальным режимом доступа. Остальные разделы кабинета продолжают работать.',
     'layout.access.openSettings': 'Открыть настройки доступа',
     'header.nextDiscount': 'Следующая {value}%',
     'header.nextDiscountCompact': 'Покупка {value}%',
@@ -104,6 +106,8 @@ export const ruDictionary: Dictionary = {
     'dashboard.subtitle': 'Управляйте VPN-подписками: лимитами, трафиком и устройствами.',
     'dashboard.readOnlyNotice':
       'Аккаунт работает в режиме только чтение: покупать и менять данные продукта пока нельзя.',
+    'dashboard.purchaseBlockedNotice':
+      'Покупки временно отключены глобальным режимом доступа. Просмотр подписок и устройств остаётся доступным.',
     'dashboard.activeTitle': 'Активные подписки',
     'dashboard.activeDesc': 'Сортировка по сроку действия с видимостью трафика и устройств.',
     'dashboard.activeBadge': '{active} активных / {total} всего',
@@ -933,8 +937,12 @@ export const ruDictionary: Dictionary = {
     'purchase.quoteUnavailable': 'Не удалось подготовить оплату. Попробуйте изменить параметры или обновить страницу.',
     'purchase.readOnlyNotice':
       'Покупки временно недоступны, пока проверка канала не восстановлена.',
+    'purchase.purchaseBlockedNotice':
+      'Покупки, продления, улучшения и пробный доступ временно отключены глобальным режимом доступа.',
     'subscription.readOnlyNotice':
       'Покупки, продления и удаление подписок временно недоступны, пока проверка канала не восстановлена.',
+    'subscription.purchaseBlockedNotice':
+      'Покупки, продления, улучшения и активация покупочных сценариев временно отключены глобальным режимом доступа.',
     'referrals.auto.001': 'Дни подписки',
     'referrals.auto.002': 'Подарочная подписка',
     'referrals.auto.003': 'Скидка на покупку',

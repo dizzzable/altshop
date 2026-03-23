@@ -1,4 +1,5 @@
 import { api } from '@/lib/api'
+import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { sendWebTelemetryEvent } from '@/lib/telemetry'
 
 export type DeviceMode = 'telegram-mobile' | 'telegram-desktop' | 'web'
@@ -57,7 +58,8 @@ export async function resolvePostLoginPathWithAccess(
   const sourcePath = resolveCurrentSourcePath()
   try {
     const { data } = await api.auth.getAccessStatus()
-    if (data.access_level !== 'full') {
+    const accessCapabilities = resolveAccessCapabilities(data)
+    if (accessCapabilities.shouldRedirectToAccessScreen) {
       const blockedPath = '/dashboard/settings?access_blocked=1'
       const telegramWebApp = resolveTelegramWebApp()
       sendWebTelemetryEvent({
@@ -73,6 +75,7 @@ export async function resolvePostLoginPathWithAccess(
           next_path: blockedPath,
           access_blocked: true,
           access_level: data.access_level,
+          access_mode: data.access_mode,
           channel_check_status: data.channel_check_status,
         },
       })

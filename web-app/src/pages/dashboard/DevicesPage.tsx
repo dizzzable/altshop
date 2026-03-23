@@ -6,6 +6,7 @@ import { useI18n } from '@/components/common/I18nProvider'
 import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
+import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -107,6 +108,10 @@ export function DevicesPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
   const { data: accessStatus } = useAccessStatusQuery()
+  const accessCapabilities = useMemo(
+    () => resolveAccessCapabilities(accessStatus),
+    [accessStatus]
+  )
 
   const querySubscription = searchParams.get('subscription')
   const parsedSubscriptionId = querySubscription ? Number(querySubscription) : null
@@ -119,7 +124,7 @@ export function DevicesPage() {
   const [generatedLink, setGeneratedLink] = useState<string | null>(null)
   const [assignmentDeviceType, setAssignmentDeviceType] = useState<DeviceType>('OTHER')
   const [deviceToDelete, setDeviceToDelete] = useState<string | null>(null)
-  const isReadOnlyAccess = accessStatus?.access_level === 'read_only'
+  const isReadOnlyAccess = accessCapabilities.isReadOnly
 
   const { data: subscriptions = [], isLoading: subscriptionsLoading } = useSubscriptionsQuery()
 
