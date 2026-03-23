@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/components/auth/AuthProvider'
+import { useBranding } from '@/components/common/BrandingProvider'
 import { Button } from '@/components/ui/button'
 import { useI18n } from '@/components/common/I18nProvider'
 import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
@@ -86,6 +87,7 @@ export function MiniAppLandingPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useI18n()
+  const { projectName } = useBranding()
   const { isAuthenticated } = useAuth()
   const [showAuthError] = useState(() => {
     if (typeof window === 'undefined') {
@@ -180,7 +182,7 @@ export function MiniAppLandingPage() {
                 <Shield className="h-4 w-4" />
               </span>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">AltShop</p>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-400">{projectName}</p>
                 <p className="text-sm font-semibold text-slate-100">{t('miniapp.navLabel')}</p>
               </div>
             </div>

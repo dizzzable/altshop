@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useI18n } from '@/components/common/I18nProvider'
+import { useBranding } from '@/components/common/BrandingProvider'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -115,6 +116,7 @@ export function LandingPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useI18n()
+  const { projectName } = useBranding()
   const { isReady, isInTelegram, initData, launchContext, deviceMode } = useTelegramWebApp()
 
   const handleLogin = () => navigate('/auth/login')
@@ -178,7 +180,7 @@ export function LandingPage() {
               <Shield className="h-4 w-4" />
             </span>
             <span>
-              <span className="block text-[11px] uppercase tracking-[0.18em] text-slate-400">AltShop</span>
+              <span className="block text-[11px] uppercase tracking-[0.18em] text-slate-400">{projectName}</span>
               <span className="block text-sm font-semibold text-slate-100">{t('landing.navLabel')}</span>
             </span>
           </button>
@@ -273,7 +275,7 @@ export function LandingPage() {
         <section className="mx-auto max-w-[1240px] px-4 py-8 sm:px-6 lg:py-14">
           <div className="mb-8 flex items-end justify-between gap-4">
             <div>
-              <h2 className="text-3xl font-semibold text-white">{t('landing.whyTitle', { project: 'AltShop' })}</h2>
+              <h2 className="text-3xl font-semibold text-white">{t('landing.whyTitle', { project: projectName })}</h2>
               <p className="mt-2 max-w-2xl text-sm text-slate-400">
                 {t('landing.whySubtitle')}
               </p>
@@ -399,7 +401,7 @@ export function LandingPage() {
 
       <footer className="border-t border-white/10 bg-black/20">
         <div className="mx-auto flex max-w-[1240px] flex-col items-center justify-between gap-3 px-4 py-7 text-sm text-slate-400 sm:flex-row sm:px-6">
-          <p>(c) 2026 AltShop. {t('landing.footer')}</p>
+          <p>(c) 2026 {projectName}. {t('landing.footer')}</p>
           <div className="flex items-center gap-4">
             <a className="transition-colors hover:text-slate-200" href="/privacy-policy">
               {t('landing.privacyPolicy')}

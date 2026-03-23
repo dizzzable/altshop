@@ -26,7 +26,7 @@ from .handlers import on_logs_request, on_user_role_remove, on_user_select
 
 remnashop = Window(
     Banner(BannerName.DASHBOARD),
-    I18nFormat("msg-remnashop-main"),
+    I18nFormat("msg-remnashop-main", project_name=F["project_name"]),
     Row(
         SwitchTo(
             text=I18nFormat("btn-remnashop-admins"),

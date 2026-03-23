@@ -90,6 +90,32 @@ function canMultiRenewSubscription(subscription: Subscription): boolean {
   return subscription.can_multi_renew
 }
 
+interface SubscriptionCardActionState {
+  canRenew: boolean
+  canUpgrade: boolean
+  canMultiRenew: boolean
+  showRenew: boolean
+  showUpgrade: boolean
+}
+
+function getSubscriptionCardActionState(
+  subscription: Subscription,
+  canMutateSubscriptions: boolean,
+  multiRenewMode: boolean
+): SubscriptionCardActionState {
+  const canRenew = canMutateSubscriptions && canRenewSubscription(subscription)
+  const canUpgrade = canMutateSubscriptions && canUpgradeSubscription(subscription)
+  const canMultiRenew = canMutateSubscriptions && canMultiRenewSubscription(subscription)
+
+  return {
+    canRenew,
+    canUpgrade,
+    canMultiRenew,
+    showRenew: canRenew && !multiRenewMode,
+    showUpgrade: canUpgrade && !multiRenewMode,
+  }
+}
+
 function extractErrorDetail(error: unknown): string | null {
   const detail = (
     error as { response?: { data?: { detail?: unknown } } }
@@ -715,44 +741,56 @@ export function SubscriptionPage() {
         {subscriptions.length > 0 && (
           useMobileTelegramUiV2 ? (
             <div className="space-y-2">
-              {subscriptions.map((sub) => (
-                <MobileSubscriptionCard
-                  key={sub.id}
-                  subscription={sub}
-                  canRenew={canMutateSubscriptions && canRenewSubscription(sub)}
-                  canUpgrade={canMutateSubscriptions && canUpgradeSubscription(sub)}
-                  canMultiRenew={canMutateSubscriptions && canMultiRenewSubscription(sub)}
-                  multiRenewMode={isMultiRenewMode}
-                  isSelectedForRenew={selectedRenewIds.includes(sub.id)}
-                  onPress={handleMobileCardPress}
-                  onLongPressSelect={handleMobileLongPressSelection}
-                  onToggleRenewSelection={handleToggleRenewSelection}
-                  onConnect={handleConnect}
-                  onRenew={(id) => navigate(`/dashboard/subscription/${id}/renew`)}
-                  onUpgrade={(id) => navigate(`/dashboard/subscription/${id}/upgrade`)}
-                />
-              ))}
+              {subscriptions.map((sub) => {
+                const actions = getSubscriptionCardActionState(
+                  sub,
+                  canMutateSubscriptions,
+                  isMultiRenewMode
+                )
+
+                return (
+                  <MobileSubscriptionCard
+                    key={sub.id}
+                    subscription={sub}
+                    actions={actions}
+                    multiRenewMode={isMultiRenewMode}
+                    isSelectedForRenew={selectedRenewIds.includes(sub.id)}
+                    onPress={handleMobileCardPress}
+                    onLongPressSelect={handleMobileLongPressSelection}
+                    onToggleRenewSelection={handleToggleRenewSelection}
+                    onConnect={handleConnect}
+                    onRenew={(id) => navigate(`/dashboard/subscription/${id}/renew`)}
+                    onUpgrade={(id) => navigate(`/dashboard/subscription/${id}/upgrade`)}
+                  />
+                )
+              })}
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-              {subscriptions.map((sub) => (
-                <SubscriptionCard
-                  key={sub.id}
-                  subscription={sub}
-                  onRenew={(id) => navigate(`/dashboard/subscription/${id}/renew`)}
-                  onUpgrade={(id) => navigate(`/dashboard/subscription/${id}/upgrade`)}
-                  onManageDevices={(id) => navigate(`/dashboard/devices?subscription=${id}`)}
-                  onConnect={handleConnect}
-                  canRenew={canMutateSubscriptions && canRenewSubscription(sub)}
-                  canUpgrade={canMutateSubscriptions && canUpgradeSubscription(sub)}
-                  canMultiRenew={canMutateSubscriptions && canMultiRenewSubscription(sub)}
-                  canDelete={canMutateSubscriptions}
-                  multiRenewMode={isMultiRenewMode}
-                  isSelectedForRenew={selectedRenewIds.includes(sub.id)}
-                  onToggleRenewSelection={handleToggleRenewSelection}
-                  onDelete={(id) => handleDelete(id)}
-                />
-              ))}
+              {subscriptions.map((sub) => {
+                const actions = getSubscriptionCardActionState(
+                  sub,
+                  canMutateSubscriptions,
+                  isMultiRenewMode
+                )
+
+                return (
+                  <SubscriptionCard
+                    key={sub.id}
+                    subscription={sub}
+                    actions={actions}
+                    onRenew={(id) => navigate(`/dashboard/subscription/${id}/renew`)}
+                    onUpgrade={(id) => navigate(`/dashboard/subscription/${id}/upgrade`)}
+                    onManageDevices={(id) => navigate(`/dashboard/devices?subscription=${id}`)}
+                    onConnect={handleConnect}
+                    canDelete={canMutateSubscriptions}
+                    multiRenewMode={isMultiRenewMode}
+                    isSelectedForRenew={selectedRenewIds.includes(sub.id)}
+                    onToggleRenewSelection={handleToggleRenewSelection}
+                    onDelete={(id) => handleDelete(id)}
+                  />
+                )
+              })}
             </div>
           )
         )}
@@ -839,8 +877,11 @@ export function SubscriptionPage() {
           {activeSubscriptionDetails && (
             <MobileSubscriptionDetailsContent
               subscription={activeSubscriptionDetails}
-              canRenew={canMutateSubscriptions && canRenewSubscription(activeSubscriptionDetails)}
-              canUpgrade={canMutateSubscriptions && canUpgradeSubscription(activeSubscriptionDetails)}
+              actions={getSubscriptionCardActionState(
+                activeSubscriptionDetails,
+                canMutateSubscriptions,
+                false
+              )}
               canDelete={canMutateSubscriptions}
               onConnect={handleConnect}
               onRenew={(id) => navigate(`/dashboard/subscription/${id}/renew`)}
@@ -1090,9 +1131,7 @@ function getSubscriptionStatusLabelKey(status: Subscription['status']): string {
 
 interface MobileSubscriptionCardProps {
   subscription: Subscription
-  canRenew: boolean
-  canUpgrade: boolean
-  canMultiRenew: boolean
+  actions: SubscriptionCardActionState
   multiRenewMode: boolean
   isSelectedForRenew: boolean
   onPress: (subscription: Subscription) => void
@@ -1105,9 +1144,7 @@ interface MobileSubscriptionCardProps {
 
 function MobileSubscriptionCard({
   subscription,
-  canRenew,
-  canUpgrade,
-  canMultiRenew,
+  actions,
   multiRenewMode,
   isSelectedForRenew,
   onPress,
@@ -1134,6 +1171,7 @@ function MobileSubscriptionCard({
     ? `${formatBytes(subscription.traffic_used)} / ${unlimitedLabel}`
     : `${formatBytes(subscription.traffic_used)} / ${formatBytes(trafficLimitBytes)}`
   const deviceSummary = getSubscriptionDeviceSummary(subscription, t)
+  const { canRenew, canUpgrade, canMultiRenew, showUpgrade } = actions
 
   const clearPressTimer = () => {
     if (pressTimerRef.current) {
@@ -1345,24 +1383,26 @@ function MobileSubscriptionCard({
           >
             <RefreshCw className="h-4 w-4" />
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            disabled={!canUpgrade}
-            className="h-11 w-11 border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
-            aria-label={t('subscription.card.upgrade')}
-            onPointerDown={(event) => event.stopPropagation()}
-            onPointerUp={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation()
-              if (canUpgrade) {
-                onUpgrade(subscription.id)
-              }
-            }}
-          >
-            <ArrowUpCircle className="h-4 w-4" />
-          </Button>
+          {showUpgrade && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              disabled={!canUpgrade}
+              className="h-11 w-11 border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
+              aria-label={t('subscription.card.upgrade')}
+              onPointerDown={(event) => event.stopPropagation()}
+              onPointerUp={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                if (canUpgrade) {
+                  onUpgrade(subscription.id)
+                }
+              }}
+            >
+              <ArrowUpCircle className="h-4 w-4" />
+            </Button>
+          )}
 
           <span className="ml-auto text-[10px] text-slate-400">
             {multiRenewMode ? t('subscription.mobile.selectHint') : t('subscription.mobile.tapForDetails')}
@@ -1376,8 +1416,7 @@ function MobileSubscriptionCard({
 
 interface MobileSubscriptionDetailsContentProps {
   subscription: Subscription
-  canRenew: boolean
-  canUpgrade: boolean
+  actions: SubscriptionCardActionState
   canDelete: boolean
   onConnect: (subscription: Subscription) => void
   onRenew: (id: number) => void
@@ -1390,8 +1429,7 @@ interface MobileSubscriptionDetailsContentProps {
 
 function MobileSubscriptionDetailsContent({
   subscription,
-  canRenew,
-  canUpgrade,
+  actions,
   canDelete,
   onConnect,
   onRenew,
@@ -1417,6 +1455,7 @@ function MobileSubscriptionDetailsContent({
     subscription.plan.duration <= 0
       ? t('subscription.card.lifetime')
       : t('subscription.card.durationDays', { days: subscription.plan.duration })
+  const { showRenew, showUpgrade } = actions
 
   return (
     <>
@@ -1469,7 +1508,7 @@ function MobileSubscriptionDetailsContent({
           <Link2 className="mr-1.5 h-4 w-4" />
           {t('subscription.card.connect')}
         </Button>
-        {canRenew && (
+        {showRenew && (
           <Button
             variant="outline"
             className="border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
@@ -1479,7 +1518,7 @@ function MobileSubscriptionDetailsContent({
             {t('subscription.card.renew')}
           </Button>
         )}
-        {canUpgrade && (
+        {showUpgrade && (
           <Button
             variant="outline"
             size="icon"
@@ -1517,13 +1556,11 @@ function MobileSubscriptionDetailsContent({
 
 interface SubscriptionCardProps {
   subscription: Subscription
+  actions: SubscriptionCardActionState
   onRenew: (id: number) => void
   onUpgrade: (id: number) => void
   onManageDevices: (id: number) => void
   onConnect: (subscription: Subscription) => void
-  canRenew: boolean
-  canUpgrade: boolean
-  canMultiRenew: boolean
   canDelete: boolean
   multiRenewMode: boolean
   isSelectedForRenew: boolean
@@ -1533,13 +1570,11 @@ interface SubscriptionCardProps {
 
 function SubscriptionCard({
   subscription,
+  actions,
   onRenew,
   onUpgrade,
   onManageDevices,
   onConnect,
-  canRenew,
-  canUpgrade,
-  canMultiRenew,
   canDelete,
   multiRenewMode,
   isSelectedForRenew,
@@ -1583,6 +1618,7 @@ function SubscriptionCard({
     subscription.traffic_limit <= 0 ? unlimitedLabel : formatBytes(trafficLimitBytes)
   const deviceLimitLabel =
     formatLimitLabel(subscription.device_limit, unlimitedLabel)
+  const { canMultiRenew, showRenew, showUpgrade } = actions
 
   const handleCopyLink = async () => {
     try {
@@ -1664,7 +1700,7 @@ function SubscriptionCard({
             {t('subscription.card.manage')}
           </Button>
 
-          {canRenew && !multiRenewMode && (
+          {showRenew && (
             <Button
               variant="outline"
               size="sm"
@@ -1675,7 +1711,7 @@ function SubscriptionCard({
               {t('subscription.card.renew')}
             </Button>
           )}
-          {canUpgrade && !multiRenewMode && (
+          {showUpgrade && (
             <Button
               variant="outline"
               size="sm"

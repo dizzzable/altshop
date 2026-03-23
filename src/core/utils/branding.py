@@ -13,6 +13,25 @@ def normalize_text(value: Any) -> str:
     return normalized
 
 
+def resolve_project_name(value: Any, *, default: str = "AltShop") -> str:
+    normalized = normalize_text(value)
+    return normalized or default
+
+
+def resolve_bot_menu_button_text(
+    value: Any,
+    *,
+    project_name: Any = None,
+    default: str = "Shop",
+) -> str:
+    normalized = normalize_text(value)
+    if normalized:
+        return normalized
+
+    project_label = normalize_text(project_name)
+    return project_label or default
+
+
 def ensure_text_length(
     value: str,
     *,

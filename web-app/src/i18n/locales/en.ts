@@ -1086,6 +1086,8 @@ export const enDictionary: Dictionary = {
     'settings.mobile.accountModalDesc': 'Current account identity data.',
     'settings.mobile.accessModalTitle': 'Access status',
     'settings.mobile.accessModalDesc': 'Current access checks and requirements.',
+    'settings.mobile.logoutTitle': 'Log out',
+    'settings.mobile.logoutDesc': 'End the current web session on this device.',
     'promocodes.infoOpen': 'Open promocode info',
     'promocodes.infoModalTitle': 'Promocode information',
     'promocodes.infoModalDesc': 'Reward types, activation tips and important notes.',

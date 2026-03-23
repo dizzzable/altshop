@@ -1087,6 +1087,8 @@ export const ruDictionary: Dictionary = {
     'settings.mobile.accountModalDesc': 'Текущие данные вашего аккаунта.',
     'settings.mobile.accessModalTitle': 'Статус доступа',
     'settings.mobile.accessModalDesc': 'Проверки доступа и требования аккаунта.',
+    'settings.mobile.logoutTitle': 'Выход из аккаунта',
+    'settings.mobile.logoutDesc': 'Завершите текущую веб-сессию на этом устройстве.',
     'promocodes.infoOpen': 'Открыть информацию о промокодах',
     'promocodes.infoModalTitle': 'Информация о промокодах',
     'promocodes.infoModalDesc': 'Типы наград, как получить и важные заметки.',

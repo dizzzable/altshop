@@ -98,7 +98,7 @@ btn-dashboard-broadcast = 📢 Рассылка
 btn-dashboard-promocodes = 🎟 Промокоды
 btn-dashboard-access = 🔓 Режим доступа
 btn-dashboard-remnawave = 🌊 RemnaWave
-btn-dashboard-remnashop = 🛍 AltShop
+btn-dashboard-remnashop = 🛍 { $shop_label }
 btn-dashboard-importer = 📥 Импорт пользователей
 
 
@@ -786,7 +786,7 @@ btn-backup-delete-confirm = ✅ Да, удалить
 btn-cancel = ❌ Отмена
 
 # Importer plan assignment
-btn-importer-assign-plan-all = 🎫Назначить план всем
+btn-importer-assign-plan-all = 🎫 Назначить план всем
 btn-importer-assign-plan-confirm = Подтвердить назначение
 btn-importer-assign-plan-choice = { $selected ->
     [1] ✅
@@ -794,7 +794,7 @@ btn-importer-assign-plan-choice = { $selected ->
     } { $name }
 
 # User plan assignment
-btn-user-assign-plan = 🎫Назначить план
+btn-user-assign-plan = 🎫 Назначить план
 btn-user-assign-plan-choice = { $selected ->
     [1] ✅
     *[0] ⬜

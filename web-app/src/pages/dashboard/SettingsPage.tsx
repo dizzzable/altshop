@@ -11,6 +11,7 @@ import {
   Globe,
   History,
   Link as LinkIcon,
+  LogOut,
   Mail,
   RefreshCw,
   Shield,
@@ -1070,6 +1071,26 @@ export function SettingsPage() {
               </CardHeader>
               <CardContent className="pt-0">
                 {extraNavigationToggleContent}
+              </CardContent>
+            </Card>
+
+            <Card className="border-white/10 bg-card/90">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-slate-100">{t('settings.mobile.logoutTitle')}</CardTitle>
+                <CardDescription>{t('settings.mobile.logoutDesc')}</CardDescription>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  className="w-full"
+                  onClick={() => {
+                    void logout()
+                  }}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  {t('header.logout')}
+                </Button>
               </CardContent>
             </Card>
           </>

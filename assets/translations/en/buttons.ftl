@@ -98,7 +98,7 @@ btn-dashboard-broadcast = 📢 Broadcast
 btn-dashboard-promocodes = 🎟 Promocodes
 btn-dashboard-access = 🔓 Access Mode
 btn-dashboard-remnawave = 🌊 RemnaWave
-btn-dashboard-remnashop = 🛍 AltShop
+btn-dashboard-remnashop = 🛍 { $shop_label }
 btn-dashboard-importer = 📥 Import Users
 
 
@@ -773,7 +773,7 @@ btn-partner-referral-item = { $level ->
     } { $username } - { $total_earned }
 
 # Importer plan assignment
-btn-importer-assign-plan-all = 🎫Assign plan to all
+btn-importer-assign-plan-all = 🎫 Assign plan to all
 btn-importer-assign-plan-confirm = Confirm assignment
 btn-importer-assign-plan-choice = { $selected ->
     [1] ✅
@@ -781,7 +781,7 @@ btn-importer-assign-plan-choice = { $selected ->
     } { $name }
 
 # User plan assignment
-btn-user-assign-plan = 🎫Assign plan
+btn-user-assign-plan = 🎫 Assign plan
 btn-user-assign-plan-choice = { $selected ->
     [1] ✅
     *[0] ⬜

@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from src.core.config import AppConfig
 from src.core.enums import Locale
 from src.core.security.password import hash_password, verify_password
+from src.core.utils.branding import resolve_project_name
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.dto import WebAccountDto
 from src.infrastructure.database.uow import UnitOfWork
@@ -93,7 +94,8 @@ class EmailRecoveryService:
         verify_link = self._build_front_url(
             f"/dashboard/settings?email_verify_token={challenge.token}"
         )
-        subject = "AltShop email verification"
+        project_name = await self._get_branding_project_name()
+        subject = f"{project_name} email verification"
         text_body = (
             "Your verification code:\n"
             f"{challenge.code}\n\n"
@@ -362,7 +364,8 @@ class EmailRecoveryService:
         )
 
         reset_link = self._build_front_url(f"/auth/reset-password?token={challenge.token}")
-        subject = "AltShop password reset"
+        project_name = await self._get_branding_project_name()
+        subject = f"{project_name} password reset"
         text_body = (
             "Use this code to reset your password:\n"
             f"{challenge.code}\n\n"
@@ -387,8 +390,9 @@ class EmailRecoveryService:
         code: str,
         language: Locale | str | None = None,
     ) -> None:
+        project_name = await self._get_branding_project_name()
         fallback_text_body = (
-            "Your AltShop password reset code:\n"
+            f"Your {project_name} password reset code:\n"
             f"{code}\n\n"
             "If you did not request this, ignore this message."
         )
@@ -454,6 +458,15 @@ class EmailRecoveryService:
         if not dto:
             raise ValueError("Web account not found")
         return dto
+
+    async def _get_branding_project_name(self) -> str:
+        try:
+            branding = await self.settings_service.get_branding_settings()
+        except Exception as exc:
+            logger.warning(f"Failed to load branding settings for email recovery: {exc}")
+            return resolve_project_name(None)
+
+        return resolve_project_name(branding.project_name)
 
     def _build_front_url(self, path: str) -> str:
         base_url = self.config.web_app.url_str.rstrip("/")

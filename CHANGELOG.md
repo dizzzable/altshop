@@ -6,6 +6,24 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.11] - 2026-03-23
+
+### Added
+
+- mobile settings now include an explicit logout section, so mobile users can sign out without relying on the desktop-only header menu
+- regression coverage for client-facing branding targets, shared subscription action state, and branded bot/email fallbacks
+
+### Changed
+
+- landing and Telegram Mini App entry pages now render the visible product name from branding settings instead of hardcoded `AltShop`
+- DEV dashboard shop labels and the RemnaShop main header in the bot now use runtime branding values from `project_name` and `bot_menu_button_text`
+- email verification and password-reset subjects plus Telegram password-reset fallback text now use the configured branded project name
+
+### Fixed
+
+- desktop and mobile subscription cards now derive `Upgrade` visibility from the same shared action model, so desktop no longer hides upgrade where mobile shows it
+- customer-facing `AltShop` labels were removed from the remaining branded web, bot, and email surfaces that should follow reseller branding
+
 ## [1.1.10] - 2026-03-23
 
 ### Fixed

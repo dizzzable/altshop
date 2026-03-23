@@ -847,7 +847,7 @@ msg-remnawave-inbounds =
 
 
 # RemnaShop
-msg-remnashop-main = <b>🛍 AltShop</b>
+msg-remnashop-main = <b>🛍 { $project_name }</b>
 msg-admins-main = <b>👮‍♂️ Администраторы</b>
 
 
