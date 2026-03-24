@@ -599,7 +599,7 @@ ntf-event-partner-withdrawal-request =
     </blockquote>
 
 # Backup System
-ntf-backup-creating = <i>🔄 Creating database backup...</i>
+ntf-backup-creating = <i>🔄 Creating backup: { $scope }...</i>
 ntf-backup-created-success = <i>✅ Backup created successfully!</i>
 
     <blockquote>
@@ -612,10 +612,11 @@ ntf-backup-created-failed = <i>❌ Backup creation failed</i>
     { $message }
     </blockquote>
 
-ntf-backup-restoring = <i>📥 Restoring from backup...</i>
+ntf-backup-restoring = <i>📥 Restoring from backup: { $scope }...</i>
 
     <blockquote>
     • <b>File</b>: <code>{ $filename }</code>
+    • <b>Scope</b>: { $scope }
     • <b>Clear existing data</b>: { $clear_existing ->
         [true] Yes
         *[false] No
@@ -633,6 +634,31 @@ ntf-backup-restored-failed = <i>❌ Restore failed</i>
     <blockquote>
     { $message }
     </blockquote>
+
+ntf-backup-creation-started = <i>⏳ Starting backup creation...</i>
+ntf-backup-restore-started = <i>⏳ Starting restore...</i>
+ntf-backup-deleted = <i>🗑️ Backup deleted.</i>
+
+ntf-trial-already-used = <i>⚠️ Trial has already been used.</i>
+ntf-trial-existing-subscription = <i>⚠️ Trial is available only before the first subscription.</i>
+ntf-trial-telegram-link-required = <i>🔗 Link your Telegram account first to activate trial in web.</i>
+ntf-trial-plan-not-configured = <i>⚠️ Trial plan is not configured yet.</i>
+ntf-trial-plan-not-found = <i>❌ Trial plan was not found.</i>
+ntf-trial-plan-not-trial = <i>❌ The selected plan is not marked as a trial plan.</i>
+ntf-trial-plan-inactive = <i>⚠️ Trial plan is currently inactive.</i>
+ntf-trial-plan-no-duration = <i>⚠️ Trial plan has no available duration.</i>
+
+ntf-banner-not-selected = <i>⚠️ Select a banner first.</i>
+ntf-banner-animation-missing = <i>❌ Failed to read animation from the message.</i>
+ntf-banner-file-type-missing = <i>❌ Failed to determine the uploaded file type.</i>
+ntf-banner-file-missing = <i>❌ Telegram did not return a banner file path.</i>
+ntf-banner-deleted = <i>🗑️ Banner deleted.</i>
+ntf-banner-not-found = <i>⚠️ No uploaded files were found for the selected banner.</i>
+ntf-banner-upload-prompt = <i>🖼️ Send an image, GIF, or document with the banner file.</i>
+ntf-banner-upload-unsupported = <i>⚠️ Unsupported format. Available: { $formats }.</i>
+ntf-banner-upload-success = <i>✅ Banner <b>{ $banner_name }</b> has been updated for locale <b>{ $locale }</b>.</i>
+ntf-branding-field-not-selected = <i>⚠️ Select a branding field first.</i>
+ntf-branding-save-failed = <i>❌ Failed to save the branding value.</i>
 # Importer plan assignment notifications
 ntf-importer-sync-warning-no-active-plans = <i>⚠️ Before sync: create and activate a plan first, otherwise bulk assignment for this run will be unavailable. Press again to start sync.</i>
 ntf-importer-sync-warning-has-active-plans = <i>ℹ️ After sync you can assign a selected plan to all users from this run. Individual adjustment is available in the user profile. Press again to start sync.</i>

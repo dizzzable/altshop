@@ -550,7 +550,11 @@ msg-user-give-access = <b>🔑 Grant Plan Access</b>
 msg-users-search =
     <b>🔍 Search User</b>
 
-    Enter user ID, part of their name, or forward any of their messages.
+    Enter Telegram ID, shadow ID, web login, or part of the name.
+    You can also forward any message from that user.
+
+msg-users-row-web-only = web-only
+msg-users-row-web-login = web: { $login }
 
 msg-users-search-results =
     <b>🔍 Search User</b>
@@ -2316,6 +2320,38 @@ msg-branding-edit =
     </blockquote>
 
     Send a new value in the next message.
+msg-branding-field-project-name = Project Name
+msg-branding-field-web-title = Web Title
+msg-branding-field-bot-menu-button = Bot Menu Button
+msg-branding-field-telegram-template = TG Template
+msg-branding-field-password-reset-template = TG Password Reset Template
+msg-branding-field-web-request-delivered = Web Request Delivered
+msg-branding-field-web-request-open-bot = Web Request Open Bot
+msg-branding-field-web-confirm-success = Web Confirm Success
+msg-branding-field-label-en-base = { $label } (EN Base)
+msg-branding-field-label-ru-override = { $label } (RU Override)
+msg-branding-field-empty-uses-en = <empty: uses EN base>
+msg-branding-edit-locale-en = Edit EN (Base)
+msg-branding-edit-locale-ru = Edit RU (Override)
+msg-backup-result-created-title = ✅ Backup created successfully!
+msg-backup-result-scope = 📦 Scope: { $scope }
+msg-backup-result-file = 📁 File: { $value }
+msg-backup-result-size = 💾 Size: { $value }
+msg-backup-result-tables = 📊 Tables: { $count }
+msg-backup-result-records = 📈 Records: { $count }
+msg-backup-result-assets-restored-title = ✅ Assets restored successfully!
+msg-backup-result-target = 🎯 Target: { $value }
+msg-backup-result-db-restored-title = ✅ Restore completed!
+msg-backup-result-backup-date = 🗓 Backup date: { $value }
+msg-backup-result-deleted = 🗑️ Backup { $filename } deleted.
+msg-backup-error-create = ❌ Backup creation failed: { $error }
+msg-backup-error-restore = ❌ Restore failed: { $error }
+msg-backup-error-delete = ❌ Backup deletion failed: { $error }
+msg-backup-error-file-missing = ❌ Backup file not found: { $path }
+msg-backup-error-metadata-missing = ❌ Backup metadata file is missing.
+msg-backup-error-db-dump-missing = ❌ Database dump file not found: { $path }
+msg-backup-error-assets-missing = ❌ Assets directory not found: { $path }
+msg-backup-error-empty = ❌ Backup does not contain restorable data.
 msg-subscription-payment-asset =
     <b>Select Payment Coin</b>
 
@@ -2428,6 +2464,36 @@ msg-user-referral-invite-settings =
     <b>🎟 Individual invite settings</b>
 
     Here you can override global referral invite rules for the selected user and define a separate TTL and slot policy.
+msg-backup-scope-title =
+    <b>🧩 Choose backup scope</b>
+
+    <blockquote>
+    • <b>Database only</b> — plans, prices, users, subscriptions, settings, transactions, and other records.
+    • <b>Assets only</b> — banners, branding, translation overlays, and other mutable instance files.
+    • <b>Full backup</b> — database and assets in one archive.
+    </blockquote>
+msg-backup-list-empty = <i>📭 No backups found yet.</i>
+msg-backup-scope-db-label = Database only
+msg-backup-scope-db-description = Plans, users, subscriptions, settings, and transactions.
+msg-backup-scope-assets-label = Assets only
+msg-backup-scope-assets-description = Banners, branding, translations, and other custom files.
+msg-backup-scope-full-label = Full backup
+msg-backup-scope-full-description = Database and assets in one archive.
+msg-backup-content-db-tables = • Tables: { $count }
+msg-backup-content-db-records = • Records: { $count }
+msg-backup-content-db-includes = • Includes plans, prices, users, subscriptions, settings, and transactions
+msg-backup-content-assets-files = • Asset files: { $count }
+msg-backup-content-assets-root = • Assets root: <code>{ $path }</code>
+msg-backup-value-unknown = unknown
+msg-backup-value-system = system
+msg-backup-value-not-set = not set
+msg-common-plan-fallback = Subscription
+msg-common-empty-value = not specified
+msg-common-unlimited = ∞ (unlimited)
+msg-common-duration-days-short = { $days }d
+msg-menu-invite-referral-status-qualified = qualified
+msg-menu-invite-referral-status-pending = pending
+msg-menu-invite-referral-row = { $name } • source: { $source } • status: { $status } • purchase: { $purchase_channel } • { $invited_at }
 msg-user-referral-invite-settings-summary =
     <blockquote>
     • Effective TTL: { $effective_ttl_enabled }, value: { $effective_ttl_value }

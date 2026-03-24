@@ -3,14 +3,65 @@ from typing import Any, cast
 from aiogram_dialog import DialogManager
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
+from fluentogram import TranslatorRunner
 
 from src.core.utils.formatters import format_percent
 from src.infrastructure.database.models.dto import UserDto
 from src.services.referral import ReferralService
 from src.services.user import UserService
+from src.services.web_account import WebAccountService
 
 
-async def search_results_getter(dialog_manager: DialogManager, **kwargs: Any) -> dict[str, Any]:
+def _format_user_row(
+    user: UserDto,
+    *,
+    web_login: str | None,
+    i18n: TranslatorRunner,
+) -> str:
+    base = f"{user.telegram_id} ({user.name})"
+    details: list[str] = []
+
+    if user.telegram_id < 0:
+        details.append(i18n.get("msg-users-row-web-only"))
+
+    if web_login:
+        details.append(i18n.get("msg-users-row-web-login", login=web_login))
+
+    if not details:
+        return base
+
+    return f"{base} • " + " • ".join(details)
+
+
+async def _build_user_rows(
+    users: list[UserDto],
+    *,
+    web_account_service: WebAccountService,
+    i18n: TranslatorRunner,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for user in users:
+        web_account = await web_account_service.get_by_user_telegram_id(user.telegram_id)
+        rows.append(
+            {
+                "telegram_id": user.telegram_id,
+                "display": _format_user_row(
+                    user,
+                    web_login=web_account.username if web_account else None,
+                    i18n=i18n,
+                ),
+            }
+        )
+    return rows
+
+
+@inject
+async def search_results_getter(
+    dialog_manager: DialogManager,
+    web_account_service: FromDishka[WebAccountService],
+    i18n: FromDishka[TranslatorRunner],
+    **kwargs: Any,
+) -> dict[str, Any]:
     start_data = cast(dict[str, Any], dialog_manager.start_data)
     found_users_data: list[str] = start_data["found_users"]
     found_users: list[UserDto] = [
@@ -18,7 +69,11 @@ async def search_results_getter(dialog_manager: DialogManager, **kwargs: Any) ->
     ]
 
     return {
-        "found_users": found_users,
+        "found_users": await _build_user_rows(
+            found_users,
+            web_account_service=web_account_service,
+            i18n=i18n,
+        ),
         "count": len(found_users),
     }
 
@@ -27,26 +82,44 @@ async def search_results_getter(dialog_manager: DialogManager, **kwargs: Any) ->
 async def recent_registered_getter(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     users = await user_service.get_recent_registered_users()
-    return {"recent_registered_users": users}
+    return {
+        "recent_registered_users": await _build_user_rows(
+            users,
+            web_account_service=web_account_service,
+            i18n=i18n,
+        )
+    }
 
 
 @inject
 async def recent_activity_getter(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     users = await user_service.get_recent_activity_users()
-    return {"recent_activity_users": users}
+    return {
+        "recent_activity_users": await _build_user_rows(
+            users,
+            web_account_service=web_account_service,
+            i18n=i18n,
+        )
+    }
 
 
 @inject
 async def blacklist_getter(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     blocked_users = await user_service.get_blocked_users()
@@ -54,7 +127,11 @@ async def blacklist_getter(
 
     return {
         "blocked_users_exists": bool(blocked_users),
-        "blocked_users": blocked_users,
+        "blocked_users": await _build_user_rows(
+            blocked_users,
+            web_account_service=web_account_service,
+            i18n=i18n,
+        ),
         "count_blocked": len(blocked_users),
         "count_users": count_users,
         "percent": format_percent(part=len(blocked_users), whole=count_users),

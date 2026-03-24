@@ -277,9 +277,9 @@ def test_run_check_bot_update_persists_last_audit_snapshot(monkeypatch) -> None:
         return GitHubReleaseFetchResult(
             outcome="notified",
             release=build_release(
-                tag_name="v1.1.15",
+                tag_name="v9.9.9",
                 name="Future Release",
-                html_url="https://github.com/dizzzable/altshop/releases/tag/v1.1.15",
+                html_url="https://github.com/dizzzable/altshop/releases/tag/v9.9.9",
             ),
         )
 

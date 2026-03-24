@@ -3,6 +3,7 @@ from typing import Any
 from aiogram_dialog import DialogManager
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
+from fluentogram import TranslatorRunner
 
 from src.services.settings import SettingsService
 
@@ -27,6 +28,7 @@ async def multi_subscription_main_getter(
 async def max_subscriptions_getter(
     dialog_manager: DialogManager,
     settings_service: FromDishka[SettingsService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Getter для окна выбора максимального количества подписок."""
@@ -39,7 +41,7 @@ async def max_subscriptions_getter(
         {"value": 3, "label": "3"},
         {"value": 5, "label": "5"},
         {"value": 10, "label": "10"},
-        {"value": -1, "label": "∞ (безлимит)"},
+        {"value": -1, "label": i18n.get("msg-common-unlimited")},
     ]
 
     return {

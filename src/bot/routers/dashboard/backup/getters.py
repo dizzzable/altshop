@@ -3,16 +3,17 @@ from typing import Any
 from aiogram_dialog import DialogManager
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
+from fluentogram import TranslatorRunner
 
 from src.core.config import AppConfig
 from src.services.backup import BackupService
 
 
-def _scope_label(scope_value: str) -> str:
+def _scope_label(scope_value: str, i18n: TranslatorRunner) -> str:
     mapping = {
-        "DB": "Database only",
-        "ASSETS": "Assets only",
-        "FULL": "Full backup",
+        "DB": i18n.get("msg-backup-scope-db-label"),
+        "ASSETS": i18n.get("msg-backup-scope-assets-label"),
+        "FULL": i18n.get("msg-backup-scope-full-label"),
     }
     return mapping.get(scope_value, scope_value.title())
 
@@ -40,8 +41,10 @@ async def backup_main_getter(
     }
 
 
+@inject
 async def backup_scope_getter(
     dialog_manager: DialogManager,
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     del dialog_manager, kwargs
@@ -49,15 +52,19 @@ async def backup_scope_getter(
         "scopes": [
             {
                 "id": "db",
-                "label": "Database only",
-                "description": "Plans, subscriptions, users, settings",
+                "label": i18n.get("msg-backup-scope-db-label"),
+                "description": i18n.get("msg-backup-scope-db-description"),
             },
             {
                 "id": "assets",
-                "label": "Assets only",
-                "description": "Banners, translations, logo and runtime assets",
+                "label": i18n.get("msg-backup-scope-assets-label"),
+                "description": i18n.get("msg-backup-scope-assets-description"),
             },
-            {"id": "full", "label": "Full backup", "description": "Database + assets together"},
+            {
+                "id": "full",
+                "label": i18n.get("msg-backup-scope-full-label"),
+                "description": i18n.get("msg-backup-scope-full-description"),
+            },
         ]
     }
 
@@ -66,6 +73,7 @@ async def backup_scope_getter(
 async def backup_list_getter(
     dialog_manager: DialogManager,
     backup_service: FromDishka[BackupService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     del dialog_manager, kwargs
@@ -73,13 +81,16 @@ async def backup_list_getter(
 
     backups_list = []
     for backup in backups:
+        scope_label = _scope_label(backup.backup_scope.value, i18n)
+        timestamp = backup.timestamp[:16].replace("T", " ") if backup.timestamp else "?"
         backups_list.append(
             {
                 "filename": backup.filename,
-                "timestamp": backup.timestamp[:16].replace("T", " ") if backup.timestamp else "?",
+                "timestamp": timestamp,
                 "file_size_mb": backup.file_size_mb,
                 "total_records": backup.total_records,
-                "scope_label": _scope_label(backup.backup_scope.value),
+                "scope_label": scope_label,
+                "display": f"{scope_label} • {timestamp} • {backup.file_size_mb}MB",
             }
         )
 
@@ -94,6 +105,7 @@ async def backup_list_getter(
 async def backup_manage_getter(
     dialog_manager: DialogManager,
     backup_service: FromDishka[BackupService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     del kwargs
@@ -112,19 +124,27 @@ async def backup_manage_getter(
     try:
         timestamp_str = backup_info.timestamp[:19].replace("T", " ")
     except Exception:
-        timestamp_str = "Unknown"
+        timestamp_str = i18n.get("msg-backup-value-unknown")
 
-    content_lines = []
+    content_lines: list[str] = []
     if backup_info.includes_database:
-        content_lines.append(f"• Database tables: {backup_info.tables_count}")
-        content_lines.append(f"• Database records: {backup_info.total_records}")
-        content_lines.append("• Includes plans, prices, subscriptions, users and settings")
+        content_lines.append(
+            i18n.get("msg-backup-content-db-tables", count=backup_info.tables_count)
+        )
+        content_lines.append(
+            i18n.get("msg-backup-content-db-records", count=backup_info.total_records)
+        )
+        content_lines.append(i18n.get("msg-backup-content-db-includes"))
     if backup_info.includes_assets:
-        content_lines.append(f"• Assets files: {backup_info.assets_files_count}")
+        content_lines.append(
+            i18n.get("msg-backup-content-assets-files", count=backup_info.assets_files_count)
+        )
         if backup_info.assets_root:
-            content_lines.append(f"• Assets root: {backup_info.assets_root}")
+            content_lines.append(
+                i18n.get("msg-backup-content-assets-root", path=backup_info.assets_root)
+            )
 
-    scope_label = _scope_label(backup_info.backup_scope.value)
+    scope_label = _scope_label(backup_info.backup_scope.value, i18n)
     dialog_manager.dialog_data["backup_scope_label"] = scope_label
 
     return {
@@ -137,7 +157,7 @@ async def backup_manage_getter(
         "compressed": backup_info.compressed,
         "database_type": backup_info.database_type,
         "version": backup_info.version,
-        "created_by": backup_info.created_by or "System",
+        "created_by": backup_info.created_by or i18n.get("msg-backup-value-system"),
         "error": backup_info.error,
         "content_details": "\n".join(content_lines),
         "scope_label": scope_label,
@@ -150,6 +170,7 @@ async def backup_manage_getter(
 async def backup_settings_getter(
     dialog_manager: DialogManager,
     config: AppConfig,
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     del dialog_manager, kwargs
@@ -163,8 +184,8 @@ async def backup_settings_getter(
         "compression": backup_config.compression,
         "include_logs": backup_config.include_logs,
         "send_enabled": backup_config.send_enabled,
-        "send_chat_id": backup_config.send_chat_id or "Not set",
-        "send_topic_id": backup_config.send_topic_id or "Not set",
+        "send_chat_id": backup_config.send_chat_id or i18n.get("msg-backup-value-not-set"),
+        "send_topic_id": backup_config.send_topic_id or i18n.get("msg-backup-value-not-set"),
         "backup_location": str(backup_config.location),
     }
 
@@ -173,6 +194,7 @@ async def backup_settings_getter(
 async def backup_restore_confirm_getter(
     dialog_manager: DialogManager,
     backup_service: FromDishka[BackupService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     del kwargs
@@ -182,16 +204,16 @@ async def backup_restore_confirm_getter(
     backups = await backup_service.get_backup_list()
     backup_info = next((backup for backup in backups if backup.filename == filename), None)
 
-    timestamp = "Unknown"
+    timestamp = i18n.get("msg-backup-value-unknown")
     total_records = 0
-    scope_label = "Unknown"
+    scope_label = i18n.get("msg-backup-value-unknown")
     if backup_info:
         try:
             timestamp = backup_info.timestamp[:19].replace("T", " ")
         except Exception:
             pass
         total_records = backup_info.total_records
-        scope_label = _scope_label(backup_info.backup_scope.value)
+        scope_label = _scope_label(backup_info.backup_scope.value, i18n)
 
     return {
         "filename": filename,
@@ -206,6 +228,7 @@ async def backup_restore_confirm_getter(
 async def backup_delete_confirm_getter(
     dialog_manager: DialogManager,
     backup_service: FromDishka[BackupService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     del kwargs
@@ -214,7 +237,7 @@ async def backup_delete_confirm_getter(
     backups = await backup_service.get_backup_list()
     backup_info = next((backup for backup in backups if backup.filename == filename), None)
 
-    timestamp = "Unknown"
+    timestamp = i18n.get("msg-backup-value-unknown")
     if backup_info:
         try:
             timestamp = backup_info.timestamp[:19].replace("T", " ")

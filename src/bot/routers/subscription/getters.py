@@ -12,6 +12,7 @@ from src.bot.routers.subscription.payment_helpers import (
     normalize_gateway_type,
     normalize_purchase_type,
     resolve_purchase_durations,
+    resolve_subscription_renewable_plan,
 )
 from src.core.config import AppConfig
 from src.core.crypto_assets import get_supported_payment_assets
@@ -42,6 +43,7 @@ from src.services.pricing import PricingService
 from src.services.purchase_gateway_policy import filter_gateways_by_channel
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
+from src.services.subscription_purchase import SubscriptionPurchaseService
 
 DEVICE_TYPE_EMOJIS = {
     DeviceType.ANDROID: "📱",
@@ -226,6 +228,7 @@ async def subscription_details_getter(
     i18n: FromDishka[TranslatorRunner],
     subscription_service: FromDishka[SubscriptionService],
     plan_service: FromDishka[PlanService],
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     subscription_id = dialog_manager.dialog_data.get("selected_subscription_id")
@@ -256,9 +259,11 @@ async def subscription_details_getter(
         SubscriptionStatus.EXPIRED,
         SubscriptionStatus.LIMITED,
     ):
-        plans = await plan_service.get_available_plans(user)
-        matched_plan = subscription.find_matching_plan(plans)
-        can_renew = matched_plan is not None and not subscription.is_unlimited
+        action_policy = await subscription_purchase_service.get_action_policy(
+            current_user=user,
+            subscription=subscription,
+        )
+        can_renew = action_policy.can_renew and not subscription.is_unlimited
     mini_app_url = _resolve_mini_app_entry_url(config)
     is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
 
@@ -317,11 +322,11 @@ async def select_subscription_for_renew_getter(
     plan_service: FromDishka[PlanService],
     settings_service: FromDishka[SettingsService],
     pricing_service: FromDishka[PricingService],
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Getter for selecting subscriptions to renew (single or multiple selection)."""
     all_subscriptions = await subscription_service.get_all_by_user(user.telegram_id)
-    plans = await plan_service.get_available_plans(user)
     currency = await settings_service.get_default_currency()
 
     single_select_mode = dialog_manager.dialog_data.get("renew_single_select_mode", False)
@@ -336,8 +341,19 @@ async def select_subscription_for_renew_getter(
             SubscriptionStatus.EXPIRED,
             SubscriptionStatus.LIMITED,
         ):
-            matched_plan = sub.find_matching_plan(plans)
-            if matched_plan and not sub.is_unlimited:
+            action_policy = await subscription_purchase_service.get_action_policy(
+                current_user=user,
+                subscription=sub,
+            )
+            can_select = (
+                action_policy.can_renew if single_select_mode else action_policy.can_multi_renew
+            )
+            matched_plan = await resolve_subscription_renewable_plan(
+                subscription=sub,
+                plan_service=plan_service,
+            )
+            display_plan_name = matched_plan.name if matched_plan else sub.plan.name
+            if can_select and not sub.is_unlimited:
                 expire_parts = i18n_format_expire_time(sub.expire_at)
                 expire_time_str = " ".join(i18n.get(key, **kw) for key, kw in expire_parts)
                 is_selected = sub.id in selected_subscription_ids
@@ -347,13 +363,13 @@ async def select_subscription_for_renew_getter(
                         "id": sub.id,
                         "status": sub.status.value,
                         "plan_name": _format_subscription_title(
-                            plan_name=matched_plan.name,
+                            plan_name=display_plan_name,
                             device_type=sub.device_type,
                         ),
                         "device_type": sub.device_type.value if sub.device_type else None,
                         "expire_time": expire_time_str,
                         "is_selected": is_selected,
-                        "plan_id": matched_plan.id,
+                        "plan_id": matched_plan.id if matched_plan else getattr(sub.plan, "id", 0),
                     }
                 )
 
@@ -387,7 +403,6 @@ async def confirm_renew_selection_getter(
         "selected_subscriptions_for_renew", []
     )
     selected_duration = dialog_manager.dialog_data.get("selected_duration", 30)
-    plans = await plan_service.get_available_plans(user)
     currency = await settings_service.get_default_currency()
 
     selected_subscription_entries = []
@@ -395,7 +410,10 @@ async def confirm_renew_selection_getter(
         subscription = await subscription_service.get(sub_id)
         if not subscription:
             continue
-        matched_plan = subscription.find_matching_plan(plans)
+        matched_plan = await resolve_subscription_renewable_plan(
+            subscription=subscription,
+            plan_service=plan_service,
+        )
         if not matched_plan:
             continue
         duration = matched_plan.get_duration(selected_duration)
@@ -484,6 +502,10 @@ async def plans_getter(
     **kwargs: Any,
 ) -> dict[str, Any]:
     plans = await plan_service.get_available_plans(user)
+    allowed_plan_ids = dialog_manager.dialog_data.get("allowed_purchase_plan_ids")
+    if isinstance(allowed_plan_ids, list) and allowed_plan_ids:
+        allowed_plan_id_set = {int(plan_id) for plan_id in allowed_plan_ids}
+        plans = [plan for plan in plans if (plan.id or 0) in allowed_plan_id_set]
 
     formatted_plans = [
         {

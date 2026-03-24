@@ -72,11 +72,21 @@ frg-user-info =
 
 frg-user-details =
     <blockquote>
-    • <b>ID</b>: <code>{ $user_id }</code>
-    • <b>Name</b>: { $user_name } { $username -> 
-        [0] { space }
-        *[HAS] (<a href="tg://user?id={ $user_id }">@{ $username }</a>)
+    • <b>Internal ID</b>: <code>{ $user_id }</code>
+    • <b>Identity</b>: { identity-kind }
+    { $has_linked_telegram_id ->
+    [1] • <b>Linked Telegram ID</b>: <code>{ $linked_telegram_id }</code>
+    *[0] { empty }
     }
+    { $has_web_login ->
+    [1] • <b>Web login</b>: <code>{ $web_login }</code>
+    *[0] { empty }
+    }
+    { $has_public_username ->
+    [1] • <b>Profile username</b>: @{ $public_username }
+    *[0] { empty }
+    }
+    • <b>Name</b>: { $user_name }
     • <b>Role</b>: { role }
     • <b>Language</b>: { language }
     { $show_points ->
@@ -170,6 +180,13 @@ role =
     [DEV] { role-dev }
     [ADMIN] { role-admin }
     *[USER] { role-user }
+}
+
+identity-kind = 
+    { $identity_kind ->
+    [WEB_ONLY] Web-only
+    [TELEGRAM_LINKED] Telegram linked
+    *[TELEGRAM_ONLY] Telegram only
 }
 
 

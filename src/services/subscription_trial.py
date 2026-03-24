@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from src.core.enums import PlanAvailability, SubscriptionStatus
+from src.core.enums import PlanAvailability, PurchaseChannel, SubscriptionStatus
 from src.infrastructure.database.models.dto import (
     PlanDto,
     PlanSnapshotDto,
@@ -11,6 +11,7 @@ from src.infrastructure.database.models.dto import (
     UserDto,
 )
 
+from .partner import PartnerService
 from .plan import PlanService
 from .purchase_access import PurchaseAccessService
 from .remnawave import RemnawaveService
@@ -54,19 +55,26 @@ class SubscriptionTrialService:
     def __init__(
         self,
         plan_service: PlanService,
+        partner_service: PartnerService,
         purchase_access_service: PurchaseAccessService,
         remnawave_service: RemnawaveService,
         subscription_service: SubscriptionService,
     ) -> None:
         self.plan_service = plan_service
+        self.partner_service = partner_service
         self.purchase_access_service = purchase_access_service
         self.remnawave_service = remnawave_service
         self.subscription_service = subscription_service
 
-    async def get_eligibility(self, current_user: UserDto) -> TrialEligibilitySnapshot:
+    async def get_eligibility(
+        self,
+        current_user: UserDto,
+        *,
+        channel: PurchaseChannel = PurchaseChannel.WEB,
+    ) -> TrialEligibilitySnapshot:
         await self.purchase_access_service.assert_can_purchase(current_user)
 
-        user_check = await self._check_user_eligibility(current_user)
+        user_check = await self._check_user_eligibility(current_user, channel=channel)
         if not user_check.eligible:
             return TrialEligibilitySnapshot(
                 eligible=False,
@@ -99,10 +107,11 @@ class SubscriptionTrialService:
         *,
         current_user: UserDto,
         plan_id: int | None,
+        channel: PurchaseChannel = PurchaseChannel.WEB,
     ) -> SubscriptionDto:
         await self.purchase_access_service.assert_can_purchase(current_user)
 
-        user_check = await self._check_user_eligibility(current_user)
+        user_check = await self._check_user_eligibility(current_user, channel=channel)
         self._raise_trial_failure(user_check)
 
         plan = await self._resolve_requested_trial_plan(plan_id=plan_id)
@@ -159,8 +168,13 @@ class SubscriptionTrialService:
 
         return await self.plan_service.get_trial_plan()
 
-    async def _check_user_eligibility(self, current_user: UserDto) -> TrialEligibilityCheck:
-        if not self._is_linked_telegram_identity(current_user):
+    async def _check_user_eligibility(
+        self,
+        current_user: UserDto,
+        *,
+        channel: PurchaseChannel,
+    ) -> TrialEligibilityCheck:
+        if await self._requires_telegram_link(current_user, channel=channel):
             return self._trial_failure(
                 403,
                 TRIAL_REASON_TELEGRAM_LINK_REQUIRED,
@@ -188,6 +202,28 @@ class SubscriptionTrialService:
             )
 
         return TrialEligibilityCheck(eligible=True, status_code=200)
+
+    async def _requires_telegram_link(
+        self,
+        user: UserDto,
+        *,
+        channel: PurchaseChannel,
+    ) -> bool:
+        if channel == PurchaseChannel.TELEGRAM:
+            return False
+        if self._is_linked_telegram_identity(user):
+            return False
+        if getattr(user, "is_invited_user", False):
+            return False
+        if await self._has_partner_attribution(user):
+            return False
+        return True
+
+    async def _has_partner_attribution(self, user: UserDto) -> bool:
+        telegram_id = int(getattr(user, "telegram_id", 0) or 0)
+        if telegram_id == 0:
+            return False
+        return await self.partner_service.has_partner_attribution(telegram_id)
 
     @staticmethod
     def _check_plan_availability(plan: PlanDto | None) -> TrialEligibilityCheck:

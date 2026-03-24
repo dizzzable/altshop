@@ -627,7 +627,7 @@ ntf-event-partner-withdrawal-request =
     </blockquote>
 
 # Backup System
-ntf-backup-creating = <i>🔄 Создание бэкапа базы данных...</i>
+ntf-backup-creating = <i>🔄 Создание бэкапа: { $scope }...</i>
 ntf-backup-created-success = <i>✅ Бэкап создан успешно!</i>
 
     <blockquote>
@@ -640,10 +640,11 @@ ntf-backup-created-failed = <i>❌ Ошибка создания бэкапа</i
     { $message }
     </blockquote>
 
-ntf-backup-restoring = <i>📥 Восстановление из бэкапа...</i>
+ntf-backup-restoring = <i>📥 Восстановление из бэкапа: { $scope }...</i>
 
     <blockquote>
     • <b>Файл</b>: <code>{ $filename }</code>
+    • <b>Тип</b>: { $scope }
     • <b>Очистка данных</b>: { $clear_existing ->
         [true] Да
         *[false] Нет
@@ -661,6 +662,31 @@ ntf-backup-restored-failed = <i>❌ Ошибка восстановления</i
     <blockquote>
     { $message }
     </blockquote>
+
+ntf-backup-creation-started = <i>⏳ Запускаю создание бэкапа...</i>
+ntf-backup-restore-started = <i>⏳ Запускаю восстановление...</i>
+ntf-backup-deleted = <i>🗑️ Бэкап удалён.</i>
+
+ntf-trial-already-used = <i>⚠️ Пробный период уже был использован.</i>
+ntf-trial-existing-subscription = <i>⚠️ Пробный период доступен только до первой подписки.</i>
+ntf-trial-telegram-link-required = <i>🔗 Для активации пробного периода в web сначала привяжите Telegram.</i>
+ntf-trial-plan-not-configured = <i>⚠️ Пробный тариф пока не настроен.</i>
+ntf-trial-plan-not-found = <i>❌ Пробный тариф не найден.</i>
+ntf-trial-plan-not-trial = <i>❌ Выбранный тариф не является пробным.</i>
+ntf-trial-plan-inactive = <i>⚠️ Пробный тариф сейчас неактивен.</i>
+ntf-trial-plan-no-duration = <i>⚠️ У пробного тарифа нет доступной длительности.</i>
+
+ntf-banner-not-selected = <i>⚠️ Сначала выберите баннер.</i>
+ntf-banner-animation-missing = <i>❌ Не удалось получить анимацию из сообщения.</i>
+ntf-banner-file-type-missing = <i>❌ Не удалось определить тип загруженного файла.</i>
+ntf-banner-file-missing = <i>❌ Telegram не вернул путь к файлу баннера.</i>
+ntf-banner-deleted = <i>🗑️ Баннер удалён.</i>
+ntf-banner-not-found = <i>⚠️ Для выбранного баннера пока нет загруженных файлов.</i>
+ntf-banner-upload-prompt = <i>🖼️ Отправьте изображение, GIF или документ с файлом баннера.</i>
+ntf-banner-upload-unsupported = <i>⚠️ Неподдерживаемый формат. Доступны: { $formats }.</i>
+ntf-banner-upload-success = <i>✅ Баннер <b>{ $banner_name }</b> обновлён для локали <b>{ $locale }</b>.</i>
+ntf-branding-field-not-selected = <i>⚠️ Сначала выберите поле брендинга.</i>
+ntf-branding-save-failed = <i>❌ Не удалось сохранить значение брендинга.</i>
 # Importer plan assignment notifications
 ntf-importer-sync-warning-no-active-plans = <i>⚠️ Перед синхронизацией: сначала создайте и активируйте план, иначе массовое назначение для этого запуска будет недоступно. Нажмите еще раз для запуска sync.</i>
 ntf-importer-sync-warning-has-active-plans = <i>ℹ️ После синхронизации вы сможете назначить выбранный план всем пользователям из этого запуска. Индивидуальная корректировка доступна в профиле пользователя. Нажмите еще раз для запуска sync.</i>

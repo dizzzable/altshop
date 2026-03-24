@@ -12,6 +12,7 @@ DOMAIN_REGEX: Pattern[str] = re.compile(r"^(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$")
 TAG_REGEX: Pattern[str] = re.compile(r"^[A-Z0-9_]+$")
 URL_PATTERN: Pattern[str] = re.compile(r"^https?://.*$")
 USERNAME_PATTERN: Pattern[str] = re.compile(r"^@[a-zA-Z0-9_]{5,32}$")
+WEB_LOGIN_PATTERN: Pattern[str] = re.compile(r"^(?![._])[a-z0-9._]{3,32}(?<![._])$")
 DATETIME_FORMAT: Final[str] = "%d.%m.%Y %H:%M:%S"
 
 T_ME: Final[str] = "https://t.me/"

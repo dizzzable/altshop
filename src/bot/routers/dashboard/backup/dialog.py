@@ -1,6 +1,6 @@
 from aiogram_dialog import Dialog, StartMode, Window
 from aiogram_dialog.widgets.kbd import Button, Column, Row, Select, Start, SwitchTo
-from aiogram_dialog.widgets.text import Const, Format
+from aiogram_dialog.widgets.text import Format
 from magic_filter import F
 
 from src.bot.keyboards import main_menu_button
@@ -67,7 +67,7 @@ backup_main = Window(
 
 backup_create_scope = Window(
     Banner(BannerName.DASHBOARD),
-    Const("Choose backup scope"),
+    I18nFormat("msg-backup-scope-title"),
     Column(
         Select(
             Format("{item[label]}\n{item[description]}"),
@@ -95,7 +95,7 @@ backup_list = Window(
     I18nFormat("msg-backup-list"),
     Column(
         Select(
-            Format("{item[scope_label]} • {item[timestamp]} • {item[file_size_mb]}MB"),
+            Format("{item[display]}"),
             id="backup_select",
             item_id_getter=lambda item: item["filename"],
             items="backups",
@@ -103,10 +103,7 @@ backup_list = Window(
         ),
         when=F["has_backups"],
     ),
-    Const(
-        "No backups found",
-        when=~F["has_backups"],
-    ),
+    I18nFormat("msg-backup-list-empty", when=~F["has_backups"]),
     Row(
         SwitchTo(
             text=I18nFormat("btn-back"),
@@ -227,4 +224,3 @@ router = Dialog(
     backup_restore_confirm,
     backup_delete_confirm,
 )
-

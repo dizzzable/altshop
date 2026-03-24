@@ -27,6 +27,7 @@ from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 from src.services.transaction import TransactionService
 from src.services.user import UserService
+from src.services.web_account import WebAccountService
 
 from .subscription_selection import get_subscription_index, resolve_selected_subscription
 
@@ -63,12 +64,28 @@ def _format_subscription_title(plan_name: str, device_type: Any) -> str:
     return f"{emoji} {device_name} - {plan_name}"
 
 
+def _resolve_identity_kind(
+    target_user: UserDto,
+    *,
+    web_login: str | None,
+    linked_telegram_id: int | None,
+) -> str:
+    if linked_telegram_id is not None and web_login:
+        return "TELEGRAM_LINKED"
+    if linked_telegram_id is not None:
+        return "TELEGRAM_ONLY"
+    if target_user.telegram_id < 0 or web_login:
+        return "WEB_ONLY"
+    return "TELEGRAM_ONLY"
+
+
 @inject
 async def user_getter(
     dialog_manager: DialogManager,
     config: AppConfig,
     user: UserDto,
     user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
     subscription_service: FromDishka[SubscriptionService],
     settings_service: FromDishka[SettingsService],
     partner_service: FromDishka[PartnerService],
@@ -83,6 +100,19 @@ async def user_getter(
 
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
+
+    web_account = await web_account_service.get_by_user_telegram_id(target_telegram_id)
+    linked_telegram_id = (
+        target_user.telegram_id
+        if target_user.telegram_id > 0
+        else (
+            web_account.user_telegram_id
+            if web_account and web_account.user_telegram_id > 0
+            else None
+        )
+    )
+    web_login = web_account.username if web_account else None
+    public_username = target_user.username or None
 
     all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
     current_subscription_id = (
@@ -103,6 +133,17 @@ async def user_getter(
     data: dict[str, Any] = {
         "user_id": str(target_user.telegram_id),
         "username": target_user.username or False,
+        "public_username": public_username or False,
+        "has_public_username": bool(public_username),
+        "web_login": web_login or False,
+        "has_web_login": bool(web_login),
+        "linked_telegram_id": str(linked_telegram_id) if linked_telegram_id is not None else False,
+        "has_linked_telegram_id": linked_telegram_id is not None,
+        "identity_kind": _resolve_identity_kind(
+            target_user,
+            web_login=web_login,
+            linked_telegram_id=linked_telegram_id,
+        ),
         "user_name": target_user.name,
         "role": target_user.role,
         "language": target_user.language,

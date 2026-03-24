@@ -136,7 +136,11 @@ export function ResetPasswordPage() {
                   <Input
                     id="email-or-username"
                     type={resetMethod === 'email' ? 'email' : 'text'}
-                    placeholder={resetMethod === 'email' ? 'you@example.com' : 'username'}
+                    placeholder={
+                      resetMethod === 'email'
+                        ? t('auth.reset.emailPlaceholder')
+                        : t('auth.reset.usernamePlaceholder')
+                    }
                     value={resetMethod === 'email' ? email : username}
                     onChange={(e) => (
                       resetMethod === 'email' ? setEmail(e.target.value) : setUsername(e.target.value)
@@ -149,7 +153,7 @@ export function ResetPasswordPage() {
                   <Label htmlFor="code">{t('auth.reset.code')}</Label>
                   <Input
                     id="code"
-                    placeholder="123456"
+                    placeholder={t('auth.reset.codePlaceholder')}
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     disabled={isLoading}
@@ -163,7 +167,7 @@ export function ResetPasswordPage() {
               <Input
                 id="password"
                 type="password"
-                placeholder="********"
+                placeholder={t('auth.reset.newPasswordPlaceholder')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isLoading}
@@ -175,7 +179,7 @@ export function ResetPasswordPage() {
               <Input
                 id="confirm"
                 type="password"
-                placeholder="********"
+                placeholder={t('auth.reset.confirmPasswordPlaceholder')}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 disabled={isLoading}

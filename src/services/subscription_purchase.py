@@ -55,6 +55,10 @@ from .subscription_purchase_policy import (
 )
 
 PurchaseErrorDetail = str | dict[str, str]
+ARCHIVED_PLAN_NOT_PURCHASABLE_CODE = "ARCHIVED_PLAN_NOT_PURCHASABLE"
+ARCHIVED_PLAN_NOT_PURCHASABLE_MESSAGE = (
+    "Archived plans cannot be purchased as a new subscription"
+)
 
 
 class SubscriptionPurchaseError(Exception):
@@ -423,6 +427,15 @@ class SubscriptionPurchaseService:
         available_plans = await self.plan_service.get_available_plans(current_user)
         plan = next((candidate for candidate in available_plans if candidate.id == plan_id), None)
         if not plan:
+            archived_plan = await self.plan_service.get(plan_id)
+            if archived_plan and archived_plan.is_archived:
+                raise SubscriptionPurchaseError(
+                    status_code=HTTPStatus.BAD_REQUEST,
+                    detail={
+                        "code": ARCHIVED_PLAN_NOT_PURCHASABLE_CODE,
+                        "message": ARCHIVED_PLAN_NOT_PURCHASABLE_MESSAGE,
+                    },
+                )
             raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail="Plan is not available",

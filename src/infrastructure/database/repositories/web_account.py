@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, func, select, update
 
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.sql import AuthChallenge, WebAccount
@@ -24,6 +24,13 @@ class WebAccountRepository(BaseRepository):
 
     async def get_by_user_telegram_id(self, telegram_id: int) -> Optional[WebAccount]:
         return await self._get_one(WebAccount, WebAccount.user_telegram_id == telegram_id)
+
+    async def get_by_partial_username(self, query: str) -> list[WebAccount]:
+        search_pattern = f"%{query.lower()}%"
+        return await self._get_many(
+            WebAccount,
+            func.lower(WebAccount.username).like(search_pattern),
+        )
 
     async def get_by_email(self, email_normalized: str) -> Optional[WebAccount]:
         return await self._get_one(

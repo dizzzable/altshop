@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
@@ -43,6 +43,7 @@ import { cn, formatBytes, gigabytesToBytes } from '@/lib/utils'
 import { getCryptoAssetDisplayName, getCryptoAssetIconPath } from '@/lib/crypto-asset-icons'
 import { getPaymentGatewayDisplayName, getPaymentGatewayIconPath } from '@/lib/payment-gateway-icons'
 import { toast } from 'sonner'
+import { openExternalLink } from '@/lib/openExternalLink'
 import { savePendingPurchaseContext } from '@/lib/purchase-context'
 import type {
   CryptoAsset,
@@ -82,6 +83,7 @@ type PurchaseText = {
   selectDurationMethodError: string
   selectDeviceError: string
   paymentSuccess: string
+  openCheckoutFailed: string
   noPlansTitle: string
   noPlansDesc: string
   titleRenew: string
@@ -163,6 +165,7 @@ type PurchaseText = {
   partnerBalanceWebOnly: string
   partnerBalanceGatewayRequired: string
   createPaymentFailed: string
+  archivedPlanNotPurchasable: string
   selectPaymentAssetTitle: string
   selectPaymentAssetDesc: string
   selectPaymentAssetError: string
@@ -204,6 +207,7 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   selectDurationMethodError: 'purchase.selectDurationMethodError',
   selectDeviceError: 'purchase.selectDeviceError',
   paymentSuccess: 'purchase.paymentSuccess',
+  openCheckoutFailed: 'purchase.openCheckoutFailed',
   noPlansTitle: 'purchase.noPlansTitle',
   noPlansDesc: 'purchase.noPlansDesc',
   titleRenew: 'purchase.titleRenew',
@@ -285,6 +289,7 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   partnerBalanceWebOnly: 'purchase.partnerBalanceWebOnly',
   partnerBalanceGatewayRequired: 'purchase.partnerBalanceGatewayRequired',
   createPaymentFailed: 'purchase.createPaymentFailed',
+  archivedPlanNotPurchasable: 'purchase.archivedPlanNotPurchasable',
   selectPaymentAssetTitle: 'purchase.selectPaymentAssetTitle',
   selectPaymentAssetDesc: 'purchase.selectPaymentAssetDesc',
   selectPaymentAssetError: 'purchase.selectPaymentAssetError',
@@ -579,6 +584,7 @@ export function PurchasePage() {
   const [isPurchasing, setIsPurchasing] = useState(false)
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
   const [selectedRenewIds] = useState<number[]>(renewTargets.length > 1 ? renewTargets : [])
+  const purchaseLaunchRef = useRef(false)
 
   const isRenewFlow = !isUpgradeFlow && (renewTargets.length > 0 || selectedRenewIds.length > 0)
   const isNewPurchaseFlow = !isRenewFlow && !isUpgradeFlow
@@ -1114,6 +1120,9 @@ export function PurchasePage() {
   }, [availablePaymentAssets, selectedGateway])
 
   const handlePurchase = async () => {
+    if (purchaseLaunchRef.current || isPurchasing) {
+      return
+    }
     if (isReadOnlyAccess) {
       toast.error(text.readOnlyNotice)
       return
@@ -1155,6 +1164,7 @@ export function PurchasePage() {
       return
     }
 
+    purchaseLaunchRef.current = true
     setIsPurchasing(true)
     try {
       const deviceTypes =
@@ -1206,6 +1216,26 @@ export function PurchasePage() {
           planId: effectivePlanId,
           durationDays: selectedDuration,
         })
+
+        if (isInTelegram) {
+          const wasCheckoutOpen = isCheckoutOpen
+          if (wasCheckoutOpen) {
+            setIsCheckoutOpen(false)
+            await new Promise((resolve) => window.setTimeout(resolve, 120))
+          }
+
+          const opened = openExternalLink(paymentUrl)
+          if (!opened) {
+            if (wasCheckoutOpen) {
+              setIsCheckoutOpen(true)
+            }
+            toast.error(text.openCheckoutFailed)
+            return
+          }
+
+          return
+        }
+
         window.location.href = paymentUrl
         return
       }
@@ -1216,6 +1246,7 @@ export function PurchasePage() {
     } catch (error: unknown) {
       toast.error(extractPurchaseError(error, text))
     } finally {
+      purchaseLaunchRef.current = false
       setIsPurchasing(false)
     }
   }
@@ -1927,6 +1958,9 @@ function extractPurchaseError(error: unknown, text: PurchaseText): string {
     }
     if (detail.code === 'TRIAL_UPGRADE_REQUIRED') {
       return text.trialUpgradeRequired
+    }
+    if (detail.code === 'ARCHIVED_PLAN_NOT_PURCHASABLE') {
+      return text.archivedPlanNotPurchasable
     }
     if (detail.message) {
       return detail.message

@@ -73,11 +73,21 @@ frg-user-info =
 
 frg-user-details =
     <blockquote>
-    • <b>ID</b>: <code>{ $user_id }</code>
-    • <b>Имя</b>: { $user_name } { $username -> 
-        [0] { space }
-        *[HAS] (<a href="tg://user?id={ $user_id }">@{ $username }</a>)
+    • <b>Внутренний ID</b>: <code>{ $user_id }</code>
+    • <b>Тип профиля</b>: { identity-kind }
+    { $has_linked_telegram_id ->
+    [1] • <b>Привязанный Telegram ID</b>: <code>{ $linked_telegram_id }</code>
+    *[0] { empty }
     }
+    { $has_web_login ->
+    [1] • <b>Web-логин</b>: <code>{ $web_login }</code>
+    *[0] { empty }
+    }
+    { $has_public_username ->
+    [1] • <b>Публичный username</b>: @{ $public_username }
+    *[0] { empty }
+    }
+    • <b>Имя</b>: { $user_name }
     • <b>Роль</b>: { role }
     • <b>Язык</b>: { language }
     { $show_points ->
@@ -171,6 +181,13 @@ role =
     [DEV] { role-dev }
     [ADMIN] { role-admin }
     *[USER] { role-user }
+}
+
+identity-kind = 
+    { $identity_kind ->
+    [WEB_ONLY] Только web
+    [TELEGRAM_LINKED] Telegram привязан
+    *[TELEGRAM_ONLY] Только Telegram
 }
 
 

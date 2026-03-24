@@ -3,6 +3,9 @@ from pathlib import Path
 from aiogram.types import CallbackQuery, ContentType, Message
 from aiogram_dialog import DialogManager
 from aiogram_dialog.widgets.kbd import Button, Select
+from dishka import FromDishka
+from dishka.integrations.aiogram_dialog import inject
+from fluentogram import TranslatorRunner
 from loguru import logger
 
 from src.bot.states import RemnashopBanners
@@ -20,26 +23,6 @@ SUPPORTED_BANNER_MIME_TYPES: dict[str, str] = {
     "image/webp": "webp",
 }
 
-BANNER_NOT_SELECTED = "Баннер не выбран"
-ANIMATION_MISSING = "Не удалось получить animation"
-FILE_TYPE_MISSING = "Не удалось определить тип файла"
-FILE_MISSING = "Не удалось получить файл"
-BANNER_DELETED = "Баннер удален"
-BANNER_NOT_FOUND = "Баннер не найден"
-UPLOAD_PROMPT = (
-    "Отправьте изображение "
-    "(фото, GIF или документ) "
-    "для загрузки баннера"
-)
-UNSUPPORTED_FORMAT_TEMPLATE = (
-    "Неподдерживаемый формат файла. "
-    "Поддерживаются: {formats}"
-)
-UPLOAD_SUCCESS_TEMPLATE = (
-    "✅ Баннер '{banner_name}' "
-    "успешно загружен для локали '{locale}'"
-)
-
 
 def _get_banner_upload_context(
     dialog_manager: DialogManager,
@@ -55,31 +38,35 @@ def _resolve_supported_banner_formats_text() -> str:
     return ", ".join(banner_format.value.upper() for banner_format in BannerFormat)
 
 
-def _resolve_banner_upload_file(message: Message) -> tuple[str, str]:
+def _resolve_banner_upload_file(
+    message: Message,
+    i18n: TranslatorRunner,
+) -> tuple[str, str]:
     if message.content_type == ContentType.PHOTO:
         return message.photo[-1].file_id, "jpg"
 
     if message.content_type == ContentType.ANIMATION:
         animation = message.animation
         if not animation:
-            raise ValueError(ANIMATION_MISSING)
+            raise ValueError(i18n.get("ntf-banner-animation-missing"))
         return animation.file_id, "gif"
 
     if message.content_type == ContentType.DOCUMENT:
         document = message.document
         if not document or not document.mime_type:
-            raise ValueError(FILE_TYPE_MISSING)
+            raise ValueError(i18n.get("ntf-banner-file-type-missing"))
 
         file_ext = SUPPORTED_BANNER_MIME_TYPES.get(document.mime_type)
         if not file_ext:
             raise ValueError(
-                UNSUPPORTED_FORMAT_TEMPLATE.format(
+                i18n.get(
+                    "ntf-banner-upload-unsupported",
                     formats=_resolve_supported_banner_formats_text(),
                 )
             )
         return document.file_id, file_ext
 
-    raise ValueError(UPLOAD_PROMPT)
+    raise ValueError(i18n.get("ntf-banner-upload-prompt"))
 
 
 def _delete_existing_banner_versions(path_locale: Path, banner_name: str) -> None:
@@ -137,10 +124,12 @@ async def on_delete_banner(
     await dialog_manager.switch_to(RemnashopBanners.CONFIRM_DELETE)
 
 
+@inject
 async def on_confirm_delete(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
+    i18n: FromDishka[TranslatorRunner],
 ) -> None:
     """Delete all stored variants of the selected banner."""
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
@@ -148,7 +137,7 @@ async def on_confirm_delete(
 
     banner_name, locale = _get_banner_upload_context(dialog_manager, config)
     if not banner_name:
-        await callback.answer(BANNER_NOT_SELECTED, show_alert=True)
+        await callback.answer(i18n.get("ntf-banner-not-selected"), show_alert=True)
         return
 
     path_locale = config.banners_dir / locale
@@ -165,17 +154,19 @@ async def on_confirm_delete(
 
     if deleted:
         get_banner.cache_clear()
-        await callback.answer(BANNER_DELETED, show_alert=True)
+        await callback.answer(i18n.get("ntf-banner-deleted"), show_alert=True)
     else:
-        await callback.answer(BANNER_NOT_FOUND, show_alert=True)
+        await callback.answer(i18n.get("ntf-banner-not-found"), show_alert=True)
 
     await dialog_manager.switch_to(RemnashopBanners.SELECT_BANNER)
 
 
+@inject
 async def on_banner_upload_input(
     message: Message,
     widget: Button,
     dialog_manager: DialogManager,
+    i18n: FromDishka[TranslatorRunner],
 ) -> None:
     """Store a newly uploaded banner file."""
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
@@ -183,18 +174,18 @@ async def on_banner_upload_input(
 
     banner_name, locale = _get_banner_upload_context(dialog_manager, config)
     if not banner_name:
-        await message.answer(BANNER_NOT_SELECTED)
+        await message.answer(i18n.get("ntf-banner-not-selected"))
         return
 
     try:
-        file_id, file_ext = _resolve_banner_upload_file(message)
+        file_id, file_ext = _resolve_banner_upload_file(message, i18n)
     except ValueError as exc:
         await message.answer(str(exc))
         return
 
     file = await message.bot.get_file(file_id)
     if not file.file_path:
-        await message.answer(FILE_MISSING)
+        await message.answer(i18n.get("ntf-banner-file-missing"))
         return
 
     path_locale = config.banners_dir / locale
@@ -207,7 +198,8 @@ async def on_banner_upload_input(
 
     logger.info(f"{log(user)} Uploaded banner '{banner_name}' ({file_ext}) for locale '{locale}'")
     await message.answer(
-        UPLOAD_SUCCESS_TEMPLATE.format(
+        i18n.get(
+            "ntf-banner-upload-success",
             banner_name=banner_name,
             locale=locale,
         )

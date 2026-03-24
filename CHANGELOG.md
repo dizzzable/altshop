@@ -6,6 +6,27 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.15] - 2026-03-24
+
+### Added
+
+- unified trial eligibility now serves both bot and web flows from a shared backend resolver, including a web exception that allows invited users and partner-attributed users to activate trial without mandatory Telegram linking
+- bot admin user cards now explicitly show internal shadow ID, linked Telegram ID, web login, profile username, and identity kind for web-only versus Telegram-linked accounts
+- regression coverage now guards archived-plan purchase rejection and shared trial eligibility rules
+
+### Changed
+
+- Telegram Mini App checkout now opens all external gateway payment pages outside the embedded WebView instead of navigating the in-app page directly
+- web login validation is now explicitly restricted to lowercase Latin letters, digits, dots, and underscores, with matching localized helper copy on the web auth screens
+- visible runtime bot/web strings were moved into localization, and bot notices now use localized emoji-rich copy while web remains plain localized text
+- bot renew flows now rely on the shared subscription purchase policy, so archived renew and replacement rules match web and Mini App behavior
+
+### Fixed
+
+- Platega and other external payment gateways no longer break inside Telegram Mini App with `ERR_UNKNOWN_URL_SCHEME` during checkout handoff
+- archived plans can no longer be purchased as brand new subscriptions via web or Mini App; existing owners can still renew or upgrade according to archived-plan rules
+- bot admin search now finds web-only users by negative shadow ID, exact web login, and broader identity search paths instead of effectively hiding them from the normal users flow
+
 ## [1.1.14] - 2026-03-24
 
 ### Added

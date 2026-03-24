@@ -559,7 +559,11 @@ msg-user-give-access = <b>🔑 Предоставить доступ к план
 msg-users-search =
     <b>🔍 Поиск пользователя</b>
 
-    Введите ID пользователя, часть имени или перешлите любое его сообщение.
+    Введите Telegram ID, shadow ID, web-логин или часть имени.
+    Также можно переслать любое сообщение этого пользователя.
+
+msg-users-row-web-only = только web
+msg-users-row-web-login = web: { $login }
 
 msg-users-search-results =
     <b>🔍 Поиск пользователя</b>
@@ -2408,6 +2412,36 @@ msg-backup-error =
     { $error_message }
 
 msg-backup-content-item = • <b>{ $table_name }</b>: { $count }
+msg-backup-scope-title =
+    <b>🧩 Выберите тип бэкапа</b>
+
+    <blockquote>
+    • <b>Только база данных</b> — тарифы, цены, пользователи, подписки, настройки, транзакции и другие записи.
+    • <b>Только assets</b> — баннеры, брендинг, переводы и остальные изменяемые файлы экземпляра.
+    • <b>Полный бэкап</b> — база данных и assets в одном архиве.
+    </blockquote>
+msg-backup-list-empty = <i>📭 Бэкапы пока не найдены.</i>
+msg-backup-scope-db-label = Только база данных
+msg-backup-scope-db-description = Тарифы, пользователи, подписки, настройки и транзакции.
+msg-backup-scope-assets-label = Только assets
+msg-backup-scope-assets-description = Баннеры, брендинг, переводы и другие кастомные файлы.
+msg-backup-scope-full-label = Полный бэкап
+msg-backup-scope-full-description = База данных и assets в одном архиве.
+msg-backup-content-db-tables = • Таблиц: { $count }
+msg-backup-content-db-records = • Записей: { $count }
+msg-backup-content-db-includes = • Включает тарифы, цены, пользователей, подписки, настройки и транзакции
+msg-backup-content-assets-files = • Файлов assets: { $count }
+msg-backup-content-assets-root = • Корень assets: <code>{ $path }</code>
+msg-backup-value-unknown = неизвестно
+msg-backup-value-system = система
+msg-backup-value-not-set = не задано
+msg-common-plan-fallback = Подписка
+msg-common-empty-value = не указано
+msg-common-unlimited = ∞ (безлимит)
+msg-common-duration-days-short = { $days }д
+msg-menu-invite-referral-status-qualified = квалифицирован
+msg-menu-invite-referral-status-pending = ожидает
+msg-menu-invite-referral-row = { $name } • источник: { $source } • статус: { $status } • покупка: { $purchase_channel } • { $invited_at }
 
 # Importer plan assignment
 msg-importer-assign-plan =
@@ -2498,6 +2532,38 @@ msg-branding-edit =
     </blockquote>
 
     Отправьте новое значение следующим сообщением.
+msg-branding-field-project-name = Название проекта
+msg-branding-field-web-title = Заголовок web
+msg-branding-field-bot-menu-button = Текст кнопки меню бота
+msg-branding-field-telegram-template = TG шаблон
+msg-branding-field-password-reset-template = TG шаблон сброса пароля
+msg-branding-field-web-request-delivered = Web: отправлено
+msg-branding-field-web-request-open-bot = Web: открыть бота
+msg-branding-field-web-confirm-success = Web: подтверждение успешно
+msg-branding-field-label-en-base = { $label } (EN база)
+msg-branding-field-label-ru-override = { $label } (RU переопределение)
+msg-branding-field-empty-uses-en = <пусто: используется EN база>
+msg-branding-edit-locale-en = Редактировать EN (база)
+msg-branding-edit-locale-ru = Редактировать RU (переопределение)
+msg-backup-result-created-title = ✅ Бэкап успешно создан!
+msg-backup-result-scope = 📦 Состав: { $scope }
+msg-backup-result-file = 📁 Файл: { $value }
+msg-backup-result-size = 💾 Размер: { $value }
+msg-backup-result-tables = 📊 Таблиц: { $count }
+msg-backup-result-records = 📈 Записей: { $count }
+msg-backup-result-assets-restored-title = ✅ Файлы assets восстановлены!
+msg-backup-result-target = 🎯 Цель: { $value }
+msg-backup-result-db-restored-title = ✅ Восстановление завершено!
+msg-backup-result-backup-date = 🗓 Дата бэкапа: { $value }
+msg-backup-result-deleted = 🗑️ Бэкап { $filename } удалён.
+msg-backup-error-create = ❌ Ошибка создания бэкапа: { $error }
+msg-backup-error-restore = ❌ Ошибка восстановления: { $error }
+msg-backup-error-delete = ❌ Ошибка удаления бэкапа: { $error }
+msg-backup-error-file-missing = ❌ Файл бэкапа не найден: { $path }
+msg-backup-error-metadata-missing = ❌ В архиве отсутствует файл metadata.json.
+msg-backup-error-db-dump-missing = ❌ Файл дампа базы не найден: { $path }
+msg-backup-error-assets-missing = ❌ Папка assets не найдена: { $path }
+msg-backup-error-empty = ❌ В бэкапе нет данных для восстановления.
 msg-subscription-payment-asset =
     <b>Выберите монету оплаты</b>
 

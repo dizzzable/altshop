@@ -18,6 +18,11 @@ import {
 import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { resolvePostLoginPathWithAccess } from '@/lib/post-login-route'
+import {
+  isInvalidWebLoginBackendError,
+  isValidWebLogin,
+  normalizeWebLogin,
+} from '@/lib/web-login'
 
 export function RegisterPage() {
   const navigate = useNavigate()
@@ -56,15 +61,26 @@ export function RegisterPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, type, checked, value } = e.target
+    const nextValue =
+      type === 'checkbox'
+        ? checked
+        : name === 'username'
+          ? normalizeWebLogin(value)
+          : value
     setFormData({
       ...formData,
-      [name]: type === 'checkbox' ? checked : value,
+      [name]: nextValue,
     })
   }
 
   const validateForm = (): boolean => {
     if (!formData.username || !formData.password) {
       setError(t('auth.register.errorRequired'))
+      return false
+    }
+
+    if (!isValidWebLogin(formData.username)) {
+      setError(t('auth.register.errorInvalidFormat'))
       return false
     }
 
@@ -111,7 +127,7 @@ export function RegisterPage() {
 
     try {
       await api.auth.register({
-        username: formData.username,
+        username: normalizeWebLogin(formData.username),
         password: formData.password,
         telegram_id: formData.telegram_id ? Number(formData.telegram_id) : undefined,
         referral_code: getReferralCodeForAuth() || undefined,
@@ -149,9 +165,12 @@ export function RegisterPage() {
       const isTelegramRequiredError = normalizedDetail.includes('telegram id is required')
       const isRulesRequiredError = normalizedDetail.includes('accept the rules')
       const isChannelRequiredError = normalizedDetail.includes('channel subscription')
+      const isInvalidFormatError = isInvalidWebLoginBackendError(backendDetail)
 
       if (isAlreadyLinkedError) {
         setError(t('auth.register.errorLinked'))
+      } else if (isInvalidFormatError) {
+        setError(t('auth.register.errorInvalidFormat'))
       } else if (isTelegramRequiredError) {
         setError(t('auth.register.errorTelegramRequired'))
       } else if (isRulesRequiredError) {
@@ -194,7 +213,7 @@ export function RegisterPage() {
                 id="telegram_id"
                 name="telegram_id"
                 type="text"
-                placeholder="123456789"
+                placeholder={t('auth.register.telegramIdPlaceholder')}
                 value={formData.telegram_id}
                 onChange={handleChange}
                 disabled={isLoading}
@@ -300,11 +319,14 @@ export function RegisterPage() {
                 id="username"
                 name="username"
                 type="text"
-                placeholder="username"
+                placeholder={t('auth.register.usernamePlaceholder')}
                 value={formData.username}
                 onChange={handleChange}
                 disabled={isLoading}
               />
+              <p className="text-xs text-muted-foreground">
+                {t('auth.register.usernameHint')}
+              </p>
             </div>
 
             {/* Password */}
@@ -314,7 +336,7 @@ export function RegisterPage() {
                 id="password"
                 name="password"
                 type="password"
-                placeholder="••••••••"
+                placeholder={t('auth.register.passwordPlaceholder')}
                 value={formData.password}
                 onChange={handleChange}
                 disabled={isLoading}
@@ -328,7 +350,7 @@ export function RegisterPage() {
                 id="confirm_password"
                 name="confirm_password"
                 type="password"
-                placeholder="••••••••"
+                placeholder={t('auth.register.confirmPasswordPlaceholder')}
                 value={formData.confirm_password}
                 onChange={handleChange}
                 disabled={isLoading}

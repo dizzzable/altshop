@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from src.core.utils.validators import validate_web_login_or_raise
+
+
+def _validate_and_normalize_web_login(value: str) -> str:
+    return validate_web_login_or_raise(value)
 
 
 class TelegramAuthRequest(BaseModel):
@@ -28,6 +34,11 @@ class RegisterRequest(BaseModel):
     accept_rules: bool = False
     accept_channel_subscription: bool = False
 
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value: str) -> str:
+        return _validate_and_normalize_web_login(value)
+
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=3, max_length=32)
@@ -37,6 +48,11 @@ class LoginRequest(BaseModel):
 class WebAccountBootstrapRequest(BaseModel):
     username: str = Field(min_length=3, max_length=32)
     password: str = Field(min_length=6, max_length=128)
+
+    @field_validator("username", mode="before")
+    @classmethod
+    def normalize_username(cls, value: str) -> str:
+        return _validate_and_normalize_web_login(value)
 
 
 class TelegramLinkRequestPayload(BaseModel):

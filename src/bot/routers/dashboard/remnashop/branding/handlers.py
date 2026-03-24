@@ -4,6 +4,7 @@ from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import Button
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
+from fluentogram import TranslatorRunner
 from loguru import logger
 
 from src.bot.states import RemnashopBranding
@@ -98,6 +99,7 @@ async def on_branding_input(
     widget: MessageInput,
     dialog_manager: DialogManager,
     settings_service: FromDishka[SettingsService],
+    i18n: FromDishka[TranslatorRunner],
 ) -> None:
     dialog_manager.show_mode = ShowMode.EDIT
     if not message.text:
@@ -105,7 +107,7 @@ async def on_branding_input(
 
     field = str(dialog_manager.dialog_data.get("branding_field", "")).strip()
     if not field:
-        await message.answer("No branding field selected.")
+        await message.answer(i18n.get("ntf-branding-field-not-selected"))
         return
     locale = str(dialog_manager.dialog_data.get("branding_locale", "global")).strip().lower()
 
@@ -127,7 +129,7 @@ async def on_branding_input(
         await settings_service.update(settings)
     except Exception as exc:
         logger.warning(f"{log(user)} Failed to update branding field '{field}': {exc}")
-        await message.answer(f"Failed to save value: {exc}")
+        await message.answer(i18n.get("ntf-branding-save-failed"))
         return
 
     logger.info(f"{log(user)} Updated branding field '{field}'")

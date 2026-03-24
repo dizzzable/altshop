@@ -104,6 +104,11 @@ class PartnerService(BaseService):
         partner = await self.uow.repository.partners.get_partner_by_user(telegram_id)
         return PartnerDto.from_model(partner) if partner else None
 
+    async def has_partner_attribution(self, telegram_id: int) -> bool:
+        """Check whether a user is already attributed to a partner."""
+        referral = await self.uow.repository.partners.get_partner_referral_by_user(telegram_id)
+        return referral is not None
+
     async def is_partner(self, telegram_id: int) -> bool:
         """Проверить, является ли пользователь партнером."""
         partner = await self.get_partner_by_user(telegram_id)

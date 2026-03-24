@@ -16,54 +16,54 @@ main = Window(
     I18nFormat("msg-branding-main"),
     Row(
         Button(
-            text=Format("Project Name"),
+            text=Format("{project_name_label}"),
             id="project_name",
             on_click=on_select_edit_field,
         ),
         Button(
-            text=Format("Web Title"),
+            text=Format("{web_title_label}"),
             id="web_title",
             on_click=on_select_edit_field,
         ),
     ),
     Row(
         Button(
-            text=Format("Bot Menu Button"),
+            text=Format("{bot_menu_button_text_label}"),
             id="bot_menu_button_text",
             on_click=on_select_edit_field,
         ),
     ),
     Row(
         Button(
-            text=Format("TG Template"),
+            text=Format("{telegram_template_label}"),
             id="telegram_template",
             on_click=on_select_edit_field,
         ),
     ),
     Row(
         Button(
-            text=Format("TG Password Reset Template"),
+            text=Format("{password_reset_telegram_template_label}"),
             id="password_reset_telegram_template",
             on_click=on_select_edit_field,
         ),
     ),
     Row(
         Button(
-            text=Format("Web Request Delivered"),
+            text=Format("{web_request_delivered_label}"),
             id="web_request_delivered",
             on_click=on_select_edit_field,
         ),
     ),
     Row(
         Button(
-            text=Format("Web Request Open Bot"),
+            text=Format("{web_request_open_bot_label}"),
             id="web_request_open_bot",
             on_click=on_select_edit_field,
         ),
     ),
     Row(
         Button(
-            text=Format("Web Confirm Success"),
+            text=Format("{web_confirm_success_label}"),
             id="web_confirm_success",
             on_click=on_select_edit_field,
         ),
@@ -85,13 +85,13 @@ edit = Window(
     I18nFormat("msg-branding-edit"),
     Row(
         Button(
-            text=Format("Edit EN (Base)"),
+            text=Format("{edit_locale_en_label}"),
             id="edit_locale_en",
             on_click=on_select_edit_locale,
             when=F["is_localized"],
         ),
         Button(
-            text=Format("Edit RU (Override)"),
+            text=Format("{edit_locale_ru_label}"),
             id="edit_locale_ru",
             on_click=on_select_edit_locale,
             when=F["is_localized"],

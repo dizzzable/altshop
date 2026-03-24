@@ -4,12 +4,19 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+from pydantic import ValidationError
+
+from src.api.contracts.web_auth import RegisterRequest, WebAccountBootstrapRequest
 from src.api.presenters.user_account import _build_user_profile_response
 from src.api.presenters.web_auth import _build_auth_me_response
+from src.bot.routers.dashboard.users.user.getters import _resolve_identity_kind
 from src.core.enums import Locale, UserRole
 from src.infrastructure.database.models.dto import UserDto, WebAccountDto
 from src.services.telegram_link import TelegramLinkService
+from src.services.user import UserService
 from src.services.user_profile import UserProfileService
+from src.services.web_account import WebAccountService
 
 
 def run_async(coroutine):
@@ -33,6 +40,42 @@ class DummyUow:
     async def __aexit__(self, exc_type, exc, tb):
         del exc_type, exc, tb
         return False
+
+
+def make_user_model(telegram_id: int, *, username: str | None, name: str):
+    return SimpleNamespace(
+        id=None,
+        telegram_id=telegram_id,
+        username=username,
+        referral_code="REFCODE",
+        name=name,
+        role=UserRole.USER,
+        language=Locale.EN,
+        personal_discount=0,
+        purchase_discount=0,
+        points=0,
+        is_blocked=False,
+        is_bot_blocked=False,
+        is_rules_accepted=True,
+        partner_balance_currency_override=None,
+        referral_invite_settings=None,
+        max_subscriptions=None,
+        created_at=None,
+        updated_at=None,
+        subscriptions=[],
+        referral=None,
+    )
+
+
+def make_user_dto(telegram_id: int, *, username: str | None, name: str) -> UserDto:
+    return UserDto(
+        telegram_id=telegram_id,
+        username=username,
+        referral_code="REFCODE",
+        name=name,
+        role=UserRole.USER,
+        language=Locale.EN,
+    )
 
 
 def test_user_profile_snapshot_exposes_web_login_separately() -> None:
@@ -123,3 +166,122 @@ def test_telegram_link_keeps_existing_web_login() -> None:
         link_prompt_snooze_until=None,
     )
     uow.commit.assert_awaited_once()
+
+
+def test_web_login_contract_normalizes_supported_values() -> None:
+    register = RegisterRequest(username=" Alice.User_1 ", password="secret123")
+    bootstrap = WebAccountBootstrapRequest(username=" USER_01.TEST ", password="secret123")
+
+    assert register.username == "alice.user_1"
+    assert bootstrap.username == "user_01.test"
+
+
+@pytest.mark.parametrize(
+    ("username",),
+    [
+        ("абв",),
+        ("alice smith",),
+        ("alice-",),
+        ("_alice",),
+        ("alice_",),
+        ("alice.",),
+        (".alice",),
+    ],
+)
+def test_web_login_contract_rejects_invalid_format(username: str) -> None:
+    with pytest.raises(ValidationError):
+        RegisterRequest(username=username, password="secret123")
+
+
+def test_web_account_service_register_rejects_invalid_login_format_directly() -> None:
+    service = WebAccountService(uow=SimpleNamespace())
+
+    with pytest.raises(ValueError, match="Invalid username format"):
+        run_async(service.register(username="alice.", password="secret123"))
+
+
+def test_user_service_search_query_accepts_negative_shadow_id() -> None:
+    service = UserService(
+        config=SimpleNamespace(),
+        bot=SimpleNamespace(),
+        redis_client=SimpleNamespace(),
+        redis_repository=SimpleNamespace(),
+        translator_hub=SimpleNamespace(),
+        uow=SimpleNamespace(),
+    )
+    expected_user = make_user_dto(-555, username="alice", name="Alice")
+    service._search_users_by_telegram_id = AsyncMock(return_value=[expected_user])
+    service._search_users_by_login_or_name = AsyncMock(return_value=[])
+
+    result = run_async(service._search_users_by_query("-555"))
+
+    assert result == [expected_user]
+    service._search_users_by_telegram_id.assert_awaited_once_with(-555)
+    service._search_users_by_login_or_name.assert_not_called()
+
+
+def test_user_service_search_supports_exact_web_login() -> None:
+    exact_user_model = make_user_model(-555, username="alice", name="Alice")
+    uow = DummyUow()
+    uow.repository.web_accounts.get_by_username = AsyncMock(
+        return_value=SimpleNamespace(user_telegram_id=-555)
+    )
+    uow.repository.users.get = AsyncMock(return_value=exact_user_model)
+    service = UserService(
+        config=SimpleNamespace(),
+        bot=SimpleNamespace(),
+        redis_client=SimpleNamespace(),
+        redis_repository=SimpleNamespace(),
+        translator_hub=SimpleNamespace(),
+        uow=uow,
+    )
+
+    result = run_async(service._search_users_by_login_or_name("ALICE"))
+
+    assert [user.telegram_id for user in result] == [-555]
+
+
+def test_user_service_search_merges_partial_name_and_web_login_matches() -> None:
+    partial_name_user = make_user_dto(412289221, username="tg_412289221", name="Alina")
+    partial_login_user_model = make_user_model(-555, username="alice", name="Alice")
+    uow = DummyUow()
+    uow.repository.web_accounts.get_by_username = AsyncMock(return_value=None)
+    uow.repository.web_accounts.get_by_partial_username = AsyncMock(
+        return_value=[SimpleNamespace(user_telegram_id=-555)]
+    )
+    uow.repository.users.get_by_ids = AsyncMock(return_value=[partial_login_user_model])
+    service = UserService(
+        config=SimpleNamespace(),
+        bot=SimpleNamespace(),
+        redis_client=SimpleNamespace(),
+        redis_repository=SimpleNamespace(),
+        translator_hub=SimpleNamespace(),
+        uow=uow,
+    )
+    service.get_by_partial_name = AsyncMock(return_value=[partial_name_user])
+
+    result = run_async(service._search_users_by_login_or_name("ali"))
+
+    assert {user.telegram_id for user in result} == {412289221, -555}
+
+
+def test_identity_kind_marks_web_only_and_linked_profiles() -> None:
+    web_only_user = make_user_dto(-555, username="alice", name="Alice")
+    linked_user = make_user_dto(412289221, username="tg_412289221", name="Alina")
+
+    assert (
+        _resolve_identity_kind(
+            web_only_user,
+            web_login="alice",
+            linked_telegram_id=None,
+        )
+        == "WEB_ONLY"
+    )
+    assert (
+        _resolve_identity_kind(
+            linked_user,
+            web_login="alice",
+            linked_telegram_id=412289221,
+        )
+        == "TELEGRAM_LINKED"
+    )

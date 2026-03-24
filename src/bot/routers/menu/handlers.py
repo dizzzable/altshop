@@ -13,14 +13,15 @@ from loguru import logger
 from src.bot.keyboards import CALLBACK_CHANNEL_CONFIRM, CALLBACK_RULES_ACCEPT
 from src.bot.states import MainMenu, UserPartner
 from src.core.constants import REFERRAL_PREFIX, USER_KEY
-from src.core.enums import MediaType, PointsExchangeType, ReferralInviteSource
+from src.core.enums import MediaType, PointsExchangeType, PurchaseChannel, ReferralInviteSource
 from src.core.utils.formatters import format_user_log as log
 from src.core.utils.message_payload import MessagePayload
-from src.infrastructure.database.models.dto import PlanSnapshotDto, UserDto
+from src.infrastructure.database.models.dto import UserDto
 from src.infrastructure.taskiq.tasks.subscriptions import trial_subscription_task
 from src.services.notification import NotificationService
 from src.services.partner import PartnerService
 from src.services.plan import PlanService
+from src.services.purchase_access import PurchaseAccessError
 from src.services.referral import INVITE_BLOCK_REASON_EXHAUSTED, ReferralService
 from src.services.referral_exchange import (
     ReferralExchangeError,
@@ -28,6 +29,7 @@ from src.services.referral_exchange import (
 )
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
+from src.services.subscription_trial import SubscriptionTrialService
 from src.services.user import UserService
 
 router = Router(name=__name__)
@@ -55,6 +57,20 @@ async def _notify_exchange_error(
         payload = MessagePayload(i18n_key="ntf-error")
 
     await notification_service.notify_user(user=user, payload=payload)
+
+
+def _resolve_trial_notification_key(reason_code: str | None) -> str:
+    mapping = {
+        "TRIAL_ALREADY_USED": "ntf-trial-already-used",
+        "TRIAL_NOT_FIRST_SUBSCRIPTION": "ntf-trial-existing-subscription",
+        "TRIAL_TELEGRAM_LINK_REQUIRED": "ntf-trial-telegram-link-required",
+        "TRIAL_PLAN_NOT_CONFIGURED": "ntf-trial-plan-not-configured",
+        "TRIAL_PLAN_NOT_FOUND": "ntf-trial-plan-not-found",
+        "TRIAL_PLAN_NOT_TRIAL": "ntf-trial-plan-not-trial",
+        "TRIAL_PLAN_INACTIVE": "ntf-trial-plan-inactive",
+        "TRIAL_PLAN_NO_DURATION": "ntf-trial-plan-no-duration",
+    }
+    return mapping.get(reason_code, "ntf-trial-unavailable")
 
 
 async def on_start_dialog(
@@ -137,21 +153,32 @@ async def on_get_trial(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
-    plan_service: FromDishka[PlanService],
     notification_service: FromDishka[NotificationService],
+    subscription_trial_service: FromDishka[SubscriptionTrialService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    plan = await plan_service.get_trial_plan()
-
-    if not plan:
+    try:
+        snapshot = await subscription_trial_service.get_eligibility(
+            user,
+            channel=PurchaseChannel.TELEGRAM,
+        )
+    except PurchaseAccessError:
         await notification_service.notify_user(
             user=user,
             payload=MessagePayload(i18n_key="ntf-trial-unavailable"),
         )
-        raise ValueError("Trial plan not exist")
+        return
 
-    trial = PlanSnapshotDto.from_plan(plan, plan.durations[0].days)
-    await trial_subscription_task.kiq(user, trial)
+    if not snapshot.eligible:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key=_resolve_trial_notification_key(snapshot.reason_code),
+            ),
+        )
+        return
+
+    await trial_subscription_task.kiq(user)
 
 
 @dialog_inject
@@ -661,7 +688,7 @@ async def on_connect_device_selected(
     dialog_manager.dialog_data["selected_subscription_id"] = subscription_id
     dialog_manager.dialog_data["selected_subscription_url"] = subscription.url
     dialog_manager.dialog_data["selected_subscription_plan_name"] = (
-        subscription.plan.name if subscription.plan else "Р СџР С•Р Т‘Р С—Р С‘РЎРѓР С”Р В°"
+        subscription.plan.name if subscription.plan else i18n.get("msg-common-plan-fallback")
     )
 
     logger.info(f"{log(user)} Selected device for connection: subscription_id={subscription_id}")

@@ -12,6 +12,7 @@ from src.bot.keyboards import get_user_keyboard
 from src.core.constants import EXPIRED_SUBSCRIPTION_CLEANUP_DAYS
 from src.core.enums import (
     DeviceType,
+    PurchaseChannel,
     PurchaseType,
     SubscriptionStatus,
     SystemNotificationType,
@@ -39,6 +40,7 @@ from src.services.remnawave import RemnawaveService
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 from src.services.subscription_runtime import SubscriptionRuntimeService
+from src.services.subscription_trial import SubscriptionTrialService
 from src.services.transaction import TransactionService
 from src.services.user import UserService
 
@@ -53,27 +55,17 @@ from .redirects import (
 @inject(patch_module=True)
 async def trial_subscription_task(
     user: UserDto,
-    plan: PlanSnapshotDto,
-    remnawave_service: FromDishka[RemnawaveService],
-    subscription_service: FromDishka[SubscriptionService],
+    subscription_trial_service: FromDishka[SubscriptionTrialService],
 ) -> None:
     logger.info(f"Started trial for user '{user.telegram_id}'")
 
     try:
-        created_user = await remnawave_service.create_user(user, plan)
-        trial_subscription = SubscriptionDto(
-            user_remna_id=created_user.uuid,
-            status=created_user.status,
-            is_trial=True,
-            traffic_limit=plan.traffic_limit,
-            device_limit=plan.device_limit,
-            internal_squads=plan.internal_squads,
-            external_squad=plan.external_squad,
-            expire_at=created_user.expire_at,
-            url=created_user.subscription_url,
-            plan=plan,
+        trial_subscription = await subscription_trial_service.create_trial_subscription(
+            current_user=user,
+            plan_id=None,
+            channel=PurchaseChannel.TELEGRAM,
         )
-        await subscription_service.create(user, trial_subscription)
+        plan = trial_subscription.plan
         logger.debug(f"Created new trial subscription for user '{user.telegram_id}'")
 
         await send_system_notification_task.kiq(

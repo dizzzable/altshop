@@ -12,6 +12,7 @@ from src.core.enums import Locale, UserRole
 from src.core.security.jwt_handler import create_access_token, create_refresh_token
 from src.core.security.password import hash_password, verify_password
 from src.core.utils.time import datetime_now
+from src.core.utils.validators import validate_web_login_or_raise
 from src.infrastructure.database.models.dto import UserDto, WebAccountDto
 from src.infrastructure.database.models.sql import User, WebAccount
 from src.infrastructure.database.uow import UnitOfWork
@@ -61,7 +62,7 @@ class WebAccountService:
         telegram_id: Optional[int] = None,
         name: Optional[str] = None,
     ) -> WebAuthResult:
-        normalized_username = self.normalize_username(username)
+        normalized_username = validate_web_login_or_raise(username)
         password_hashed = hash_password(password)
 
         async with self.uow:
@@ -79,7 +80,7 @@ class WebAccountService:
                 if user_model is None:
                     user_model = await self._create_real_user(
                         telegram_id=telegram_id,
-                        username=username,
+                        username=normalized_username,
                         name=name,
                     )
                     created_new_user = True
@@ -90,7 +91,10 @@ class WebAccountService:
                 if linked_account:
                     raise ValueError("Telegram ID already linked. Please login.")
             else:
-                user_model = await self._create_shadow_user(username=username, name=name)
+                user_model = await self._create_shadow_user(
+                    username=normalized_username,
+                    name=name,
+                )
                 created_new_user = True
 
             web_account = WebAccount(
@@ -111,7 +115,7 @@ class WebAccountService:
                 telegram_id=user_model.telegram_id,
                 **self._build_profile_sync_update_data(
                     current_username=user_model.username,
-                    fallback_username=username,
+                    fallback_username=normalized_username,
                     current_name=user_model.name,
                     fallback_name=name,
                 ),
@@ -300,7 +304,7 @@ class WebAccountService:
         password: str,
         name: Optional[str] = None,
     ) -> WebAuthResult:
-        normalized_username = self.normalize_username(username)
+        normalized_username = validate_web_login_or_raise(username)
         password_hashed = hash_password(password)
 
         async with self.uow:
@@ -332,7 +336,7 @@ class WebAccountService:
                     telegram_id=user_model.telegram_id,
                     **self._build_profile_sync_update_data(
                         current_username=user_model.username,
-                        fallback_username=username,
+                        fallback_username=normalized_username,
                         current_name=user_model.name,
                         fallback_name=name,
                     ),
@@ -379,7 +383,7 @@ class WebAccountService:
                 telegram_id=user_model.telegram_id,
                 **self._build_profile_sync_update_data(
                     current_username=user_model.username,
-                    fallback_username=username,
+                    fallback_username=normalized_username,
                     current_name=user_model.name,
                     fallback_name=name,
                 ),

@@ -6,7 +6,7 @@ from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
 
 from src.core.config import AppConfig
-from src.core.enums import DeviceType, PointsExchangeType, SubscriptionStatus
+from src.core.enums import DeviceType, PointsExchangeType, PurchaseChannel, SubscriptionStatus
 from src.core.utils.formatters import (
     format_username_to_url,
     i18n_format_device_limit,
@@ -16,11 +16,12 @@ from src.core.utils.formatters import (
 from src.infrastructure.database.models.dto import UserDto
 from src.services.access import AccessService
 from src.services.partner import PartnerService
-from src.services.plan import PlanService
+from src.services.purchase_access import PurchaseAccessError
 from src.services.referral import ReferralService
 from src.services.referral_exchange import ReferralExchangeService
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
+from src.services.subscription_trial import SubscriptionTrialService
 
 DEVICE_TYPE_EMOJIS = {
     DeviceType.ANDROID: "📱",
@@ -69,6 +70,14 @@ def _gift_plan_name(options: Any, plan_id: int | None) -> str | None:
     return None
 
 
+def _plan_name_or_fallback(plan_name: str | None, i18n: TranslatorRunner) -> str:
+    return plan_name or i18n.get("msg-common-plan-fallback")
+
+
+def _empty_value(i18n: TranslatorRunner) -> str:
+    return i18n.get("msg-common-empty-value")
+
+
 def _resolve_main_menu_view_state(invite_locked: bool) -> tuple[str, bool]:
     if invite_locked:
         return "msg-main-menu-invite-locked", False
@@ -81,16 +90,21 @@ async def menu_getter(
     config: AppConfig,
     user: UserDto,
     i18n: FromDishka[TranslatorRunner],
-    plan_service: FromDishka[PlanService],
     subscription_service: FromDishka[SubscriptionService],
+    subscription_trial_service: FromDishka[SubscriptionTrialService],
     settings_service: FromDishka[SettingsService],
     access_service: FromDishka[AccessService],
     referral_service: FromDishka[ReferralService],
     partner_service: FromDishka[PartnerService],
     **kwargs: Any,
 ) -> dict[str, Any]:
-    plan = await plan_service.get_trial_plan()
-    has_used_trial = await subscription_service.has_used_trial(user)
+    try:
+        trial_eligibility = await subscription_trial_service.get_eligibility(
+            user,
+            channel=PurchaseChannel.TELEGRAM,
+        )
+    except PurchaseAccessError:
+        trial_eligibility = None
     mini_app_url = _resolve_mini_app_entry_url(config)
     is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
     support_username = config.bot.support_username.get_secret_value()
@@ -174,7 +188,7 @@ async def menu_getter(
             {
                 "status": None,
                 "is_trial": False,
-                "trial_available": not has_used_trial and plan,
+                "trial_available": bool(trial_eligibility and trial_eligibility.eligible),
                 "has_device_limit": has_any_subscription,  # Показываем кнопку если есть подписки
                 "connectable": False,
             }
@@ -219,7 +233,7 @@ async def connect_device_getter(
         device_type = sub.device_type
         emoji, device_name = _resolve_device_visual(device_type)
         status_emoji = "🟢" if sub.status == SubscriptionStatus.ACTIVE else "🟡"
-        plan_name = sub.plan.name if sub.plan else "—"
+        plan_name = _plan_name_or_fallback(sub.plan.name if sub.plan else None, i18n)
 
         formatted_subscriptions.append(
             {
@@ -259,7 +273,7 @@ async def devices_getter(
                 "id": sub.id,
                 "device_type": device_type.value if device_type else None,
                 "device_name": f"{emoji} {device_name}",
-                "plan_name": sub.plan.name if sub.plan else "—",
+                "plan_name": _plan_name_or_fallback(sub.plan.name if sub.plan else None, i18n),
                 "subscription_url": sub.url,
                 "status": sub.status.value,
                 "is_active": sub.is_active,
@@ -361,6 +375,7 @@ async def invite_getter(
 async def invite_referrals_getter(
     dialog_manager: DialogManager,
     user: UserDto,
+    i18n: FromDishka[TranslatorRunner],
     referral_service: FromDishka[ReferralService],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -374,19 +389,33 @@ async def invite_referrals_getter(
     for referral in referrals:
         referred = referral.referred
         display_name = referred.name or referred.username or str(referred.telegram_id)
-        invited_at = referral.created_at.strftime("%d.%m.%Y %H:%M") if referral.created_at else "—"
+        invited_at = (
+            referral.created_at.strftime("%d.%m.%Y %H:%M")
+            if referral.created_at
+            else _empty_value(i18n)
+        )
         source = getattr(referral.invite_source, "value", str(referral.invite_source))
         qualified = referral.qualified_at is not None
         purchase_channel = (
-            getattr(referral.qualified_purchase_channel, "value", "UNKNOWN") if qualified else "—"
+            getattr(referral.qualified_purchase_channel, "value", "UNKNOWN")
+            if qualified
+            else _empty_value(i18n)
         )
-        status = "QUALIFIED" if qualified else "PENDING"
+        status = i18n.get(
+            "msg-menu-invite-referral-status-qualified"
+            if qualified
+            else "msg-menu-invite-referral-status-pending"
+        )
         rows.append(
             {
                 "id": referral.id,
-                "display": (
-                    f"{display_name} | src:{source} | {status} | "
-                    f"buy:{purchase_channel} | {invited_at}"
+                "display": i18n.get(
+                    "msg-menu-invite-referral-row",
+                    name=display_name,
+                    source=source,
+                    status=status,
+                    purchase_channel=purchase_channel,
+                    invited_at=invited_at,
                 ),
             }
         )
@@ -437,6 +466,7 @@ async def connect_device_url_getter(
     dialog_manager: DialogManager,
     config: AppConfig,
     user: UserDto,
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     """
@@ -445,7 +475,10 @@ async def connect_device_url_getter(
     subscription_url = dialog_manager.dialog_data.get("selected_subscription_url", "")
     mini_app_url = _resolve_mini_app_entry_url(config)
     is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
-    plan_name = dialog_manager.dialog_data.get("selected_subscription_plan_name", "Подписка")
+    plan_name = dialog_manager.dialog_data.get(
+        "selected_subscription_plan_name",
+        i18n.get("msg-common-plan-fallback"),
+    )
 
     return {
         "url": mini_app_url or subscription_url,
@@ -557,7 +590,7 @@ async def exchange_select_type_getter(
         elif option.type == PointsExchangeType.GIFT_SUBSCRIPTION:
             description = i18n.get(
                 "exchange-type-gift-value",
-                plan_name=_gift_plan_name(options, option.gift_plan_id) or "—",
+                plan_name=_gift_plan_name(options, option.gift_plan_id) or _empty_value(i18n),
                 days=option.gift_duration_days or 0,
             )
         elif option.type == PointsExchangeType.DISCOUNT:
@@ -597,7 +630,7 @@ async def exchange_gift_getter(
         "points": options.points_balance,
         "cost": gift_option.points_cost if gift_option else 0,
         "plan_name": _gift_plan_name(options, gift_option.gift_plan_id if gift_option else None)
-        or "—",
+        or _empty_value(i18n),
         "duration_days": gift_option.gift_duration_days if gift_option else 0,
         "can_exchange": gift_option.available if gift_option else False,
     }
@@ -619,7 +652,10 @@ async def exchange_gift_select_plan_getter(
             "id": plan.plan_id,
             "name": plan.plan_name,
             "display_name": f"📦 {plan.plan_name}",
-            "durations": f"{gift_option.gift_duration_days if gift_option else 0}д",
+            "durations": i18n.get(
+                "msg-common-duration-days-short",
+                days=gift_option.gift_duration_days if gift_option else 0,
+            ),
         }
         for plan in options.gift_plans
     ]
@@ -657,7 +693,7 @@ async def exchange_gift_confirm_getter(
     return {
         "points": options.points_balance,
         "cost": gift_option.points_cost if gift_option else 0,
-        "plan_name": plan_name or "—",
+        "plan_name": plan_name or _empty_value(i18n),
         "duration_days": selected_duration,
         "can_exchange": bool(
             gift_option and gift_option.available and selected_plan_id is not None
@@ -738,7 +774,9 @@ async def exchange_traffic_getter(
         formatted_subscriptions.append(
             {
                 "id": sub.id,
-                "display_name": f"{emoji} {sub.plan.name if sub.plan else 'Подписка'}",
+                "display_name": (
+                    f"{emoji} {_plan_name_or_fallback(sub.plan.name if sub.plan else None, i18n)}"
+                ),
                 "traffic_limit": sub.traffic_limit,
                 "status": sub.status.value,
             }
@@ -790,7 +828,8 @@ async def exchange_traffic_confirm_getter(
         "points_to_spend": points_to_spend,
         "traffic_gb": traffic_gb,
         "subscription_name": (
-            f"{emoji} {subscription.plan.name if subscription.plan else 'Подписка'}"
+            f"{emoji} "
+            f"{_plan_name_or_fallback(subscription.plan.name if subscription.plan else None, i18n)}"
         ),
         "current_traffic_limit": subscription.traffic_limit,
     }
@@ -828,7 +867,9 @@ async def exchange_points_getter(
         formatted_subscriptions.append(
             {
                 "id": sub.id,
-                "display_name": f"{emoji} {sub.plan.name if sub.plan else 'Подписка'}",
+                "display_name": (
+                    f"{emoji} {_plan_name_or_fallback(sub.plan.name if sub.plan else None, i18n)}"
+                ),
                 "expire_time": expire_time_str,
                 "status": sub.status.value,
             }
@@ -863,8 +904,8 @@ async def exchange_points_confirm_getter(
             "points": 0,
             "days_to_add": 0,
             "points_per_day": points_per_day,
-            "subscription_name": "—",
-            "expire_time": "—",
+            "subscription_name": _empty_value(i18n),
+            "expire_time": _empty_value(i18n),
         }
 
     subscription = await subscription_service.get(subscription_id)
@@ -874,8 +915,8 @@ async def exchange_points_confirm_getter(
             "points": 0,
             "days_to_add": 0,
             "points_per_day": points_per_day,
-            "subscription_name": "—",
-            "expire_time": "—",
+            "subscription_name": _empty_value(i18n),
+            "expire_time": _empty_value(i18n),
         }
 
     device_type = subscription.device_type
@@ -892,7 +933,8 @@ async def exchange_points_confirm_getter(
         "days_to_add": days_to_add,
         "points_per_day": points_per_day,
         "subscription_name": (
-            f"{emoji} {subscription.plan.name if subscription.plan else 'Подписка'}"
+            f"{emoji} "
+            f"{_plan_name_or_fallback(subscription.plan.name if subscription.plan else None, i18n)}"
         ),
         "expire_time": expire_time_str,
     }

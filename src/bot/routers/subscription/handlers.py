@@ -22,6 +22,7 @@ from src.bot.routers.subscription.payment_helpers import (
     normalize_gateway_type,
     normalize_purchase_type,
     resolve_purchase_durations,
+    resolve_subscription_renewable_plan,
     select_auto_gateway,
 )
 from src.bot.states import Subscription
@@ -75,6 +76,7 @@ SELECTED_DEVICE_TYPES_KEY = "selected_device_types"
 SELECTED_SUBSCRIPTIONS_FOR_RENEW_KEY = "selected_subscriptions_for_renew"
 PAYMENT_GATEWAY_AUTO_SELECTED_KEY = "payment_gateway_auto_selected"
 FINAL_QUOTE_KEY = "final_quote"
+ALLOWED_PURCHASE_PLAN_IDS_KEY = "allowed_purchase_plan_ids"
 
 BOT_FALLBACK_CURRENCY_ORDER: tuple[Currency, ...] = (
     Currency.USD,
@@ -163,6 +165,10 @@ def _clear_payment_selection_state(
     _clear_finalized_payment_state(dialog_manager)
     if clear_cache:
         dialog_manager.dialog_data.pop(PAYMENT_CACHE_KEY, None)
+
+
+def _clear_allowed_purchase_plan_ids(dialog_manager: DialogManager) -> None:
+    dialog_manager.dialog_data.pop(ALLOWED_PURCHASE_PLAN_IDS_KEY, None)
 
 
 def _get_selected_device_types(dialog_manager: DialogManager) -> list[DeviceType] | None:
@@ -291,14 +297,16 @@ async def _calculate_multi_renew_total_price(
     plan_service: PlanService,
 ) -> Decimal:
     total_price = Decimal(0)
-    plans = await plan_service.get_available_plans(user)
 
     for sub_id in renew_subscription_ids:
         subscription = await subscription_service.get(sub_id)
         if not subscription:
             continue
 
-        matched_plan = subscription.find_matching_plan(plans)
+        matched_plan = await resolve_subscription_renewable_plan(
+            subscription=subscription,
+            plan_service=plan_service,
+        )
         if not matched_plan:
             continue
 
@@ -386,26 +394,6 @@ async def _handle_payment_creation_failure(
     )
 
 
-def _get_renewable_subscriptions(
-    subscriptions: list[SubscriptionDto],
-    plans: list[PlanDto],
-) -> list[tuple[SubscriptionDto, PlanDto]]:
-    renewable_subscriptions: list[tuple[SubscriptionDto, PlanDto]] = []
-    for subscription in subscriptions:
-        if subscription.status not in (
-            SubscriptionStatus.ACTIVE,
-            SubscriptionStatus.EXPIRED,
-            SubscriptionStatus.LIMITED,
-        ):
-            continue
-
-        matched_plan = subscription.find_matching_plan(plans)
-        if matched_plan and not subscription.is_unlimited:
-            renewable_subscriptions.append((subscription, matched_plan))
-
-    return renewable_subscriptions
-
-
 def _select_single_renewable_subscription(
     *,
     dialog_manager: DialogManager,
@@ -413,20 +401,27 @@ def _select_single_renewable_subscription(
     subscription: SubscriptionDto,
     matched_plan: PlanDto,
 ) -> None:
+    _clear_allowed_purchase_plan_ids(dialog_manager)
     adapter.save(matched_plan)
     dialog_manager.dialog_data["only_single_plan"] = True
     dialog_manager.dialog_data["renew_subscription_id"] = subscription.id
     dialog_manager.dialog_data["renew_subscription_ids"] = None
     dialog_manager.dialog_data[SELECTED_SUBSCRIPTIONS_FOR_RENEW_KEY] = [subscription.id]
+    dialog_manager.dialog_data["renew_single_select_mode"] = True
     dialog_manager.dialog_data.pop(PAYMENT_CACHE_KEY, None)
 
 
-def _prepare_multi_renew_selection(dialog_manager: DialogManager) -> None:
+def _prepare_renew_selection(
+    dialog_manager: DialogManager,
+    *,
+    single_select_mode: bool,
+) -> None:
     dialog_manager.dialog_data[SELECTED_SUBSCRIPTIONS_FOR_RENEW_KEY] = []
     dialog_manager.dialog_data["renew_subscription_ids"] = None
     dialog_manager.dialog_data["renew_subscription_id"] = None
+    _clear_allowed_purchase_plan_ids(dialog_manager)
     dialog_manager.dialog_data.pop(PAYMENT_CACHE_KEY, None)
-    dialog_manager.dialog_data["renew_single_select_mode"] = False
+    dialog_manager.dialog_data["renew_single_select_mode"] = single_select_mode
 
 
 def _save_single_plan(
@@ -434,6 +429,7 @@ def _save_single_plan(
     adapter: DialogDataAdapter,
     plan: PlanDto,
 ) -> None:
+    _clear_allowed_purchase_plan_ids(dialog_manager)
     adapter.save(plan)
     dialog_manager.dialog_data["only_single_plan"] = True
 
@@ -471,6 +467,81 @@ async def _get_available_purchase_gateways(
         plan_service=plan_service,
     )
     return filter_gateways_for_durations(gateways, selected_durations)
+
+
+async def _start_single_subscription_renew_flow(
+    *,
+    dialog_manager: DialogManager,
+    user: UserDto,
+    subscription: SubscriptionDto,
+    plan_service: PlanService,
+    subscription_purchase_service: SubscriptionPurchaseService,
+    notification_service: NotificationService,
+) -> bool:
+    subscription_id = subscription.id
+    if subscription_id is None:
+        await _notify_user(
+            user=user,
+            notification_service=notification_service,
+            i18n_key="ntf-subscription-renew-plan-unavailable",
+        )
+        return False
+
+    try:
+        purchase_options = await subscription_purchase_service.get_purchase_options(
+            subscription_id=subscription_id,
+            purchase_type=PurchaseType.RENEW,
+            current_user=user,
+            channel=PurchaseChannel.TELEGRAM,
+        )
+    except SubscriptionPurchaseError:
+        await _notify_user(
+            user=user,
+            notification_service=notification_service,
+            i18n_key="ntf-subscription-renew-plan-unavailable",
+        )
+        return False
+
+    if not purchase_options.plans:
+        await _notify_user(
+            user=user,
+            notification_service=notification_service,
+            i18n_key="ntf-subscription-renew-plan-unavailable",
+        )
+        return False
+
+    if purchase_options.selection_locked and len(purchase_options.plans) == 1:
+        matched_plan = await plan_service.get(purchase_options.plans[0].id)
+        if not matched_plan:
+            await _notify_user(
+                user=user,
+                notification_service=notification_service,
+                i18n_key="ntf-subscription-renew-plan-unavailable",
+            )
+            return False
+
+        adapter = DialogDataAdapter(dialog_manager)
+        _select_single_renewable_subscription(
+            dialog_manager=dialog_manager,
+            adapter=adapter,
+            subscription=subscription,
+            matched_plan=matched_plan,
+        )
+        await dialog_manager.switch_to(state=Subscription.DURATION)
+        return True
+
+    dialog_manager.dialog_data["purchase_type"] = PurchaseType.RENEW
+    dialog_manager.dialog_data["only_single_plan"] = False
+    dialog_manager.dialog_data["renew_subscription_id"] = subscription_id
+    dialog_manager.dialog_data["renew_subscription_ids"] = None
+    dialog_manager.dialog_data[SELECTED_SUBSCRIPTIONS_FOR_RENEW_KEY] = [subscription_id]
+    dialog_manager.dialog_data["renew_single_select_mode"] = True
+    dialog_manager.dialog_data[ALLOWED_PURCHASE_PLAN_IDS_KEY] = [
+        plan.id for plan in purchase_options.plans
+    ]
+    dialog_manager.dialog_data.pop(PAYMENT_CACHE_KEY, None)
+    await dialog_manager.switch_to(state=Subscription.PLANS)
+    return True
 
 
 def _set_selected_gateway(
@@ -709,12 +780,34 @@ async def _handle_renew_purchase_type(
     *,
     dialog_manager: DialogManager,
     user: UserDto,
-    plans: list[PlanDto],
+    plan_service: PlanService,
     subscription_service: SubscriptionService,
+    subscription_purchase_service: SubscriptionPurchaseService,
     notification_service: NotificationService,
 ) -> bool:
     all_subscriptions = await subscription_service.get_all_by_user(user.telegram_id)
-    renewable_subscriptions = _get_renewable_subscriptions(all_subscriptions, plans)
+    renewable_subscriptions: list[SubscriptionDto] = []
+    can_multi_renew_all = True
+
+    for subscription in all_subscriptions:
+        if subscription.status not in (
+            SubscriptionStatus.ACTIVE,
+            SubscriptionStatus.EXPIRED,
+            SubscriptionStatus.LIMITED,
+        ):
+            continue
+        if subscription.is_unlimited:
+            continue
+
+        action_policy = await subscription_purchase_service.get_action_policy(
+            current_user=user,
+            subscription=subscription,
+        )
+        if not action_policy.can_renew:
+            continue
+
+        renewable_subscriptions.append(subscription)
+        can_multi_renew_all = can_multi_renew_all and action_policy.can_multi_renew
 
     if not renewable_subscriptions:
         logger.warning(f"{log(user)} No renewable subscriptions found")
@@ -726,18 +819,19 @@ async def _handle_renew_purchase_type(
         return True
 
     if len(renewable_subscriptions) == 1:
-        subscription, matched_plan = renewable_subscriptions[0]
-        adapter = DialogDataAdapter(dialog_manager)
-        _select_single_renewable_subscription(
+        return await _start_single_subscription_renew_flow(
             dialog_manager=dialog_manager,
-            adapter=adapter,
-            subscription=subscription,
-            matched_plan=matched_plan,
+            user=user,
+            subscription=renewable_subscriptions[0],
+            plan_service=plan_service,
+            subscription_purchase_service=subscription_purchase_service,
+            notification_service=notification_service,
         )
-        await dialog_manager.switch_to(state=Subscription.DURATION)
-        return True
 
-    _prepare_multi_renew_selection(dialog_manager)
+    _prepare_renew_selection(
+        dialog_manager,
+        single_select_mode=not can_multi_renew_all,
+    )
     await dialog_manager.switch_to(state=Subscription.SELECT_SUBSCRIPTION_FOR_RENEW)
     return True
 
@@ -761,12 +855,14 @@ async def _calculate_selected_duration_pricing(
     )
     if is_multi_renew:
         selected_durations: list[PlanDurationDto] = []
-        all_plans = await plan_service.get_available_plans(user)
         for sub_id in renew_subscription_ids:
             subscription = await subscription_service.get(sub_id)
             if not subscription:
                 continue
-            matched_plan = subscription.find_matching_plan(all_plans)
+            matched_plan = await resolve_subscription_renewable_plan(
+                subscription=subscription,
+                plan_service=plan_service,
+            )
             if not matched_plan:
                 continue
             sub_duration = matched_plan.get_duration(selected_duration)
@@ -1089,6 +1185,7 @@ async def on_purchase_type_select(
     plan_service: FromDishka[PlanService],
     payment_gateway_service: FromDishka[PaymentGatewayService],
     notification_service: FromDishka[NotificationService],
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     plans: list[PlanDto] = await plan_service.get_available_plans(user)
@@ -1099,7 +1196,29 @@ async def on_purchase_type_select(
     dialog_manager.dialog_data["purchase_type"] = purchase_type
     dialog_manager.dialog_data.pop(CURRENT_DURATION_KEY, None)
     dialog_manager.dialog_data.pop(SELECTED_DEVICE_TYPES_KEY, None)
+    _clear_allowed_purchase_plan_ids(dialog_manager)
     _clear_payment_selection_state(dialog_manager, clear_cache=True)
+
+    if purchase_type == PurchaseType.RENEW and user.current_subscription:
+        if not gateways:
+            await _notify_user(
+                user=user,
+                notification_service=notification_service,
+                i18n_key="ntf-subscription-gateways-not-available",
+            )
+            return
+
+        handled = await _start_single_subscription_renew_flow(
+            dialog_manager=dialog_manager,
+            user=user,
+            subscription=user.current_subscription,
+            plan_service=plan_service,
+            subscription_purchase_service=subscription_purchase_service,
+            notification_service=notification_service,
+        )
+        if handled:
+            return
+        return
 
     if not await _ensure_plans_and_gateways(
         user=user,
@@ -1110,23 +1229,6 @@ async def on_purchase_type_select(
         return
 
     adapter = DialogDataAdapter(dialog_manager)
-    if purchase_type == PurchaseType.RENEW and user.current_subscription:
-        matched_plan = user.current_subscription.find_matching_plan(plans)
-        logger.debug(f"Matched plan for renewal: '{matched_plan}'")
-        if matched_plan:
-            adapter.save(matched_plan)
-            dialog_manager.dialog_data["only_single_plan"] = True
-            await dialog_manager.switch_to(state=Subscription.DURATION)
-            return
-
-        logger.warning(f"{log(user)} Tried to renew, but no matching plan found")
-        await _notify_user(
-            user=user,
-            notification_service=notification_service,
-            i18n_key="ntf-subscription-renew-plan-unavailable",
-        )
-        return
-
     if len(plans) == 1:
         logger.info(f"{log(user)} Auto-selected single plan '{plans[0].id}'")
         adapter.save(plans[0])
@@ -1165,7 +1267,27 @@ async def on_subscription_plans(
     dialog_manager.dialog_data["purchase_type"] = purchase_type
     dialog_manager.dialog_data.pop(CURRENT_DURATION_KEY, None)
     dialog_manager.dialog_data.pop(SELECTED_DEVICE_TYPES_KEY, None)
+    _clear_allowed_purchase_plan_ids(dialog_manager)
     _clear_payment_selection_state(dialog_manager, clear_cache=True)
+
+    if purchase_type == PurchaseType.RENEW:
+        if not gateways:
+            await _notify_user(
+                user=user,
+                notification_service=notification_service,
+                i18n_key="ntf-subscription-gateways-not-available",
+            )
+            return
+        handled = await _handle_renew_purchase_type(
+            dialog_manager=dialog_manager,
+            user=user,
+            plan_service=plan_service,
+            subscription_service=subscription_service,
+            subscription_purchase_service=subscription_purchase_service,
+            notification_service=notification_service,
+        )
+        if handled:
+            return
 
     if not await _ensure_plans_and_gateways(
         user=user,
@@ -1174,17 +1296,6 @@ async def on_subscription_plans(
         notification_service=notification_service,
     ):
         return
-
-    if purchase_type == PurchaseType.RENEW:
-        handled = await _handle_renew_purchase_type(
-            dialog_manager=dialog_manager,
-            user=user,
-            plans=plans,
-            subscription_service=subscription_service,
-            notification_service=notification_service,
-        )
-        if handled:
-            return
 
     handled_single_plan = await _handle_single_plan_purchase_path(
         dialog_manager=dialog_manager,
@@ -1211,8 +1322,20 @@ async def on_plan_select(
     dialog_manager: DialogManager,
     selected_plan: int,
     plan_service: FromDishka[PlanService],
+    notification_service: FromDishka[NotificationService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    allowed_plan_ids = dialog_manager.dialog_data.get(ALLOWED_PURCHASE_PLAN_IDS_KEY)
+    if isinstance(allowed_plan_ids, list) and allowed_plan_ids:
+        allowed_plan_id_set = {int(plan_id) for plan_id in allowed_plan_ids}
+        if selected_plan not in allowed_plan_id_set:
+            await _notify_user(
+                user=user,
+                notification_service=notification_service,
+                i18n_key="ntf-subscription-renew-plan-unavailable",
+            )
+            return
+
     plan = await plan_service.get(plan_id=selected_plan)
 
     if not plan:
@@ -1655,6 +1778,7 @@ async def on_renew_selected_subscription(
     payment_gateway_service: FromDishka[PaymentGatewayService],
     notification_service: FromDishka[NotificationService],
     subscription_service: FromDishka[SubscriptionService],
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService],
 ) -> None:
     """Продление выбранной подписки"""
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
@@ -1672,8 +1796,16 @@ async def on_renew_selected_subscription(
         return
 
     # Найти план для продления
-    plans = await plan_service.get_available_plans(user)
-    matched_plan = subscription.find_matching_plan(plans)
+    matched_plan = None
+    await _start_single_subscription_renew_flow(
+        dialog_manager=dialog_manager,
+        user=user,
+        subscription=subscription,
+        plan_service=plan_service,
+        subscription_purchase_service=subscription_purchase_service,
+        notification_service=notification_service,
+    )
+    return
 
     if not matched_plan:
         await notification_service.notify_user(
@@ -1802,6 +1934,7 @@ async def on_subscription_for_renew_toggle(
     subscription_service: FromDishka[SubscriptionService],
     notification_service: FromDishka[NotificationService],
     plan_service: FromDishka[PlanService],
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService],
 ) -> None:
     """Обработка переключения выбора подписки для продления (множественный или одиночный выбор)"""
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
@@ -1822,6 +1955,15 @@ async def on_subscription_for_renew_toggle(
                 payload=MessagePayload(i18n_key="ntf-user-subscription-empty"),
             )
             return
+        await _start_single_subscription_renew_flow(
+            dialog_manager=dialog_manager,
+            user=user,
+            subscription=subscription,
+            plan_service=plan_service,
+            subscription_purchase_service=subscription_purchase_service,
+            notification_service=notification_service,
+        )
+        return
 
         # Найти план для продления
         plans = await plan_service.get_available_plans(user)
@@ -1874,6 +2016,7 @@ async def on_confirm_renew_selection(
     dialog_manager: DialogManager,
     plan_service: FromDishka[PlanService],
     subscription_service: FromDishka[SubscriptionService],
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
     """Подтверждение выбора подписок для продления"""
@@ -1892,13 +2035,15 @@ async def on_confirm_renew_selection(
     logger.info(f"{log(user)} Confirmed renewal for subscriptions: {selected_subscriptions}")
 
     # Получаем все выбранные подписки и их планы
-    plans = await plan_service.get_available_plans(user)
     subscriptions_with_plans = []
 
     for sub_id in selected_subscriptions:
         subscription = await subscription_service.get(sub_id)
         if subscription:
-            matched_plan = subscription.find_matching_plan(plans)
+            matched_plan = await resolve_subscription_renewable_plan(
+                subscription=subscription,
+                plan_service=plan_service,
+            )
             if matched_plan:
                 subscriptions_with_plans.append((subscription, matched_plan))
 
@@ -1953,6 +2098,7 @@ async def on_subscription_for_renew_select(
     selected_subscription: int,
     plan_service: FromDishka[PlanService],
     subscription_service: FromDishka[SubscriptionService],
+    subscription_purchase_service: FromDishka[SubscriptionPurchaseService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
     """Обработка выбора подписки для продления (одиночный выбор - для обратной совместимости)"""
@@ -1968,6 +2114,16 @@ async def on_subscription_for_renew_select(
         return
 
     # Найти план для продления
+    await _start_single_subscription_renew_flow(
+        dialog_manager=dialog_manager,
+        user=user,
+        subscription=subscription,
+        plan_service=plan_service,
+        subscription_purchase_service=subscription_purchase_service,
+        notification_service=notification_service,
+    )
+    return
+
     plans = await plan_service.get_available_plans(user)
     matched_plan = subscription.find_matching_plan(plans)
 

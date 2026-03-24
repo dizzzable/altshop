@@ -19,7 +19,7 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
-from src.core.enums import BackupScope
+from src.core.enums import BackupScope, Locale
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.sql import (
     Broadcast,
@@ -182,6 +182,7 @@ class BackupService(BaseService):
         compress: Optional[bool] = None,
         include_logs: Optional[bool] = None,
         scope: BackupScope = BackupScope.FULL,
+        locale: Locale | None = None,
     ) -> Tuple[bool, str, Optional[str]]:
         """
         Создаёт бэкап базы данных.
@@ -276,6 +277,7 @@ class BackupService(BaseService):
                 overview=overview,
                 includes_database=includes_database,
                 assets_info=assets_info,
+                locale=locale,
             )
             logger.info(message)
 
@@ -285,6 +287,10 @@ class BackupService(BaseService):
             return True, message, str(backup_path)
 
         except Exception as e:
+            if locale is not None:
+                error_msg = self._build_backup_create_error_message(str(e), locale=locale)
+                logger.error(error_msg, exc_info=True)
+                return False, error_msg, None
             error_msg = f"❌ Ошибка создания бэкапа: {str(e)}"
             logger.error(error_msg, exc_info=True)
             return False, error_msg, None
@@ -293,6 +299,7 @@ class BackupService(BaseService):
         self,
         backup_file_path: str,
         clear_existing: bool = False,
+        locale: Locale | None = None,
     ) -> Tuple[bool, str]:
         """
         Восстанавливает базу данных из бэкапа.
@@ -309,17 +316,34 @@ class BackupService(BaseService):
 
             backup_path = Path(backup_file_path)
             if not backup_path.exists():
+                if locale is not None:
+                    return False, self._build_backup_missing_file_message(
+                        backup_file_path,
+                        locale=locale,
+                    )
                 return False, f"❌ Файл бэкапа не найден: {backup_file_path}"
 
             if self._is_archive_backup(backup_path):
-                success, message = await self._restore_from_archive(backup_path, clear_existing)
+                success, message = await self._restore_from_archive(
+                    backup_path,
+                    clear_existing,
+                    locale=locale,
+                )
             else:
-                success, message = await self._restore_from_json(backup_path, clear_existing)
+                success, message = await self._restore_from_json(
+                    backup_path,
+                    clear_existing,
+                    locale=locale,
+                )
 
             return success, message
 
         except Exception as e:
-            error_msg = f"❌ Ошибка восстановления: {str(e)}"
+            if locale is not None:
+                error_msg = self._build_backup_restore_error_message(str(e), locale=locale)
+                logger.error(error_msg, exc_info=True)
+                return False, error_msg
+            error_msg = f"Restore failed: {str(e)}"
             logger.error(error_msg, exc_info=True)
             return False, error_msg
 
@@ -368,22 +392,40 @@ class BackupService(BaseService):
 
         return backups
 
-    async def delete_backup(self, backup_filename: str) -> Tuple[bool, str]:
+    async def delete_backup(
+        self,
+        backup_filename: str,
+        locale: Locale | None = None,
+    ) -> Tuple[bool, str]:
         """Удаляет файл бэкапа."""
         try:
             backup_path = self.backup_dir / backup_filename
 
+
             if not backup_path.exists():
-                return False, f"❌ Файл бэкапа не найден: {backup_filename}"
+                if locale is not None:
+                    return False, self._build_backup_missing_file_message(
+                        backup_filename,
+                        locale=locale,
+                    )
+                return False, f"Backup file not found: {backup_filename}"
 
             backup_path.unlink()
-            message = f"✅ Бэкап {backup_filename} удалён"
+            if locale is not None:
+                message = self._build_backup_deleted_message(backup_filename, locale=locale)
+                logger.info(message)
+                return True, message
+            message = f"Backup {backup_filename} deleted"
             logger.info(message)
 
             return True, message
 
         except Exception as e:
-            error_msg = f"❌ Ошибка удаления бэкапа: {str(e)}"
+            if locale is not None:
+                error_msg = self._build_backup_delete_error_message(str(e), locale=locale)
+                logger.error(error_msg)
+                return False, error_msg
+            error_msg = f"Backup deletion failed: {str(e)}"
             logger.error(error_msg)
             return False, error_msg
 
@@ -575,6 +617,18 @@ class BackupService(BaseService):
         }
         return mapping[scope]
 
+    def _format_scope_label_localized(self, scope: BackupScope, locale: Locale | None) -> str:
+        if locale is None:
+            return self._format_scope_label(scope)
+
+        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+        mapping = {
+            BackupScope.DB: i18n.get("msg-backup-scope-db-label"),
+            BackupScope.ASSETS: i18n.get("msg-backup-scope-assets-label"),
+            BackupScope.FULL: i18n.get("msg-backup-scope-full-label"),
+        }
+        return mapping[scope]
+
     def _build_backup_result_message(
         self,
         *,
@@ -584,7 +638,38 @@ class BackupService(BaseService):
         overview: Dict[str, Any],
         includes_database: bool,
         assets_info: Optional[Dict[str, Any]],
+        locale: Locale | None = None,
     ) -> str:
+        if locale is not None:
+            i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+            lines = [
+                i18n.get("msg-backup-result-created-title"),
+                i18n.get(
+                    "msg-backup-result-scope",
+                    scope=self._format_scope_label_localized(scope, locale),
+                ),
+                i18n.get("msg-backup-result-file", value=filename),
+                i18n.get("msg-backup-result-size", value=f"{size_mb:.2f} MB"),
+            ]
+            if includes_database:
+                lines.append(
+                    i18n.get("msg-backup-result-tables", count=overview.get("tables_count", 0))
+                )
+                lines.append(
+                    i18n.get(
+                        "msg-backup-result-records",
+                        count=f"{overview.get('total_records', 0):,}",
+                    )
+                )
+            if assets_info is not None:
+                lines.append(
+                    i18n.get(
+                        "msg-backup-content-assets-files",
+                        count=int(assets_info.get("files_count", 0) or 0),
+                    )
+                )
+            return "\n".join(lines)
+
         lines = [
             "Backup created successfully!",
             f"Scope: {self._format_scope_label(scope)}",
@@ -597,6 +682,61 @@ class BackupService(BaseService):
         if assets_info is not None:
             lines.append(f"Assets files: {assets_info.get('files_count', 0)}")
         return "\n".join(lines)
+
+    def _build_backup_create_error_message(
+        self,
+        error: str,
+        *,
+        locale: Locale | None = None,
+    ) -> str:
+        if locale is None:
+            return f"Backup creation failed: {error}"
+        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+        return i18n.get("msg-backup-error-create", error=error)
+
+    def _build_backup_restore_error_message(
+        self,
+        error: str,
+        *,
+        locale: Locale | None = None,
+    ) -> str:
+        if locale is None:
+            return f"Restore failed: {error}"
+        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+        return i18n.get("msg-backup-error-restore", error=error)
+
+    def _build_backup_missing_file_message(
+        self,
+        path: str,
+        *,
+        locale: Locale | None = None,
+    ) -> str:
+        if locale is None:
+            return f"Backup file not found: {path}"
+        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+        return i18n.get("msg-backup-error-file-missing", path=path)
+
+    def _build_backup_deleted_message(
+        self,
+        backup_filename: str,
+        *,
+        locale: Locale | None = None,
+    ) -> str:
+        if locale is None:
+            return f"Backup {backup_filename} deleted"
+        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+        return i18n.get("msg-backup-result-deleted", filename=backup_filename)
+
+    def _build_backup_delete_error_message(
+        self,
+        error: str,
+        *,
+        locale: Locale | None = None,
+    ) -> str:
+        if locale is None:
+            return f"Backup deletion failed: {error}"
+        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+        return i18n.get("msg-backup-error-delete", error=error)
 
     def _normalize_backup_scope(self, metadata: Dict[str, Any]) -> BackupScope:
         scope_value = str(
@@ -704,10 +844,56 @@ class BackupService(BaseService):
 
         return metadata
 
+    async def _restore_archive_database_part(
+        self,
+        *,
+        temp_path: Path,
+        metadata: Dict[str, Any],
+        clear_existing: bool,
+        locale: Locale | None,
+    ) -> Tuple[bool, str]:
+        database_info = metadata.get("database", {})
+        dump_file = temp_path / database_info.get("path", "database.json")
+        if not dump_file.exists():
+            if locale is not None:
+                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                return False, i18n.get(
+                    "msg-backup-error-db-dump-missing",
+                    path=str(dump_file),
+                )
+            return False, f"Database dump file not found: {dump_file}"
+
+        return await self._restore_from_json(
+            dump_file,
+            clear_existing,
+            locale=locale,
+        )
+
+    async def _restore_archive_assets_part(
+        self,
+        *,
+        temp_path: Path,
+        metadata: Dict[str, Any],
+        locale: Locale | None,
+    ) -> Tuple[bool, str]:
+        assets_info = metadata.get("assets", {})
+        assets_dir = temp_path / assets_info.get("path", "assets")
+        if not assets_dir.exists():
+            if locale is not None:
+                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                return False, i18n.get(
+                    "msg-backup-error-assets-missing",
+                    path=str(assets_dir),
+                )
+            return False, f"Assets directory not found: {assets_dir}"
+
+        return True, await self._restore_assets_from_dir(assets_dir, locale=locale)
+
     async def _restore_from_archive(
         self,
         backup_path: Path,
         clear_existing: bool,
+        locale: Locale | None = None,
     ) -> Tuple[bool, str]:
         """Restore a selective backup archive."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -719,6 +905,9 @@ class BackupService(BaseService):
 
             metadata_path = temp_path / "metadata.json"
             if not metadata_path.exists():
+                if locale is not None:
+                    i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                    return False, i18n.get("msg-backup-error-metadata-missing")
                 return False, "Backup metadata file is missing"
 
             async with _aiofiles_open(metadata_path, "r", encoding="utf-8") as meta_file:
@@ -734,32 +923,41 @@ class BackupService(BaseService):
             result_parts: list[str] = []
 
             if includes_database:
-                database_info = metadata.get("database", {})
-                dump_file = temp_path / database_info.get("path", "database.json")
-                if not dump_file.exists():
-                    return False, f"Database dump file not found: {dump_file}"
-
-                db_success, db_message = await self._restore_from_json(dump_file, clear_existing)
+                db_success, db_message = await self._restore_archive_database_part(
+                    temp_path=temp_path,
+                    metadata=metadata,
+                    clear_existing=clear_existing,
+                    locale=locale,
+                )
                 if not db_success:
                     return db_success, db_message
                 result_parts.append(db_message)
 
             if includes_assets:
-                assets_info = metadata.get("assets", {})
-                assets_dir = temp_path / assets_info.get("path", "assets")
-                if not assets_dir.exists():
-                    return False, f"Assets directory not found: {assets_dir}"
-
-                assets_message = await self._restore_assets_from_dir(assets_dir)
+                assets_success, assets_message = await self._restore_archive_assets_part(
+                    temp_path=temp_path,
+                    metadata=metadata,
+                    locale=locale,
+                )
+                if not assets_success:
+                    return False, assets_message
                 result_parts.append(assets_message)
 
             if not result_parts:
+                if locale is not None:
+                    i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                    return False, i18n.get("msg-backup-error-empty")
                 return False, "Backup does not contain restorable data"
 
             return True, "\n\n".join(result_parts)
 
 
-    async def _restore_assets_from_dir(self, source_dir: Path) -> str:
+    async def _restore_assets_from_dir(
+        self,
+        source_dir: Path,
+        *,
+        locale: Locale | None = None,
+    ) -> str:
         """Restore bundled runtime assets without wiping unrelated files."""
         target_dir = self.config.assets_dir
         restored_files = 0
@@ -781,6 +979,15 @@ class BackupService(BaseService):
             restored_files,
             target_dir,
         )
+        if locale is not None:
+            i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+            return "\n".join(
+                [
+                    i18n.get("msg-backup-result-assets-restored-title"),
+                    i18n.get("msg-backup-content-assets-files", count=restored_files),
+                    i18n.get("msg-backup-result-target", value=str(target_dir)),
+                ]
+            )
         return (
             "Assets restored successfully!\n"
             f"Files: {restored_files}\n"
@@ -791,6 +998,7 @@ class BackupService(BaseService):
         self,
         dump_path: Path,
         clear_existing: bool,
+        locale: Locale | None = None,
     ) -> Tuple[bool, str]:
         """Восстановление из JSON-дампа."""
         async with _aiofiles_open(dump_path, "r", encoding="utf-8") as f:
@@ -800,6 +1008,9 @@ class BackupService(BaseService):
         backup_data = dump_data.get("data", {})
 
         if not backup_data:
+            if locale is not None:
+                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                return False, i18n.get("msg-backup-error-empty")
             return False, "❌ Файл бэкапа не содержит данных"
 
         logger.info(f"📊 Загружен дамп: {metadata.get('timestamp', 'неизвестная дата')}")
@@ -849,6 +1060,20 @@ class BackupService(BaseService):
             f"📈 Записей: {restored_records:,}\n"
             f"📅 Дата бэкапа: {metadata.get('timestamp', 'неизвестно')}"
         )
+
+        if locale is not None:
+            i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+            message = "\n".join(
+                [
+                    i18n.get("msg-backup-result-db-restored-title"),
+                    i18n.get("msg-backup-result-tables", count=restored_tables),
+                    i18n.get("msg-backup-result-records", count=f"{restored_records:,}"),
+                    i18n.get(
+                        "msg-backup-result-backup-date",
+                        value=metadata.get("timestamp", i18n.get("msg-backup-value-unknown")),
+                    ),
+                ]
+            )
 
         logger.info(message)
         return True, message

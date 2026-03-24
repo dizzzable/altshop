@@ -4,7 +4,7 @@ from typing import Optional
 
 from aiogram_dialog import DialogManager
 
-from src.core.constants import URL_PATTERN, USERNAME_PATTERN
+from src.core.constants import URL_PATTERN, USERNAME_PATTERN, WEB_LOGIN_PATTERN
 from src.core.utils.time import datetime_now
 
 
@@ -14,6 +14,24 @@ def is_valid_url(text: str) -> bool:
 
 def is_valid_username(text: str) -> bool:
     return bool(USERNAME_PATTERN.match(text))
+
+
+def normalize_web_login(text: str) -> str:
+    return text.strip().lower()
+
+
+def is_valid_web_login(text: str) -> bool:
+    return bool(WEB_LOGIN_PATTERN.match(normalize_web_login(text)))
+
+
+def validate_web_login_or_raise(text: str) -> str:
+    normalized = normalize_web_login(text)
+    if not is_valid_web_login(normalized):
+        raise ValueError(
+            "Invalid username format. Use lowercase Latin letters, digits, "
+            "dots, and underscores without leading or trailing dot/underscore."
+        )
+    return normalized
 
 
 def is_valid_int(value: Optional[str]) -> bool:

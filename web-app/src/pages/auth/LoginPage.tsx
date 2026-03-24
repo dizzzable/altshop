@@ -95,7 +95,7 @@ export function LoginPage() {
                 id="username"
                 name="username"
                 type="text"
-                placeholder="username"
+                placeholder={t('auth.login.usernamePlaceholder')}
                 value={formData.username}
                 onChange={handleChange}
                 disabled={isLoading}
@@ -111,7 +111,7 @@ export function LoginPage() {
                 id="password"
                 name="password"
                 type="password"
-                placeholder="••••••••"
+                placeholder={t('auth.login.passwordPlaceholder')}
                 value={formData.password}
                 onChange={handleChange}
                 disabled={isLoading}

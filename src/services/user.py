@@ -21,6 +21,7 @@ from src.core.storage.key_builder import StorageKey, build_key
 from src.core.storage.keys import RecentActivityUsersKey, RecentRegisteredUsersKey
 from src.core.utils.generators import generate_referral_code
 from src.core.utils.types import RemnaUserDto
+from src.core.utils.validators import parse_int
 from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import UserDto
 from src.infrastructure.database.models.dto.user import BaseUserDto
@@ -376,8 +377,9 @@ class UserService(BaseService):
     async def _search_users_by_query(self, search_query: str) -> list[UserDto]:
         logger.debug(f"Searching users by query '{search_query}'")
 
-        if search_query.isdigit():
-            return await self._search_users_by_telegram_id(int(search_query))
+        telegram_id = parse_int(search_query)
+        if telegram_id is not None:
+            return await self._search_users_by_telegram_id(telegram_id)
 
         if search_query.startswith(REMNASHOP_PREFIX):  # TODO: any username from panel
             return await self._search_users_by_remnashop_id(search_query)
@@ -424,10 +426,32 @@ class UserService(BaseService):
             return [user_dto]
 
         found_users = await self.get_by_partial_name(query=search_query)
+
+        async with self.uow:
+            partial_accounts = await self.uow.repository.web_accounts.get_by_partial_username(
+                normalized_query
+            )
+            partial_account_user_ids = list(
+                {
+                    account.user_telegram_id
+                    for account in partial_accounts
+                }
+            )
+            partial_login_users = UserDto.from_model_list(
+                await self.uow.repository.users.get_by_ids(partial_account_user_ids)
+            )
+
+        deduplicated_users: dict[int, UserDto] = {}
+        for found_user in [*found_users, *partial_login_users]:
+            deduplicated_users[found_user.telegram_id] = found_user
+
+        merged_users = list(deduplicated_users.values())
         logger.info(
-            f"Searched users by partial name '{search_query}', found '{len(found_users)}' users"
+            "Searched users by query '{}', found '{}' users (partial name/login)",
+            search_query,
+            len(merged_users),
         )
-        return found_users
+        return merged_users
 
     async def set_current_subscription(self, telegram_id: int, subscription_id: int) -> None:
         await self.uow.repository.users.update(

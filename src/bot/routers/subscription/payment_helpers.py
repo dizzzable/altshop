@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from src.core.crypto_assets import is_crypto_payment_gateway
-from src.core.enums import Currency, DeviceType, PaymentGatewayType, PurchaseType
+from src.core.enums import (
+    ArchivedPlanRenewMode,
+    Currency,
+    DeviceType,
+    PaymentGatewayType,
+    PurchaseType,
+)
 from src.infrastructure.database.models.dto import (
     PaymentGatewayDto,
     PlanDto,
     PlanDurationDto,
+    SubscriptionDto,
     UserDto,
 )
 from src.services.plan import PlanService
@@ -141,7 +148,6 @@ async def resolve_purchase_durations(
         duration = plan.get_duration(duration_days)
         return [duration] if duration is not None else []
 
-    available_plans = await plan_service.get_available_plans(user)
     selected_durations: list[PlanDurationDto] = []
 
     for renew_id in renew_ids:
@@ -149,7 +155,10 @@ async def resolve_purchase_durations(
         if not subscription:
             continue
 
-        matched_plan = subscription.find_matching_plan(available_plans)
+        matched_plan = await resolve_subscription_renewable_plan(
+            subscription=subscription,
+            plan_service=plan_service,
+        )
         if not matched_plan:
             continue
 
@@ -158,3 +167,24 @@ async def resolve_purchase_durations(
             selected_durations.append(renew_duration)
 
     return selected_durations
+
+
+async def resolve_subscription_renewable_plan(
+    *,
+    subscription: SubscriptionDto,
+    plan_service: PlanService,
+) -> PlanDto | None:
+    source_plan_id = getattr(subscription.plan, "id", None)
+    if not source_plan_id or source_plan_id <= 0:
+        return None
+
+    source_plan = await plan_service.get(source_plan_id)
+    if not source_plan:
+        return None
+
+    if source_plan.is_archived:
+        if source_plan.archived_renew_mode == ArchivedPlanRenewMode.SELF_RENEW:
+            return source_plan
+        return None
+
+    return source_plan if source_plan.is_publicly_purchasable else None

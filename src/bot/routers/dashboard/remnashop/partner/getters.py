@@ -3,6 +3,7 @@ from typing import Any
 from aiogram_dialog import DialogManager
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
+from fluentogram import TranslatorRunner
 
 from src.core.enums import PartnerLevel, WithdrawalStatus
 from src.services.partner import PartnerService
@@ -318,6 +319,7 @@ async def withdrawals_list_getter(
 async def withdrawal_details_getter(
     dialog_manager: DialogManager,
     partner_service: FromDishka[PartnerService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Getter для деталей запроса на вывод."""
@@ -344,7 +346,7 @@ async def withdrawal_details_getter(
         "partner_telegram_id": partner.user_telegram_id if partner else None,
         "amount_rubles": float(withdrawal.amount_rub),
         "status": withdrawal.status,
-        "payment_details": withdrawal.requisites or "Не указаны",
+        "payment_details": withdrawal.requisites or i18n.get("msg-common-empty-value"),
         "created_at": withdrawal.created_at.strftime("%d.%m.%Y %H:%M")
         if withdrawal.created_at
         else "",

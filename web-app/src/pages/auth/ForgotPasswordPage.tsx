@@ -70,7 +70,7 @@ export function ForgotPasswordPage() {
               <Label htmlFor="username">{t('auth.forgot.username')}</Label>
               <Input
                 id="username"
-                placeholder="username"
+                placeholder={t('auth.forgot.usernamePlaceholder')}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={isLoading}
@@ -82,7 +82,7 @@ export function ForgotPasswordPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="you@example.com"
+                placeholder={t('auth.forgot.emailPlaceholder')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={isLoading}

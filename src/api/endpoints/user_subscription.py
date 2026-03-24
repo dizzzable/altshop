@@ -342,7 +342,10 @@ async def get_trial_subscription_eligibility(
 ) -> TrialEligibilityResponse:
     """Get trial eligibility for current user without activating trial."""
     try:
-        snapshot = await subscription_trial_service.get_eligibility(current_user)
+        snapshot = await subscription_trial_service.get_eligibility(
+            current_user,
+            channel=PurchaseChannel.WEB,
+        )
     except PurchaseAccessError as exception:
         _raise_purchase_access_http_error(exception)
 
@@ -361,6 +364,7 @@ async def get_trial_subscription(
         created_subscription = await subscription_trial_service.create_trial_subscription(
             current_user=current_user,
             plan_id=request.plan_id if request else None,
+            channel=PurchaseChannel.WEB,
         )
     except PurchaseAccessError as exception:
         _raise_purchase_access_http_error(exception)

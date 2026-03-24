@@ -10,6 +10,11 @@ import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { sendWebTelemetryEvent } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 import {
+  isInvalidWebLoginBackendError,
+  isValidWebLogin,
+  normalizeWebLogin,
+} from '@/lib/web-login'
+import {
   readMobileExtraNavigationEnabled,
   subscribeMobileExtraNavigationPreference,
 } from '@/lib/mobile-navigation-preferences'
@@ -214,7 +219,7 @@ export function DashboardLayout() {
     }
     const preferredWebLogin = user?.web_login || user?.username
     if (!bootstrapUsername && preferredWebLogin) {
-      setBootstrapUsername(preferredWebLogin)
+      setBootstrapUsername(normalizeWebLogin(preferredWebLogin))
     }
   }, [bootstrapUsername, openBootstrapPrompt, user?.username, user?.web_login])
 
@@ -277,9 +282,14 @@ export function DashboardLayout() {
   }
 
   const handleBootstrapCreate = async () => {
-    const normalizedUsername = bootstrapUsername.trim()
+    const normalizedUsername = normalizeWebLogin(bootstrapUsername)
     if (!normalizedUsername || !bootstrapPassword) {
       setBootstrapError(t('layout.tgBootstrapErrorRequired'))
+      return
+    }
+
+    if (!isValidWebLogin(normalizedUsername)) {
+      setBootstrapError(t('layout.tgBootstrapErrorInvalidFormat'))
       return
     }
 
@@ -324,10 +334,11 @@ export function DashboardLayout() {
       }
     } catch (error: unknown) {
       const backendError = error as { response?: { data?: { detail?: string; message?: string } } }
+      const backendDetail = backendError.response?.data?.detail || backendError.response?.data?.message
       setBootstrapError(
-        backendError.response?.data?.detail
-          || backendError.response?.data?.message
-          || t('layout.tgBootstrapErrorDefault')
+        isInvalidWebLoginBackendError(backendDetail)
+          ? t('layout.tgBootstrapErrorInvalidFormat')
+          : backendDetail || t('layout.tgBootstrapErrorDefault')
       )
     } finally {
       setIsBootstrapping(false)
@@ -673,11 +684,14 @@ export function DashboardLayout() {
               <Input
                 id="tg-bootstrap-username"
                 value={bootstrapUsername}
-                onChange={(event) => setBootstrapUsername(event.target.value)}
+                onChange={(event) => setBootstrapUsername(normalizeWebLogin(event.target.value))}
                 placeholder={t('layout.tgBootstrapUsernamePlaceholder')}
                 autoComplete="username"
                 disabled={isBootstrapping}
               />
+              <p className="text-xs text-muted-foreground">
+                {t('layout.tgBootstrapUsernameHint')}
+              </p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="tg-bootstrap-password">{t('layout.tgBootstrapPassword')}</Label>

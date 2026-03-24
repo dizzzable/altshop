@@ -177,8 +177,8 @@ export function DevicesPage() {
     if (!devicesError) {
       return
     }
-    toast.error(extractErrorDetail(devicesError) || 'Failed to load devices')
-  }, [devicesError])
+    toast.error(extractErrorDetail(devicesError) || t('devices.toast.loadFailed'))
+  }, [devicesError, t])
 
   useEffect(() => {
     if (!selectedSubscription || !devicesData) {

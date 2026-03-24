@@ -3,18 +3,19 @@ from typing import Any
 from aiogram_dialog import DialogManager
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
+from fluentogram import TranslatorRunner
 
 from src.services.settings import SettingsService
 
-FIELD_LABELS: dict[str, str] = {
-    "project_name": "Project Name",
-    "web_title": "Web Title",
-    "bot_menu_button_text": "Bot Menu Button",
-    "telegram_template": "TG Template",
-    "password_reset_telegram_template": "TG Password Reset Template",
-    "web_request_delivered": "Web Request Delivered",
-    "web_request_open_bot": "Web Request Open Bot",
-    "web_confirm_success": "Web Confirm Success",
+FIELD_LABEL_KEYS: dict[str, str] = {
+    "project_name": "msg-branding-field-project-name",
+    "web_title": "msg-branding-field-web-title",
+    "bot_menu_button_text": "msg-branding-field-bot-menu-button",
+    "telegram_template": "msg-branding-field-telegram-template",
+    "password_reset_telegram_template": "msg-branding-field-password-reset-template",
+    "web_request_delivered": "msg-branding-field-web-request-delivered",
+    "web_request_open_bot": "msg-branding-field-web-request-open-bot",
+    "web_confirm_success": "msg-branding-field-web-confirm-success",
 }
 
 LOCALIZED_FIELDS: set[str] = {
@@ -28,6 +29,10 @@ LOCALIZED_FIELDS: set[str] = {
 
 def _is_localized(field: str) -> bool:
     return field in LOCALIZED_FIELDS
+
+
+def _field_label(field: str, i18n: TranslatorRunner) -> str:
+    return i18n.get(FIELD_LABEL_KEYS.get(field, "msg-common-empty-value"))
 
 
 def _get_localized_field(branding: Any, field: str) -> Any:
@@ -90,6 +95,7 @@ def _truncate_preview(value: str, *, max_length: int) -> str:
 async def branding_main_getter(
     dialog_manager: DialogManager,
     settings_service: FromDishka[SettingsService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     branding = await settings_service.get_branding_settings()
@@ -102,6 +108,17 @@ async def branding_main_getter(
     web_placeholders = {"project_name": branding.project_name}
 
     return {
+        "project_name_label": _field_label("project_name", i18n),
+        "web_title_label": _field_label("web_title", i18n),
+        "bot_menu_button_text_label": _field_label("bot_menu_button_text", i18n),
+        "telegram_template_label": _field_label("telegram_template", i18n),
+        "password_reset_telegram_template_label": _field_label(
+            "password_reset_telegram_template",
+            i18n,
+        ),
+        "web_request_delivered_label": _field_label("web_request_delivered", i18n),
+        "web_request_open_bot_label": _field_label("web_request_open_bot", i18n),
+        "web_confirm_success_label": _field_label("web_confirm_success", i18n),
         "project_name": _truncate_preview(str(branding.project_name), max_length=32),
         "web_title": _truncate_preview(str(branding.web_title), max_length=32),
         "bot_menu_button_text": _truncate_preview(
@@ -204,6 +221,7 @@ async def branding_main_getter(
 async def branding_edit_getter(
     dialog_manager: DialogManager,
     settings_service: FromDishka[SettingsService],
+    i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
     branding = await settings_service.get_branding_settings()
@@ -217,11 +235,17 @@ async def branding_edit_getter(
         selected_locale = "en"
 
     if is_localized and selected_locale == "ru":
-        field_label = f"{FIELD_LABELS.get(selected_field, selected_field)} (RU Override)"
+        field_label = i18n.get(
+            "msg-branding-field-label-ru-override",
+            label=_field_label(selected_field, i18n),
+        )
     elif is_localized:
-        field_label = f"{FIELD_LABELS.get(selected_field, selected_field)} (EN Base)"
+        field_label = i18n.get(
+            "msg-branding-field-label-en-base",
+            label=_field_label(selected_field, i18n),
+        )
     else:
-        field_label = FIELD_LABELS.get(selected_field, selected_field)
+        field_label = _field_label(selected_field, i18n)
 
     current_value = _get_field_value(
         branding,
@@ -229,11 +253,13 @@ async def branding_edit_getter(
         locale=("en" if selected_locale == "global" else selected_locale),
     )
     if is_localized and selected_locale == "ru" and not current_value:
-        current_value = "<empty: uses EN base>"
+        current_value = i18n.get("msg-branding-field-empty-uses-en")
 
     return {
         "field_id": selected_field,
         "field_label": field_label,
         "current_value": current_value,
         "is_localized": is_localized,
+        "edit_locale_en_label": i18n.get("msg-branding-edit-locale-en"),
+        "edit_locale_ru_label": i18n.get("msg-branding-edit-locale-ru"),
     }
