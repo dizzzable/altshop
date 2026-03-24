@@ -44,6 +44,7 @@ import { getCryptoAssetDisplayName, getCryptoAssetIconPath } from '@/lib/crypto-
 import { getPaymentGatewayDisplayName, getPaymentGatewayIconPath } from '@/lib/payment-gateway-icons'
 import { toast } from 'sonner'
 import { openExternalLink } from '@/lib/openExternalLink'
+import { buildExternalPaymentReturnUrl } from '@/lib/payment-return'
 import { savePendingPurchaseContext } from '@/lib/purchase-context'
 import type {
   CryptoAsset,
@@ -549,6 +550,9 @@ export function PurchasePage() {
   const { locale } = useI18n()
   const purchaseLocale: PurchaseLocale = locale === 'en' ? 'en' : 'ru'
   const purchaseChannel = isInTelegram ? TELEGRAM_CHANNEL : WEB_CHANNEL
+  const paymentReturnTarget = isInTelegram ? 'telegram' : 'web'
+  const successRedirectUrl = buildExternalPaymentReturnUrl('success', paymentReturnTarget)
+  const failRedirectUrl = buildExternalPaymentReturnUrl('failed', paymentReturnTarget)
   const text = useMemo(() => buildPurchaseText(purchaseLocale), [purchaseLocale])
   const deviceOptions = useMemo(() => getDeviceOptions(purchaseLocale), [purchaseLocale])
   const navigate = useNavigate()
@@ -668,12 +672,100 @@ export function PurchasePage() {
   const isLoading = isSingleSubscriptionFlow ? isPurchaseOptionsLoading : isCatalogPlansLoading
   const defaultFlowPlanId =
     (isSingleSubscriptionFlow ? availablePlans[0]?.id : renewSubscriptions[0]?.plan?.id) ?? null
-  const effectivePlanId = selectedPlan ?? (!isNewPurchaseFlow ? defaultFlowPlanId : null)
-  const selectedPlanData = availablePlans.find((plan) => plan.id === effectivePlanId)
+  const effectivePlanId = useMemo(() => {
+    if (selectedPlan !== null && availablePlans.some((plan) => plan.id === selectedPlan)) {
+      return selectedPlan
+    }
+    if (isNewPurchaseFlow) {
+      return null
+    }
+    if (defaultFlowPlanId && availablePlans.some((plan) => plan.id === defaultFlowPlanId)) {
+      return defaultFlowPlanId
+    }
+    if (availablePlans.length === 1) {
+      return availablePlans[0].id
+    }
+    return null
+  }, [availablePlans, defaultFlowPlanId, isNewPurchaseFlow, selectedPlan])
+  const selectedPlanData = useMemo(
+    () => availablePlans.find((plan) => plan.id === effectivePlanId),
+    [availablePlans, effectivePlanId]
+  )
   const sortedDurations = useMemo(
     () => (selectedPlanData ? sortDurations(selectedPlanData.durations) : []),
     [selectedPlanData]
   )
+  const defaultDurationDays = useMemo(() => {
+    if (isNewPurchaseFlow || !selectedPlanData) {
+      return null
+    }
+    const sourceDuration = sourceSubscription?.plan?.duration ?? renewSubscriptions[0]?.plan?.duration
+    const matchingDuration = selectedPlanData.durations.find(
+      (duration) => duration.days === sourceDuration
+    )
+    return matchingDuration?.days ?? sortedDurations[0]?.days ?? null
+  }, [
+    isNewPurchaseFlow,
+    renewSubscriptions,
+    selectedPlanData,
+    sortedDurations,
+    sourceSubscription?.plan?.duration,
+  ])
+  const effectiveSelectedDuration = useMemo(() => {
+    if (selectedDuration !== null && sortedDurations.some((duration) => duration.days === selectedDuration)) {
+      return selectedDuration
+    }
+    return defaultDurationDays
+  }, [defaultDurationDays, selectedDuration, sortedDurations])
+  const selectedDurationData = useMemo(
+    () => selectedPlanData?.durations.find((duration) => duration.days === effectiveSelectedDuration),
+    [effectiveSelectedDuration, selectedPlanData]
+  )
+  const availableGatewayPrices = useMemo(
+    () =>
+      (selectedDurationData?.prices || []).filter(
+        (price) => paymentSource !== PARTNER_BALANCE_PAYMENT_SOURCE || price.currency === 'RUB'
+      ),
+    [paymentSource, selectedDurationData]
+  )
+  const effectiveSelectedGateway = useMemo(() => {
+    if (!selectedDurationData) {
+      return undefined
+    }
+    if (
+      selectedGateway
+      && availableGatewayPrices.some((price) => price.gateway_type === selectedGateway)
+    ) {
+      return selectedGateway
+    }
+    if (availableGatewayPrices.length === 1) {
+      return availableGatewayPrices[0].gateway_type
+    }
+    return undefined
+  }, [availableGatewayPrices, selectedDurationData, selectedGateway])
+  const selectedPrice = useMemo(
+    () => availableGatewayPrices.find((price) => price.gateway_type === effectiveSelectedGateway),
+    [availableGatewayPrices, effectiveSelectedGateway]
+  )
+  const availablePaymentAssets = useMemo(
+    () => selectedPrice?.supported_payment_assets ?? [],
+    [selectedPrice]
+  )
+  const effectiveSelectedPaymentAsset = useMemo(() => {
+    if (!effectiveSelectedGateway || !availablePaymentAssets.length) {
+      return undefined
+    }
+    if (
+      selectedPaymentAsset
+      && availablePaymentAssets.includes(selectedPaymentAsset)
+    ) {
+      return selectedPaymentAsset
+    }
+    if (availablePaymentAssets.length === 1) {
+      return availablePaymentAssets[0]
+    }
+    return undefined
+  }, [availablePaymentAssets, effectiveSelectedGateway, selectedPaymentAsset])
 
   useEffect(() => {
     const paymentStatus = searchParams.get('payment')
@@ -700,100 +792,6 @@ export function PurchasePage() {
       { replace: true }
     )
   }, [location.pathname, navigate, queryClient, searchParams, text.paymentCompleted, text.paymentFailed])
-
-  useEffect(() => {
-    if (selectedPlan || !availablePlans.length || isNewPurchaseFlow) {
-      return
-    }
-
-    if (isSingleSubscriptionFlow && singlePurchaseOptions?.selection_locked) {
-      setSelectedPlan(availablePlans[0].id)
-      return
-    }
-
-    if (defaultFlowPlanId && availablePlans.some((plan) => plan.id === defaultFlowPlanId)) {
-      setSelectedPlan(defaultFlowPlanId)
-      return
-    }
-
-    if (availablePlans.length === 1) {
-      setSelectedPlan(availablePlans[0].id)
-    }
-  }, [
-    availablePlans,
-    defaultFlowPlanId,
-    isNewPurchaseFlow,
-    isSingleSubscriptionFlow,
-    selectedPlan,
-    singlePurchaseOptions?.selection_locked,
-  ])
-
-  useEffect(() => {
-    if (isNewPurchaseFlow || !selectedPlanData || selectedDuration !== null) {
-      return
-    }
-
-    const sourceDuration = sourceSubscription?.plan?.duration ?? renewSubscriptions[0]?.plan?.duration
-    const matchingDuration = selectedPlanData.durations.find(
-      (duration) => duration.days === sourceDuration
-    )
-    const fallbackDuration = sortedDurations[0]
-
-    if (matchingDuration) {
-      setSelectedDuration(matchingDuration.days)
-      return
-    }
-
-    if (fallbackDuration) {
-      setSelectedDuration(fallbackDuration.days)
-    }
-  }, [
-    isNewPurchaseFlow,
-    renewSubscriptions,
-    selectedDuration,
-    selectedPlanData,
-    sortedDurations,
-    sourceSubscription?.plan?.duration,
-  ])
-
-  const selectedDurationData = selectedPlanData?.durations.find(
-    (duration) => duration.days === selectedDuration
-  )
-
-  const availableGatewayPrices = useMemo(
-    () =>
-      (selectedDurationData?.prices || []).filter(
-        (price) => paymentSource !== PARTNER_BALANCE_PAYMENT_SOURCE || price.currency === 'RUB'
-      ),
-    [paymentSource, selectedDurationData]
-  )
-
-  useEffect(() => {
-    if (!selectedDurationData) {
-      setSelectedGateway(undefined)
-      return
-    }
-
-    if (availableGatewayPrices.length === 1) {
-      setSelectedGateway(availableGatewayPrices[0].gateway_type)
-      return
-    }
-
-    if (
-      selectedGateway &&
-      !availableGatewayPrices.some((price) => price.gateway_type === selectedGateway)
-    ) {
-      setSelectedGateway(undefined)
-    }
-  }, [availableGatewayPrices, selectedDurationData, selectedGateway])
-
-  const selectedPrice = availableGatewayPrices.find(
-    (price) => price.gateway_type === selectedGateway
-  )
-  const availablePaymentAssets = useMemo(
-    () => selectedPrice?.supported_payment_assets ?? [],
-    [selectedPrice]
-  )
   const normalizedQuantity = Number.isFinite(quantity) ? Math.max(1, Math.floor(quantity)) : 1
   const currentUser = userProfile ?? user
   const derivedActiveSubscriptionsCount = subscriptions.filter(
@@ -860,12 +858,12 @@ export function PurchasePage() {
       : text.noWebGateway
   const purchaseQuoteEnabled = Boolean(
     effectivePlanId !== null
-      && selectedDuration !== null
-      && selectedGateway
+      && effectiveSelectedDuration !== null
+      && effectiveSelectedGateway
       && canPurchase
       && !purchaseBlockedByLimit
       && !exceedsPredictedLimit
-      && (!requiresPaymentAsset || selectedPaymentAsset)
+      && (!requiresPaymentAsset || effectiveSelectedPaymentAsset)
   )
   const {
     data: selectedQuote,
@@ -877,9 +875,9 @@ export function PurchasePage() {
       purchaseChannel,
       paymentSource,
       effectivePlanId,
-      selectedDuration,
-      selectedGateway,
-      selectedPaymentAsset,
+      effectiveSelectedDuration,
+      effectiveSelectedGateway,
+      effectiveSelectedPaymentAsset,
       normalizedQuantity,
       selectedDeviceType,
       singleRenewId,
@@ -893,9 +891,9 @@ export function PurchasePage() {
         channel: purchaseChannel,
         payment_source: paymentSource,
         plan_id: effectivePlanId ?? undefined,
-        duration_days: selectedDuration ?? undefined,
-        gateway_type: selectedGateway,
-        payment_asset: selectedPaymentAsset,
+        duration_days: effectiveSelectedDuration ?? undefined,
+        gateway_type: effectiveSelectedGateway,
+        payment_asset: effectiveSelectedPaymentAsset,
         quantity: isNewPurchaseFlow ? normalizedQuantity : undefined,
         device_type: isNewPurchaseFlow ? selectedDeviceType || undefined : undefined,
         device_types:
@@ -934,16 +932,16 @@ export function PurchasePage() {
     if (effectivePlanId === null) {
       return 'MISSING_PLAN'
     }
-    if (selectedDuration === null) {
+    if (effectiveSelectedDuration === null) {
       return 'MISSING_DURATION'
     }
     if (isNewPurchaseFlow && !selectedDeviceType) {
       return 'MISSING_DEVICE'
     }
-    if (noGatewayAvailable || !selectedGateway) {
+    if (noGatewayAvailable || !effectiveSelectedGateway) {
       return 'MISSING_GATEWAY'
     }
-    if (requiresPaymentAsset && !selectedPaymentAsset) {
+    if (requiresPaymentAsset && !effectiveSelectedPaymentAsset) {
       return 'MISSING_PAYMENT_ASSET'
     }
     if (purchaseQuoteEnabled && (isQuoteFetching || !selectedQuote)) {
@@ -963,9 +961,9 @@ export function PurchasePage() {
     purchaseQuoteEnabled,
     requiresPaymentAsset,
     selectedDeviceType,
-    selectedDuration,
-    selectedGateway,
-    selectedPaymentAsset,
+    effectiveSelectedDuration,
+    effectiveSelectedGateway,
+    effectiveSelectedPaymentAsset,
     selectedQuote,
   ])
   const submitBlockMessage = useMemo(() => {
@@ -1017,7 +1015,7 @@ export function PurchasePage() {
   const showLimitWarning = submitBlockReason === 'LIMIT_REACHED' || submitBlockReason === 'LIMIT_WOULD_BE_EXCEEDED'
   const canOpenCheckout = Boolean(
     effectivePlanId !== null &&
-      selectedDuration !== null &&
+      effectiveSelectedDuration !== null &&
       canPurchase &&
       !purchaseBlockedByLimit &&
       !exceedsPredictedLimit &&
@@ -1103,21 +1101,8 @@ export function PurchasePage() {
 
     setPaymentSource(EXTERNAL_PAYMENT_SOURCE)
     setSelectedGateway(undefined)
-  }, [canUsePartnerBalance, paymentSource, purchaseChannel])
-
-  useEffect(() => {
-    if (!selectedGateway || !availablePaymentAssets.length) {
-      setSelectedPaymentAsset(undefined)
-      return
-    }
-
-    if (availablePaymentAssets.length === 1) {
-      setSelectedPaymentAsset(availablePaymentAssets[0])
-      return
-    }
-
     setSelectedPaymentAsset(undefined)
-  }, [availablePaymentAssets, selectedGateway])
+  }, [canUsePartnerBalance, paymentSource, purchaseChannel])
 
   const handlePurchase = async () => {
     if (purchaseLaunchRef.current || isPurchasing) {
@@ -1142,7 +1127,7 @@ export function PurchasePage() {
       return
     }
 
-    if (selectedDuration === null || !selectedGateway) {
+    if (effectiveSelectedDuration === null || !effectiveSelectedGateway) {
       toast.error(text.selectDurationMethodError)
       return
     }
@@ -1152,7 +1137,7 @@ export function PurchasePage() {
       return
     }
 
-    if (requiresPaymentAsset && !selectedPaymentAsset) {
+    if (requiresPaymentAsset && !effectiveSelectedPaymentAsset) {
       toast.error(text.selectPaymentAssetError)
       return
     }
@@ -1175,12 +1160,14 @@ export function PurchasePage() {
         channel: purchaseChannel,
         payment_source: paymentSource,
         plan_id: effectivePlanId,
-        duration_days: selectedDuration,
-        gateway_type: selectedGateway,
-        payment_asset: selectedPaymentAsset,
+        duration_days: effectiveSelectedDuration,
+        gateway_type: effectiveSelectedGateway,
+        payment_asset: effectiveSelectedPaymentAsset,
         quantity: isNewPurchaseFlow ? normalizedQuantity : undefined,
         device_type: isNewPurchaseFlow ? selectedDeviceType || undefined : undefined,
         device_types: isNewPurchaseFlow ? deviceTypes : undefined,
+        success_redirect_url: successRedirectUrl,
+        fail_redirect_url: failRedirectUrl,
       }
 
       let response
@@ -1214,7 +1201,7 @@ export function PurchasePage() {
           purchaseType,
           renewIds: upgradeSubscriptionId ? [upgradeSubscriptionId] : renewTargets,
           planId: effectivePlanId,
-          durationDays: selectedDuration,
+          durationDays: effectiveSelectedDuration,
         })
 
         if (isInTelegram) {
@@ -1260,17 +1247,17 @@ export function PurchasePage() {
 
       {availablePaymentAssets.length === 1 ? (
         <div className="rounded-xl border border-white/12 bg-white/[0.04] p-4 text-sm">
-          <CryptoAssetNameWithIcon asset={availablePaymentAssets[0]} className="font-medium" />
+          <CryptoAssetNameWithIcon asset={effectiveSelectedPaymentAsset} className="font-medium" />
         </div>
       ) : (
         <Select
-          value={selectedPaymentAsset}
+          value={effectiveSelectedPaymentAsset}
           onValueChange={(value) => setSelectedPaymentAsset(value as CryptoAsset)}
         >
           <SelectTrigger className="w-full">
             <SelectValue placeholder={text.choosePaymentAsset} />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent position={isMobileShell ? 'item-aligned' : 'popper'}>
             {availablePaymentAssets.map((asset) => (
               <SelectItem key={asset} value={asset}>
                 <CryptoAssetNameWithIcon asset={asset} />
@@ -1282,7 +1269,7 @@ export function PurchasePage() {
     </div>
   ) : null
 
-  const paymentSourceSelector = selectedDuration !== null && canUsePartnerBalance ? (
+  const paymentSourceSelector = effectiveSelectedDuration !== null && canUsePartnerBalance ? (
     <Card>
       <CardHeader>
         <CardTitle>{text.paymentSourceTitle}</CardTitle>
@@ -1294,6 +1281,7 @@ export function PurchasePage() {
           onValueChange={(value) => {
             setPaymentSource(value as PurchasePaymentSource)
             setSelectedGateway(undefined)
+            setSelectedPaymentAsset(undefined)
           }}
           className="grid gap-3 sm:grid-cols-2"
         >
@@ -1308,6 +1296,7 @@ export function PurchasePage() {
             onClick={() => {
               setPaymentSource(EXTERNAL_PAYMENT_SOURCE)
               setSelectedGateway(undefined)
+              setSelectedPaymentAsset(undefined)
             }}
           >
             <div className="flex items-center gap-2">
@@ -1330,6 +1319,7 @@ export function PurchasePage() {
             onClick={() => {
               setPaymentSource(PARTNER_BALANCE_PAYMENT_SOURCE)
               setSelectedGateway(undefined)
+              setSelectedPaymentAsset(undefined)
             }}
           >
             <div className="flex items-center gap-2">
@@ -1354,7 +1344,7 @@ export function PurchasePage() {
     </Card>
   ) : null
 
-  const paymentGatewaySelector = selectedDuration !== null && selectedPlanData ? (
+  const paymentGatewaySelector = effectiveSelectedDuration !== null && selectedPlanData ? (
     <Card>
       <CardHeader>
         <CardTitle>{text.selectPaymentMethodTitle}</CardTitle>
@@ -1419,11 +1409,17 @@ export function PurchasePage() {
             </p>
           </div>
         ) : (
-          <Select value={selectedGateway} onValueChange={setSelectedGateway}>
+          <Select
+            value={effectiveSelectedGateway}
+            onValueChange={(value) => {
+              setSelectedGateway(value)
+              setSelectedPaymentAsset(undefined)
+            }}
+          >
             <SelectTrigger className="w-full">
               <SelectValue placeholder={text.choosePaymentMethod} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent position={isMobileShell ? 'item-aligned' : 'popper'}>
               {availableGatewayPrices.map((price) => (
                 <SelectItem key={price.gateway_type} value={price.gateway_type}>
                     <span className="flex w-full items-center gap-2">
@@ -1540,7 +1536,7 @@ export function PurchasePage() {
       <div className="flex justify-between text-sm">
         <span className="text-muted-foreground">{text.summaryDuration}</span>
         <span className="font-medium">
-          {selectedDuration !== null ? formatDurationLabel(selectedDuration, text) : '-'}
+          {effectiveSelectedDuration !== null ? formatDurationLabel(effectiveSelectedDuration, text) : '-'}
         </span>
       </div>
       <div className="flex justify-between text-sm">
@@ -1561,13 +1557,13 @@ export function PurchasePage() {
       </div>
       <div className="flex justify-between text-sm">
         <span className="text-muted-foreground">{text.summaryPayment}</span>
-        <GatewayNameWithIcon gatewayType={selectedGateway} className="font-medium" />
+        <GatewayNameWithIcon gatewayType={effectiveSelectedGateway} className="font-medium" />
       </div>
       {availablePaymentAssets.length > 0 && (
         <div className="flex justify-between text-sm">
           <span className="text-muted-foreground">{text.summaryPaymentAsset}</span>
-          {selectedPaymentAsset ? (
-            <CryptoAssetNameWithIcon asset={selectedPaymentAsset} className="font-medium" />
+          {effectiveSelectedPaymentAsset ? (
+            <CryptoAssetNameWithIcon asset={effectiveSelectedPaymentAsset} className="font-medium" />
           ) : (
             <span className="font-medium">-</span>
           )}
@@ -1697,6 +1693,7 @@ export function PurchasePage() {
                 setSelectedPlan(Number(value))
                 setSelectedDuration(null)
                 setSelectedGateway(undefined)
+                setSelectedPaymentAsset(undefined)
               }}
               className="grid gap-4 md:grid-cols-2"
             >
@@ -1801,13 +1798,14 @@ export function PurchasePage() {
                   type="button"
                   className={cn(
                     'relative w-full cursor-pointer rounded-md border px-3 py-2 text-left transition-all',
-                    selectedDuration === duration.days
-                      ? 'border-primary/35 bg-primary/10 ring-1 ring-primary/40'
-                      : 'hover:bg-muted/30'
+                    effectiveSelectedDuration === duration.days
+                    ? 'border-primary/35 bg-primary/10 ring-1 ring-primary/40'
+                    : 'hover:bg-muted/30'
                   )}
                   onClick={() => {
                     setSelectedDuration(duration.days)
                     setSelectedGateway(undefined)
+                    setSelectedPaymentAsset(undefined)
                   }}
                 >
                   {duration.days >= 90 && (
@@ -1831,7 +1829,7 @@ export function PurchasePage() {
         </Card>
       )}
 
-      {selectedDuration !== null && isNewPurchaseFlow && (
+      {effectiveSelectedDuration !== null && isNewPurchaseFlow && (
         <Card>
           <CardHeader>
             <CardTitle>{text.selectDeviceTitle}</CardTitle>
@@ -1866,7 +1864,7 @@ export function PurchasePage() {
       {!isMobileShell && paymentGatewaySelector}
 
       {isMobileShell && (
-        <div className="sticky bottom-[calc(0.75rem+var(--app-safe-bottom))] z-20 rounded-2xl border border-white/12 bg-card/95 p-3 backdrop-blur-sm">
+        <div className="sticky bottom-[calc(0.75rem+var(--app-safe-bottom))] z-20 rounded-2xl border border-white/12 bg-[#090c10]/96 p-3">
           <div className="grid grid-cols-2 gap-2">
             <Button type="button" onClick={() => setIsCheckoutOpen(true)} disabled={!canOpenCheckout}>
               {text.openCheckout}
@@ -1886,7 +1884,9 @@ export function PurchasePage() {
         <Sheet open={isCheckoutOpen} onOpenChange={setIsCheckoutOpen}>
           <SheetContent
             side="bottom"
-            className="max-h-[calc(100vh-0.5rem)] overflow-y-auto overscroll-y-contain rounded-t-2xl rounded-b-none border-white/12"
+            disableMotion
+            overlayClassName="bg-black/88 backdrop-blur-0 data-[state=open]:animate-none data-[state=closed]:animate-none"
+            className="max-h-[calc(100vh-0.5rem)] overflow-y-auto overscroll-y-contain rounded-t-2xl rounded-b-none border-white/12 bg-[#090c10] shadow-[0_18px_40px_-28px_rgba(0,0,0,0.95)]"
           >
             <SheetHeader>
               <SheetTitle>{text.orderSummary}</SheetTitle>

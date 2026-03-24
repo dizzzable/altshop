@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
+import {
+  persistPendingPaymentReturnStatus,
+  resolvePaymentReturnStatusFromTelegramStartParam,
+} from '@/lib/payment-return'
 import { sendWebTelemetryEvent } from '@/lib/telemetry'
 import {
   Shield,
@@ -118,6 +122,9 @@ export function LandingPage() {
   const { t } = useI18n()
   const { projectName } = useBranding()
   const { isReady, isInTelegram, initData, launchContext, deviceMode } = useTelegramWebApp()
+  const paymentReturnStatus = resolvePaymentReturnStatusFromTelegramStartParam(
+    launchContext.startParam
+  )
 
   const handleLogin = () => navigate('/auth/login')
   const handleRegister = () => navigate('/auth/register')
@@ -157,11 +164,17 @@ export function LandingPage() {
       return
     }
 
+    if (paymentReturnStatus) {
+      persistPendingPaymentReturnStatus(paymentReturnStatus)
+      navigate('/miniapp?tg_open=1', { replace: true })
+      return
+    }
+
     // If Telegram opens the classic root entry, forward to Mini App landing.
     if (location.pathname === '/' && !location.search) {
       navigate('/miniapp', { replace: true })
     }
-  }, [isInTelegram, isReady, location.pathname, location.search, navigate])
+  }, [isInTelegram, isReady, location.pathname, location.search, navigate, paymentReturnStatus])
 
   return (
     <div className="relative isolate overflow-hidden">

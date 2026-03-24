@@ -6,6 +6,11 @@ import { Button } from '@/components/ui/button'
 import { useI18n } from '@/components/common/I18nProvider'
 import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
 import { openExternalLink } from '@/lib/openExternalLink'
+import {
+  persistPendingPaymentReturnStatus,
+  resolvePaymentRedirectPath,
+  resolvePaymentReturnStatusFromTelegramStartParam,
+} from '@/lib/payment-return'
 import { sendWebTelemetryEvent } from '@/lib/telemetry'
 import {
   AlertCircle,
@@ -106,6 +111,9 @@ export function MiniAppLandingPage() {
   })
   const deepLink = useMemo(() => resolveMiniAppDeepLink(), [])
   const { isReady, isInTelegram, initData, launchContext, deviceMode } = useTelegramWebApp()
+  const paymentReturnStatus = resolvePaymentReturnStatusFromTelegramStartParam(
+    launchContext.startParam
+  )
 
   useEffect(() => {
     if (!isReady) {
@@ -123,6 +131,24 @@ export function MiniAppLandingPage() {
       chat_type: launchContext.chatType || undefined,
     })
   }, [deviceMode, initData, isInTelegram, isReady, launchContext, location.pathname])
+
+  useEffect(() => {
+    if (!isReady || !isInTelegram || !paymentReturnStatus) {
+      return
+    }
+
+    persistPendingPaymentReturnStatus(paymentReturnStatus)
+
+    if (isAuthenticated) {
+      navigate(resolvePaymentRedirectPath(paymentReturnStatus), { replace: true })
+      return
+    }
+
+    const searchParams = new URLSearchParams(location.search)
+    if (searchParams.get('tg_open') !== '1') {
+      navigate('/miniapp?tg_open=1', { replace: true })
+    }
+  }, [isAuthenticated, isInTelegram, isReady, location.search, navigate, paymentReturnStatus])
 
   const handleOpenPanel = () => {
     sendWebTelemetryEvent({

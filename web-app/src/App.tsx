@@ -21,6 +21,7 @@ const loadReferralsPage = () => import('./pages/dashboard/ReferralsPage')
 const loadPromocodesPage = () => import('./pages/dashboard/PromocodesPage')
 const loadPartnerPage = () => import('./pages/dashboard/PartnerPage')
 const loadSettingsPage = () => import('./pages/dashboard/SettingsPage')
+const loadPaymentReturnPage = () => import('./pages/payment/PaymentReturnPage')
 
 const DashboardLayout = lazy(() =>
   loadDashboardLayout().then((module) => ({ default: module.DashboardLayout }))
@@ -58,6 +59,9 @@ const PromocodesPage = lazy(() =>
 const PartnerPage = lazy(() => loadPartnerPage().then((module) => ({ default: module.PartnerPage })))
 const SettingsPage = lazy(() =>
   loadSettingsPage().then((module) => ({ default: module.SettingsPage }))
+)
+const PaymentReturnPage = lazy(() =>
+  loadPaymentReturnPage().then((module) => ({ default: module.PaymentReturnPage }))
 )
 
 function RouteFallback() {
@@ -119,6 +123,7 @@ function App() {
                 {/* Landing pages */}
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/miniapp" element={<MiniAppLandingPage />} />
+                <Route path="/payment-return" element={<PaymentReturnPage />} />
 
                 {/* Public routes */}
                 <Route

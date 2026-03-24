@@ -6,6 +6,19 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.17] - 2026-03-24
+
+### Changed
+
+- the payment purchase screen now resolves its default plan, duration, gateway, and payment asset through a stable derived selection model, which removes the visible jump/shake on mobile web and Telegram Mini App while keeping the current dropdown UX
+- purchase selectors on mobile now use a steadier dropdown and checkout sheet configuration, reducing WebView rendering artifacts without changing the rest of the app's dialogs or selects
+- external checkout requests now carry explicit success and failure redirect URLs so web and Mini App return can be resumed through a dedicated payment return bridge
+
+### Fixed
+
+- returning from external payment pages now reliably lands back in the web dashboard or Telegram Mini App instead of getting stuck outside the app context after checkout
+- the project/update info notification no longer shows visible `Remnashop` wording and now uses the configured project name, such as `AltShop`
+
 ## [1.1.16] - 2026-03-24
 
 ### Fixed

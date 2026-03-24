@@ -1,10 +1,10 @@
 # Remnashop
 ntf-remnashop-info =
-    <b>💎 Altshop v{ $version }</b>
+    <b>💎 { $project_name } v{ $version }</b>
 
-    This project is based on <a href="https://github.com/snoups/remnashop">Remnashop</a> by <b>snoups</b>. Since the bot is completely FREE and open source, it exists only thanks to your support.
+    { $project_name } is powered by an open-source core from <b>snoups</b>. Since the project is completely FREE and open source, it exists only thanks to your support.
 
-    ⭐ <i>Star us on <a href="https://github.com/dizzzable/altshop">GitHub</a> and support the <a href="https://github.com/snoups/remnashop">original developer</a>.</i>
+    ⭐ <i>Star us on <a href="https://github.com/dizzzable/altshop">GitHub</a> and support the original developer.</i>
 
 
 # Menu

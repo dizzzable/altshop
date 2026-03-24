@@ -12,6 +12,10 @@ import {
   clearPendingTelegramMiniAppOnboarding,
   setPendingTelegramMiniAppOnboarding,
 } from '@/lib/telegram-onboarding'
+import {
+  consumePendingPaymentReturnStatus,
+  resolvePaymentRedirectPath,
+} from '@/lib/payment-return'
 import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
 import { resolvePostLoginPathWithAccess } from '@/lib/post-login-route'
 
@@ -164,6 +168,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'SET_USER', payload: currentUser })
         if (currentUser) {
           clearStoredReferralCode()
+          const pendingPaymentStatus = consumePendingPaymentReturnStatus()
+          if (pendingPaymentStatus) {
+            navigate(resolvePaymentRedirectPath(pendingPaymentStatus), { replace: true })
+            return
+          }
           const nextPath = await resolvePostLoginPath()
           navigate(nextPath, { replace: true })
         }
@@ -276,6 +285,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (currentUser) {
           clearStoredReferralCode()
+          const pendingPaymentStatus = consumePendingPaymentReturnStatus()
+          if (pendingPaymentStatus) {
+            navigate(resolvePaymentRedirectPath(pendingPaymentStatus), { replace: true })
+            return
+          }
           const nextPath = await resolvePostLoginPath()
           navigate(nextPath, { replace: true })
         } else {

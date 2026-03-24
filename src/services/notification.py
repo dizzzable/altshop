@@ -21,6 +21,7 @@ from src.core.enums import (
     UserRole,
 )
 from src.core.i18n.translator import get_translated_kwargs, safe_i18n_get
+from src.core.utils.branding import resolve_project_name
 from src.core.utils.formatters import i18n_postprocess_text
 from src.core.utils.message_payload import MessagePayload
 from src.core.utils.types import AnyKeyboard
@@ -162,9 +163,15 @@ class NotificationService(BaseService):
 
     async def remnashop_notify(self) -> bool:
         dev = await self.user_service.get(self.config.bot.dev_id[0]) or self._get_temp_dev()
+        try:
+            branding = await self.settings_service.get_branding_settings()
+            project_name = resolve_project_name(branding.project_name)
+        except Exception as exc:
+            logger.warning(f"Failed to load branding settings for project info notification: {exc}")
+            project_name = resolve_project_name(None)
         payload = MessagePayload(
             i18n_key="ntf-remnashop-info",
-            i18n_kwargs={"version": __version__},
+            i18n_kwargs={"version": __version__, "project_name": project_name},
             reply_markup=get_remnashop_keyboard(),
             auto_delete_after=None,
             add_close_button=True,

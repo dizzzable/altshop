@@ -189,6 +189,8 @@ export interface SubscriptionPurchaseRequest {
   promocode?: string
   quantity?: number
   payment_asset?: CryptoAsset
+  success_redirect_url?: string
+  fail_redirect_url?: string
 }
 
 export interface PurchaseResponse {
