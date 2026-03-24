@@ -13,13 +13,15 @@ from src.core.enums import SystemNotificationType
 from src.core.storage.keys import LastUpdateCheckAuditKey
 from src.infrastructure.taskiq.tasks.updates import (
     GitHubReleaseFetchResult,
+    run_check_bot_update,
+)
+from src.services.release_notification import (
     GitHubReleaseSnapshot,
     UpdateCheckAuditSnapshot,
     build_update_notification_payload,
     maybe_notify_about_release_update,
     normalize_release_version,
     parse_github_release_snapshot,
-    run_check_bot_update,
 )
 
 
@@ -98,7 +100,7 @@ def test_build_update_notification_payload_includes_release_details() -> None:
         latest_release=build_release(),
     )
 
-    assert payload.i18n_key == "ntf-event-bot-update"
+    assert payload.i18n_key == "ntf-event-release-update-altshop"
     assert payload.i18n_kwargs["local_version"] == "1.1.11"
     assert payload.i18n_kwargs["remote_version"] == "1.1.12"
     assert payload.i18n_kwargs["release_published_at"] == "2026-03-23 14:15 UTC"
@@ -153,7 +155,7 @@ def test_maybe_notify_about_release_update_returns_up_to_date_snapshot() -> None
     notification_service.system_notify.assert_not_awaited()
 
 
-def test_maybe_notify_about_release_update_notifies_for_newly_published_current_version() -> None:
+def test_maybe_notify_about_release_update_skips_same_version_release() -> None:
     redis_repository, settings_service, user_service, notification_service = build_update_services(
         devs=[SimpleNamespace(telegram_id=1)],
         delivery_results=[True],
@@ -170,11 +172,11 @@ def test_maybe_notify_about_release_update_notifies_for_newly_published_current_
         )
     )
 
-    assert snapshot.outcome == "notified"
+    assert snapshot.outcome == "up_to_date"
     assert snapshot.remote_version == "1.1.11"
     assert snapshot.local_version == "1.1.11"
-    redis_repository.set.assert_awaited_once()
-    notification_service.system_notify.assert_awaited_once()
+    redis_repository.set.assert_not_awaited()
+    notification_service.system_notify.assert_not_awaited()
 
 
 def test_maybe_notify_about_release_update_returns_local_ahead_snapshot() -> None:

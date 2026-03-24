@@ -109,3 +109,73 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: AltShop ${{ github.ref_name }}
           body_path: release-notes.md
+
+      - name: Warn if release notify is not configured
+        if: ${{ secrets.RELEASE_NOTIFY_URL == '' || secrets.RELEASE_NOTIFY_SECRET == '' }}
+        run: echo "::warning::Release notify skipped because RELEASE_NOTIFY_URL or RELEASE_NOTIFY_SECRET is not configured."
+
+      - name: Notify production about published release
+        if: ${{ secrets.RELEASE_NOTIFY_URL != '' && secrets.RELEASE_NOTIFY_SECRET != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_NOTIFY_URL: ${{ secrets.RELEASE_NOTIFY_URL }}
+          RELEASE_NOTIFY_SECRET: ${{ secrets.RELEASE_NOTIFY_SECRET }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import urllib.error
+          import urllib.request
+
+          release_tag = os.environ["RELEASE_TAG"]
+          notify_url = os.environ["RELEASE_NOTIFY_URL"]
+          notify_secret = os.environ["RELEASE_NOTIFY_SECRET"]
+
+          release_json = subprocess.check_output(
+              [
+                  "gh",
+                  "release",
+                  "view",
+                  release_tag,
+                  "--json",
+                  "tagName,name,url,publishedAt",
+              ],
+              text=True,
+          )
+          release = json.loads(release_json)
+          payload = json.dumps(
+              {
+                  "version": release["tagName"].removeprefix("v"),
+                  "tag_name": release["tagName"],
+                  "name": release.get("name"),
+                  "html_url": release["url"],
+                  "published_at": release["publishedAt"],
+              }
+          ).encode("utf-8")
+
+          request = urllib.request.Request(
+              notify_url,
+              data=payload,
+              headers={
+                  "Authorization": f"Bearer {notify_secret}",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+
+          try:
+              with urllib.request.urlopen(request) as response:
+                  if response.status < 200 or response.status >= 300:
+                      raise SystemExit(
+                          f"Release notify request failed with status {response.status}"
+                      )
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode("utf-8", errors="replace")
+              raise SystemExit(
+                  f"Release notify request failed with status {exc.code}: {body}"
+              ) from exc
+          except urllib.error.URLError as exc:
+              raise SystemExit(f"Release notify request could not reach backend: {exc}") from exc
+          PY

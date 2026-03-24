@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from .analytics import router as analytics_router
+from .internal import router as internal_router
 from .payments import router as payments_router
 from .remnawave import router as remnawave_router
 from .telegram import TelegramWebhookEndpoint
@@ -16,6 +17,7 @@ user_router.include_router(user_portal_router)
 
 __all__ = [
     "analytics_router",
+    "internal_router",
     "payments_router",
     "remnawave_router",
     "TelegramWebhookEndpoint",

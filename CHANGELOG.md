@@ -6,6 +6,19 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.18] - 2026-03-24
+
+### Changed
+
+- GitHub release notifications can now be pushed directly into the app through a protected internal endpoint, while the old GitHub polling task remains only as a fallback safety net
+- the final purchase stage in mobile web and Telegram Mini App now uses a steadier checkout surface with less aggressive overlay/select rendering, which reduces the visible shake and glitch artifacts without changing the current bottom-sheet flow
+
+### Fixed
+
+- DEV update alerts no longer fire after the instance is already updated to the same version; notifications now only trigger for strictly newer upstream releases
+- update alerts now use a dedicated AltShop-specific translation key so stale runtime translation overrides cannot keep showing visible `Remnashop` wording
+- Telegram notification sends now treat `chat not found` like an unreachable bot chat, mark the user as blocked, and stop repeating noisy delivery errors for that chat
+
 ## [1.1.17] - 2026-03-24
 
 ### Changed

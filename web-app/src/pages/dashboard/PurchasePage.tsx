@@ -65,6 +65,10 @@ const WEB_CHANNEL = 'WEB' as const
 const TELEGRAM_CHANNEL = 'TELEGRAM' as const
 const EXTERNAL_PAYMENT_SOURCE: PurchasePaymentSource = 'EXTERNAL'
 const PARTNER_BALANCE_PAYMENT_SOURCE: PurchasePaymentSource = 'PARTNER_BALANCE'
+const PURCHASE_SELECT_CONTENT_CLASS_NAME =
+  'max-h-[min(18rem,40svh)] overscroll-contain border-white/10 bg-[#0b0f14] shadow-[0_18px_40px_-30px_rgba(0,0,0,0.88)] data-[side=bottom]:translate-y-0 data-[side=top]:translate-y-0 data-[side=left]:translate-x-0 data-[side=right]:translate-x-0 [transform:translateZ(0)] [backface-visibility:hidden] [contain:layout_paint_style] [overflow-anchor:none]'
+const MOBILE_PURCHASE_SURFACE_CLASS_NAME =
+  'border-white/10 bg-[#0b0f14] shadow-[0_18px_40px_-30px_rgba(0,0,0,0.88)] [transform:translateZ(0)] [backface-visibility:hidden] [contain:layout_paint_style] [overflow-anchor:none]'
 
 type PurchaseLocale = 'ru' | 'en'
 
@@ -819,6 +823,7 @@ export function PurchasePage() {
     && hasConfiguredTrialPlan
     && !hideTrialCardForReason
   const canActivateTrial = Boolean(trialEligibility?.eligible) && canPurchase
+  const paymentSelectPosition = isMobileShell ? 'item-aligned' : 'popper'
   const shouldShowTrialLinkAction =
     Boolean(trialEligibility?.requires_telegram_link) ||
     trialReasonCode === 'TRIAL_TELEGRAM_LINK_REQUIRED'
@@ -1257,7 +1262,10 @@ export function PurchasePage() {
           <SelectTrigger className="w-full">
             <SelectValue placeholder={text.choosePaymentAsset} />
           </SelectTrigger>
-          <SelectContent position={isMobileShell ? 'item-aligned' : 'popper'}>
+          <SelectContent
+            position={paymentSelectPosition}
+            className={PURCHASE_SELECT_CONTENT_CLASS_NAME}
+          >
             {availablePaymentAssets.map((asset) => (
               <SelectItem key={asset} value={asset}>
                 <CryptoAssetNameWithIcon asset={asset} />
@@ -1270,7 +1278,7 @@ export function PurchasePage() {
   ) : null
 
   const paymentSourceSelector = effectiveSelectedDuration !== null && canUsePartnerBalance ? (
-    <Card>
+    <Card className={cn(isMobileShell && MOBILE_PURCHASE_SURFACE_CLASS_NAME)}>
       <CardHeader>
         <CardTitle>{text.paymentSourceTitle}</CardTitle>
         <CardDescription>{text.paymentSourceDesc}</CardDescription>
@@ -1345,7 +1353,7 @@ export function PurchasePage() {
   ) : null
 
   const paymentGatewaySelector = effectiveSelectedDuration !== null && selectedPlanData ? (
-    <Card>
+    <Card className={cn(isMobileShell && MOBILE_PURCHASE_SURFACE_CLASS_NAME)}>
       <CardHeader>
         <CardTitle>{text.selectPaymentMethodTitle}</CardTitle>
         <CardDescription>
@@ -1419,7 +1427,10 @@ export function PurchasePage() {
             <SelectTrigger className="w-full">
               <SelectValue placeholder={text.choosePaymentMethod} />
             </SelectTrigger>
-            <SelectContent position={isMobileShell ? 'item-aligned' : 'popper'}>
+            <SelectContent
+              position={paymentSelectPosition}
+              className={PURCHASE_SELECT_CONTENT_CLASS_NAME}
+            >
               {availableGatewayPrices.map((price) => (
                 <SelectItem key={price.gateway_type} value={price.gateway_type}>
                     <span className="flex w-full items-center gap-2">
@@ -1863,8 +1874,8 @@ export function PurchasePage() {
       {!isMobileShell && paymentSourceSelector}
       {!isMobileShell && paymentGatewaySelector}
 
-      {isMobileShell && (
-        <div className="sticky bottom-[calc(0.75rem+var(--app-safe-bottom))] z-20 rounded-2xl border border-white/12 bg-[#090c10]/96 p-3">
+      {isMobileShell && !isCheckoutOpen && (
+        <div className="sticky bottom-[calc(0.75rem+var(--app-safe-bottom))] z-20 rounded-2xl border border-white/10 bg-[#090c10] p-3 shadow-[0_-18px_40px_-30px_rgba(0,0,0,0.88)] [contain:layout_paint] [overflow-anchor:none]">
           <div className="grid grid-cols-2 gap-2">
             <Button type="button" onClick={() => setIsCheckoutOpen(true)} disabled={!canOpenCheckout}>
               {text.openCheckout}
@@ -1886,19 +1897,19 @@ export function PurchasePage() {
             side="bottom"
             disableMotion
             overlayClassName="bg-black/88 backdrop-blur-0 data-[state=open]:animate-none data-[state=closed]:animate-none"
-            className="max-h-[calc(100vh-0.5rem)] overflow-y-auto overscroll-y-contain rounded-t-2xl rounded-b-none border-white/12 bg-[#090c10] shadow-[0_18px_40px_-28px_rgba(0,0,0,0.95)]"
+            className="max-h-[calc(100svh-0.5rem)] overflow-y-auto overscroll-y-contain rounded-t-2xl rounded-b-none border-white/10 bg-[#0b0f14] shadow-[0_18px_40px_-28px_rgba(0,0,0,0.9)] [transform:translateZ(0)] [backface-visibility:hidden] [contain:layout_paint_style] [overflow-anchor:none]"
           >
             <SheetHeader>
               <SheetTitle>{text.orderSummary}</SheetTitle>
               <SheetDescription>{text.openCheckout}</SheetDescription>
             </SheetHeader>
 
-            <div className="mt-4 space-y-4 pb-2">
+            <div className="mt-4 space-y-4 pb-[calc(0.5rem+var(--app-safe-bottom))] [overflow-anchor:none]">
               {paymentSourceSelector}
               {paymentGatewaySelector}
               {renderLimitWarningCard()}
 
-              <Card>
+              <Card className={MOBILE_PURCHASE_SURFACE_CLASS_NAME}>
                 <CardContent className="pt-4">
                   {orderSummaryContent}
                 </CardContent>

@@ -2,7 +2,7 @@ import asyncio
 from typing import Any, Optional, cast
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from fluentogram import TranslatorHub
@@ -65,6 +65,14 @@ class NotificationService(BaseService):
     ) -> Optional[Message]:
         if not user:
             logger.warning("Skipping user notification: user object is empty")
+            return None
+
+        if user.is_bot_blocked:
+            logger.debug(
+                "Skipping user notification '{}' for '{}': user is marked as bot-blocked",
+                payload.i18n_key,
+                user.telegram_id,
+            )
             return None
 
         if ntf_type and not await self.settings_service.is_notification_enabled(ntf_type):
@@ -218,11 +226,20 @@ class NotificationService(BaseService):
 
             return sent_message
 
-        except TelegramForbiddenError:
+        except (TelegramForbiddenError, TelegramBadRequest) as exception:
+            if not self._is_unreachable_chat_error(exception):
+                logger.error(
+                    f"Failed to send notification '{payload.i18n_key}' "
+                    f"to '{user.telegram_id}': {exception}",
+                    exc_info=True,
+                )
+                return None
+
             logger.info(
-                "Skipping notification '{}' for '{}': bot was blocked by the user",
+                "Skipping notification '{}' for '{}': Telegram chat is unreachable ({})",
                 payload.i18n_key,
                 user.telegram_id,
+                exception,
             )
             await self._mark_user_as_bot_blocked(user.telegram_id)
             return None
@@ -241,10 +258,19 @@ class NotificationService(BaseService):
                 await self.user_service.set_bot_blocked(user=user, blocked=True)
         except Exception as exc:
             logger.warning(
-                "Failed to mark user '{}' as bot-blocked after TelegramForbiddenError: {}",
+                "Failed to mark user '{}' as bot-blocked after Telegram send error: {}",
                 telegram_id,
                 exc,
             )
+
+    def _is_unreachable_chat_error(self, exception: Exception) -> bool:
+        if isinstance(exception, TelegramForbiddenError):
+            return True
+
+        if isinstance(exception, TelegramBadRequest):
+            return "chat not found" in str(exception).lower()
+
+        return False
 
     async def _send_media_message(
         self,

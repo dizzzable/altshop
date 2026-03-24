@@ -5,6 +5,7 @@ from starlette.middleware.cors import CORSMiddleware
 from src.api.endpoints import (
     TelegramWebhookEndpoint,
     analytics_router,
+    internal_router,
     payments_router,
     remnawave_router,
     user_router,
@@ -24,6 +25,7 @@ def create_app(config: AppConfig, dispatcher: Dispatcher) -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(analytics_router)
+    app.include_router(internal_router)
     app.include_router(payments_router)
     app.include_router(remnawave_router)
     app.include_router(web_auth_router)  # Web app authentication
