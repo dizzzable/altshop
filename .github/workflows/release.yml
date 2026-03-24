@@ -110,18 +110,18 @@ jobs:
           name: AltShop ${{ github.ref_name }}
           body_path: release-notes.md
 
-      - name: Warn if release notify is not configured
-        if: ${{ secrets.RELEASE_NOTIFY_URL == '' || secrets.RELEASE_NOTIFY_SECRET == '' }}
-        run: echo "::warning::Release notify skipped because RELEASE_NOTIFY_URL or RELEASE_NOTIFY_SECRET is not configured."
-
       - name: Notify production about published release
-        if: ${{ secrets.RELEASE_NOTIFY_URL != '' && secrets.RELEASE_NOTIFY_SECRET != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
           RELEASE_NOTIFY_URL: ${{ secrets.RELEASE_NOTIFY_URL }}
           RELEASE_NOTIFY_SECRET: ${{ secrets.RELEASE_NOTIFY_SECRET }}
         run: |
+          if [ -z "${RELEASE_NOTIFY_URL}" ] || [ -z "${RELEASE_NOTIFY_SECRET}" ]; then
+            echo "::warning::Release notify skipped because RELEASE_NOTIFY_URL or RELEASE_NOTIFY_SECRET is not configured."
+            exit 0
+          fi
+
           python - <<'PY'
           import json
           import os
