@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.1.16] - 2026-03-24
+
+### Fixed
+
+- DEV release notifications now fire once for every newly published GitHub release tag even when the running instance already has the same semantic version, which restores alerts for freshly published releases like `1.1.15`
+- update-check audit tests now cover the “current version was just officially released” path, so this notification regression does not silently come back on future patch releases
+
 ## [1.1.15] - 2026-03-24
 
 ### Added

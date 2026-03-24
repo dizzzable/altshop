@@ -133,7 +133,9 @@ def test_maybe_notify_about_release_update_returns_notified_snapshot() -> None:
 
 
 def test_maybe_notify_about_release_update_returns_up_to_date_snapshot() -> None:
-    redis_repository, settings_service, user_service, notification_service = build_update_services()
+    redis_repository, settings_service, user_service, notification_service = build_update_services(
+        last_notified_version="1.1.11"
+    )
 
     snapshot = run_async(
         maybe_notify_about_release_update(
@@ -149,6 +151,30 @@ def test_maybe_notify_about_release_update_returns_up_to_date_snapshot() -> None
     assert snapshot.outcome == "up_to_date"
     redis_repository.set.assert_not_awaited()
     notification_service.system_notify.assert_not_awaited()
+
+
+def test_maybe_notify_about_release_update_notifies_for_newly_published_current_version() -> None:
+    redis_repository, settings_service, user_service, notification_service = build_update_services(
+        devs=[SimpleNamespace(telegram_id=1)],
+        delivery_results=[True],
+    )
+
+    snapshot = run_async(
+        maybe_notify_about_release_update(
+            redis_repository=redis_repository,
+            settings_service=settings_service,
+            user_service=user_service,
+            notification_service=notification_service,
+            latest_release=build_release(tag_name="v1.1.11"),
+            current_version="1.1.11",
+        )
+    )
+
+    assert snapshot.outcome == "notified"
+    assert snapshot.remote_version == "1.1.11"
+    assert snapshot.local_version == "1.1.11"
+    redis_repository.set.assert_awaited_once()
+    notification_service.system_notify.assert_awaited_once()
 
 
 def test_maybe_notify_about_release_update_returns_local_ahead_snapshot() -> None:

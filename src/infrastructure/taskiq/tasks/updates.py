@@ -254,13 +254,7 @@ async def maybe_notify_about_release_update(
             latest_release=latest_release,
         )
 
-    if remote_semver == local_semver:
-        logger.debug(f"Project is up to date ({current_version})")
-        return UpdateCheckAuditSnapshot.build(
-            outcome="up_to_date",
-            current_version=current_version,
-            latest_release=latest_release,
-        )
+    same_version_release = remote_semver == local_semver
 
     toggle_enabled = await settings_service.is_notification_enabled(
         SystemNotificationType.BOT_UPDATE
@@ -276,6 +270,16 @@ async def maybe_notify_about_release_update(
 
     last_notified_version = await redis_repository.get(LastNotifiedVersionKey(), str)
     if last_notified_version == latest_release.version:
+        if same_version_release:
+            logger.debug(f"Project is up to date ({current_version})")
+            return UpdateCheckAuditSnapshot.build(
+                outcome="up_to_date",
+                current_version=current_version,
+                latest_release=latest_release,
+                dedupe_version=last_notified_version,
+                toggle_enabled=True,
+            )
+
         logger.debug(f"Version {latest_release.version} already notified.")
         return UpdateCheckAuditSnapshot.build(
             outcome="already_notified",
