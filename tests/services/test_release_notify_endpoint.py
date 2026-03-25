@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import SecretStr
 
+from src.__version__ import __version__
 from src.api.endpoints.internal import (
     ReleaseNotifyRequest,
     _notify_release_impl,
@@ -44,6 +45,11 @@ def build_update_services(
         system_notify=AsyncMock(return_value=delivery_results or [True]),
     )
     return redis_repository, settings_service, user_service, notification_service
+
+
+def _next_patch_version(version: str) -> str:
+    major, minor, patch = version.split(".")
+    return f"{major}.{minor}.{int(patch) + 1}"
 
 
 def test_verify_release_notify_credentials_rejects_invalid_secret() -> None:
@@ -82,11 +88,12 @@ def test_notify_release_returns_notified_snapshot_for_newer_remote_version() -> 
     config = AppConfig.get()
     config.release_notify_secret = SecretStr("test-secret")
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config=config)))
+    remote_version = _next_patch_version(__version__)
     payload = ReleaseNotifyRequest(
-        version="1.2.1",
-        tag_name="v1.2.1",
-        name="AltShop v1.2.1",
-        html_url="https://github.com/dizzzable/altshop/releases/tag/v1.2.1",
+        version=remote_version,
+        tag_name=f"v{remote_version}",
+        name=f"AltShop v{remote_version}",
+        html_url=f"https://github.com/dizzzable/altshop/releases/tag/v{remote_version}",
         published_at=datetime(2026, 3, 24, 12, 0, tzinfo=timezone.utc),
     )
     redis_repository, settings_service, user_service, notification_service = (
@@ -112,7 +119,7 @@ def test_notify_release_returns_notified_snapshot_for_newer_remote_version() -> 
     )
 
     assert snapshot.outcome == "notified"
-    assert snapshot.remote_version == "1.2.1"
+    assert snapshot.remote_version == remote_version
     redis_repository.set.assert_awaited()
     notification_service.system_notify.assert_awaited_once()
 
@@ -122,10 +129,10 @@ def test_notify_release_skips_same_version_release() -> None:
     config.release_notify_secret = SecretStr("test-secret")
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config=config)))
     payload = ReleaseNotifyRequest(
-        version="1.2.0",
-        tag_name="v1.2.0",
-        name="AltShop v1.2.0",
-        html_url="https://github.com/dizzzable/altshop/releases/tag/v1.2.0",
+        version=__version__,
+        tag_name=f"v{__version__}",
+        name=f"AltShop v{__version__}",
+        html_url=f"https://github.com/dizzzable/altshop/releases/tag/v{__version__}",
         published_at=datetime(2026, 3, 24, 12, 0, tzinfo=timezone.utc),
     )
     redis_repository, settings_service, user_service, notification_service = (

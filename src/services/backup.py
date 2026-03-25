@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 import aiofiles  # type: ignore[import-untyped]
 from aiogram import Bot
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, Message
 from fluentogram import TranslatorHub
 from loguru import logger
 from redis.asyncio import Redis
@@ -19,9 +19,11 @@ from sqlalchemy import inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
-from src.core.enums import BackupScope, Locale
+from src.core.enums import BackupScope, BackupSourceKind, Locale
+from src.core.utils.assets_sync import ASSETS_BACKUP_DIRNAME, ASSETS_VERSION_MARKER
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.sql import (
+    BackupRecord,
     Broadcast,
     BroadcastMessage,
     Partner,
@@ -70,6 +72,7 @@ class BackupMetadata:
 class BackupInfo:
     """Информация о файле бэкапа."""
 
+    selection_key: str
     filename: str
     filepath: str
     timestamp: str
@@ -87,6 +90,10 @@ class BackupInfo:
     assets_root: Optional[str] = None
     assets_files_count: int = 0
     assets_size_bytes: int = 0
+    source_kind: BackupSourceKind = BackupSourceKind.LOCAL
+    has_local_copy: bool = True
+    has_telegram_copy: bool = False
+    telegram_file_id: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -259,6 +266,24 @@ class BackupService(BaseService):
                         tar.add(item, arcname=item.name)
 
             file_size = backup_path.stat().st_size
+            backup_info = self._metadata_to_backup_info(
+                backup_path,
+                backup_path.stat(),
+                metadata,
+            )
+            await self._upsert_backup_record(
+                backup_info=backup_info,
+                local_path=backup_path,
+            )
+
+            sent_message = await self._send_backup_file_to_chat(str(backup_path))
+            if sent_message is not None:
+                await self._upsert_backup_record(
+                    backup_info=backup_info,
+                    local_path=backup_path,
+                    telegram_message=sent_message,
+                )
+
             await self._cleanup_old_backups()
 
             size_mb = file_size / 1024 / 1024
@@ -280,9 +305,6 @@ class BackupService(BaseService):
                 locale=locale,
             )
             logger.info(message)
-
-            # Отправляем бэкап в Telegram если включено
-            await self._send_backup_file_to_chat(str(backup_path))
 
             return True, message, str(backup_path)
 
@@ -350,23 +372,35 @@ class BackupService(BaseService):
     async def get_backup_list(self) -> List[BackupInfo]:
         """Получает список всех бэкапов."""
         backups: List[BackupInfo] = []
+        known_local_paths: set[Path] = set()
+        known_filenames: set[str] = set()
 
         try:
+            registered_backups = await self._list_registered_backup_infos()
+            backups.extend(registered_backups)
+            for backup in registered_backups:
+                known_filenames.add(backup.filename)
+                if backup.has_local_copy and backup.filepath:
+                    known_local_paths.add(Path(backup.filepath))
+
             for backup_file in sorted(self.backup_dir.glob("backup_*"), reverse=True):
-                if not backup_file.is_file():
+                if (
+                    not backup_file.is_file()
+                    or backup_file in known_local_paths
+                    or backup_file.name in known_filenames
+                ):
                     continue
 
                 try:
                     metadata = await self._read_backup_metadata(backup_file)
                     file_stats = backup_file.stat()
-
                     backups.append(self._metadata_to_backup_info(backup_file, file_stats, metadata))
-
                 except Exception as e:
                     logger.error(f"Ошибка чтения метаданных {backup_file}: {e}")
                     file_stats = backup_file.stat()
                     backups.append(
                         BackupInfo(
+                            selection_key=f"local:{backup_file.name}",
                             filename=backup_file.name,
                             filepath=str(backup_file),
                             timestamp=datetime.fromtimestamp(
@@ -383,14 +417,107 @@ class BackupService(BaseService):
                             backup_scope=BackupScope.FULL,
                             includes_database=True,
                             includes_assets=False,
+                            source_kind=BackupSourceKind.LOCAL,
+                            has_local_copy=True,
+                            has_telegram_copy=False,
                             error=str(e),
                         )
                     )
 
+            backups.sort(
+                key=lambda item: self._backup_sort_timestamp(item.timestamp),
+                reverse=True,
+            )
         except Exception as e:
             logger.error(f"Ошибка получения списка бэкапов: {e}")
 
         return backups
+
+    async def get_backup_by_key(self, selection_key: str) -> Optional[BackupInfo]:
+        backups = await self.get_backup_list()
+        return next((backup for backup in backups if backup.selection_key == selection_key), None)
+
+    async def restore_selected_backup(
+        self,
+        selection_key: str,
+        *,
+        clear_existing: bool = False,
+        locale: Locale | None = None,
+    ) -> Tuple[bool, str]:
+        backup_info = await self.get_backup_by_key(selection_key)
+        if backup_info is None:
+            if locale is not None:
+                return False, self._build_backup_missing_file_message(selection_key, locale=locale)
+            return False, f"Backup not found: {selection_key}"
+
+        if backup_info.has_local_copy and backup_info.filepath:
+            return await self.restore_backup(
+                backup_info.filepath,
+                clear_existing=clear_existing,
+                locale=locale,
+            )
+
+        if backup_info.has_telegram_copy and backup_info.telegram_file_id:
+            suffixes = "".join(Path(backup_info.filename).suffixes)
+            if not suffixes:
+                suffixes = ".tar.gz"
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir) / f"telegram_restore{suffixes}"
+                try:
+                    await self._download_telegram_backup_file(
+                        telegram_file_id=backup_info.telegram_file_id,
+                        destination=temp_path,
+                    )
+                except Exception as exc:
+                    if locale is not None:
+                        return (
+                            False,
+                            self._build_backup_restore_error_message(
+                                str(exc),
+                                locale=locale,
+                            ),
+                        )
+                    return False, f"Restore failed: {exc}"
+
+                return await self.restore_backup(
+                    str(temp_path),
+                    clear_existing=clear_existing,
+                    locale=locale,
+                )
+
+        if locale is not None:
+            return (
+                False,
+                self._build_backup_missing_file_message(
+                    backup_info.filename,
+                    locale=locale,
+                ),
+            )
+        return False, f"Backup source is unavailable: {backup_info.filename}"
+
+    async def delete_selected_backup(
+        self,
+        selection_key: str,
+        *,
+        locale: Locale | None = None,
+    ) -> Tuple[bool, str]:
+        backup_info = await self.get_backup_by_key(selection_key)
+        if backup_info is None:
+            if locale is not None:
+                return False, self._build_backup_missing_file_message(selection_key, locale=locale)
+            return False, f"Backup not found: {selection_key}"
+
+        if not backup_info.has_local_copy or not backup_info.filepath:
+            if locale is not None:
+                return False, self._build_backup_delete_error_message(
+                    self.translator_hub.get_translator_by_locale(locale=locale).get(
+                        "msg-backup-error-telegram-only-delete"
+                    ),
+                    locale=locale,
+                )
+            return False, "Telegram-only backup cannot delete a local copy"
+
+        return await self.delete_backup(backup_info.filename, locale=locale)
 
     async def delete_backup(
         self,
@@ -401,7 +528,6 @@ class BackupService(BaseService):
         try:
             backup_path = self.backup_dir / backup_filename
 
-
             if not backup_path.exists():
                 if locale is not None:
                     return False, self._build_backup_missing_file_message(
@@ -411,6 +537,10 @@ class BackupService(BaseService):
                 return False, f"Backup file not found: {backup_filename}"
 
             backup_path.unlink()
+            await self._sync_backup_record_after_local_delete(
+                backup_filename=backup_filename,
+                deleted_path=backup_path,
+            )
             if locale is not None:
                 message = self._build_backup_deleted_message(backup_filename, locale=locale)
                 logger.info(message)
@@ -574,6 +704,12 @@ class BackupService(BaseService):
             "total_records": total_records,
         }
 
+    @staticmethod
+    def _should_skip_asset_file(relative_path: Path) -> bool:
+        return ASSETS_BACKUP_DIRNAME in relative_path.parts or relative_path.name == (
+            ASSETS_VERSION_MARKER
+        )
+
     async def _dump_assets(self, staging_dir: Path) -> Dict[str, Any]:
         """Copy mutable runtime assets into the backup staging directory."""
         source_dir = self.config.assets_dir
@@ -589,6 +725,8 @@ class BackupService(BaseService):
                     continue
 
                 relative_path = source_file.relative_to(source_dir)
+                if self._should_skip_asset_file(relative_path):
+                    continue
                 target_file = assets_dir / relative_path
                 target_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_file, target_file)
@@ -763,6 +901,7 @@ class BackupService(BaseService):
         assets_info = metadata.get("assets") or {}
 
         return BackupInfo(
+            selection_key=f"local:{backup_file.name}",
             filename=backup_file.name,
             filepath=str(backup_file),
             timestamp=metadata.get(
@@ -783,7 +922,281 @@ class BackupService(BaseService):
             assets_root=metadata.get("assets_root") or assets_info.get("root"),
             assets_files_count=int(assets_info.get("files_count", 0) or 0),
             assets_size_bytes=int(assets_info.get("size_bytes", 0) or 0),
+            source_kind=BackupSourceKind.LOCAL,
+            has_local_copy=True,
+            has_telegram_copy=False,
         )
+
+    def _parse_backup_timestamp(self, value: object) -> Optional[datetime]:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+
+    def _backup_sort_timestamp(self, value: object) -> float:
+        parsed = self._parse_backup_timestamp(value)
+        if parsed is None:
+            return 0.0
+        return parsed.timestamp()
+
+    def _resolve_backup_source_kind(
+        self,
+        *,
+        has_local_copy: bool,
+        has_telegram_copy: bool,
+    ) -> BackupSourceKind:
+        if has_local_copy and has_telegram_copy:
+            return BackupSourceKind.LOCAL_AND_TELEGRAM
+        if has_telegram_copy:
+            return BackupSourceKind.TELEGRAM
+        return BackupSourceKind.LOCAL
+
+    def _resolve_registry_local_path(self, record: BackupRecord) -> Optional[Path]:
+        if record.local_path:
+            candidate = Path(record.local_path)
+            if candidate.exists():
+                return candidate
+
+        fallback = self.backup_dir / record.filename
+        if fallback.exists():
+            return fallback
+
+        return None
+
+    def _record_to_backup_info(self, record: BackupRecord) -> Optional[BackupInfo]:
+        local_path = self._resolve_registry_local_path(record)
+        has_local_copy = local_path is not None
+        has_telegram_copy = bool(record.telegram_file_id)
+        if not has_local_copy and not has_telegram_copy:
+            return None
+
+        scope_value = (record.backup_scope or BackupScope.FULL.value).upper()
+        try:
+            backup_scope = BackupScope(scope_value)
+        except ValueError:
+            backup_scope = BackupScope.FULL
+
+        timestamp = (
+            record.backup_timestamp.isoformat()
+            if record.backup_timestamp
+            else record.created_at.isoformat()
+        )
+
+        return BackupInfo(
+            selection_key=f"registry:{record.id}",
+            filename=record.filename,
+            filepath=str(local_path) if local_path else "",
+            timestamp=timestamp,
+            tables_count=record.tables_count,
+            total_records=record.total_records,
+            compressed=record.compressed,
+            file_size_bytes=record.file_size_bytes,
+            file_size_mb=round(record.file_size_bytes / 1024 / 1024, 2),
+            created_by=record.created_by,
+            database_type=record.database_type,
+            version=record.version,
+            backup_scope=backup_scope,
+            includes_database=record.includes_database,
+            includes_assets=record.includes_assets,
+            assets_root=record.assets_root,
+            assets_files_count=record.assets_files_count,
+            assets_size_bytes=record.assets_size_bytes,
+            source_kind=self._resolve_backup_source_kind(
+                has_local_copy=has_local_copy,
+                has_telegram_copy=has_telegram_copy,
+            ),
+            has_local_copy=has_local_copy,
+            has_telegram_copy=has_telegram_copy,
+            telegram_file_id=record.telegram_file_id,
+        )
+
+    async def _list_registered_backup_infos(self) -> List[BackupInfo]:
+        async with self.session_pool() as session:
+            result = await session.execute(
+                select(BackupRecord).order_by(
+                    BackupRecord.backup_timestamp.desc().nullslast(),
+                    BackupRecord.created_at.desc(),
+                    BackupRecord.id.desc(),
+                )
+            )
+            records = list(result.scalars().all())
+
+        backups: List[BackupInfo] = []
+        for record in records:
+            backup_info = self._record_to_backup_info(record)
+            if backup_info is not None:
+                backups.append(backup_info)
+        return backups
+
+    async def _upsert_backup_record(
+        self,
+        *,
+        backup_info: BackupInfo,
+        local_path: Optional[Path],
+        telegram_message: Optional[Message] = None,
+    ) -> None:
+        async with self.session_pool() as session:
+            result = await session.execute(
+                select(BackupRecord)
+                .where(BackupRecord.filename == backup_info.filename)
+                .order_by(BackupRecord.id.desc())
+                .limit(1)
+            )
+            record = result.scalar_one_or_none()
+
+            if record is None:
+                record = BackupRecord(
+                    filename=backup_info.filename,
+                    backup_timestamp=self._parse_backup_timestamp(backup_info.timestamp),
+                    created_by=backup_info.created_by,
+                    backup_scope=backup_info.backup_scope.value,
+                    includes_database=backup_info.includes_database,
+                    includes_assets=backup_info.includes_assets,
+                    assets_root=backup_info.assets_root,
+                    tables_count=backup_info.tables_count,
+                    total_records=backup_info.total_records,
+                    compressed=backup_info.compressed,
+                    file_size_bytes=backup_info.file_size_bytes,
+                    database_type=backup_info.database_type,
+                    version=backup_info.version,
+                    assets_files_count=backup_info.assets_files_count,
+                    assets_size_bytes=backup_info.assets_size_bytes,
+                    local_path=str(local_path) if local_path else None,
+                )
+                session.add(record)
+            else:
+                record.backup_timestamp = self._parse_backup_timestamp(backup_info.timestamp)
+                record.created_by = backup_info.created_by
+                record.backup_scope = backup_info.backup_scope.value
+                record.includes_database = backup_info.includes_database
+                record.includes_assets = backup_info.includes_assets
+                record.assets_root = backup_info.assets_root
+                record.tables_count = backup_info.tables_count
+                record.total_records = backup_info.total_records
+                record.compressed = backup_info.compressed
+                record.file_size_bytes = backup_info.file_size_bytes
+                record.database_type = backup_info.database_type
+                record.version = backup_info.version
+                record.assets_files_count = backup_info.assets_files_count
+                record.assets_size_bytes = backup_info.assets_size_bytes
+                if local_path is not None:
+                    record.local_path = str(local_path)
+
+            if telegram_message and telegram_message.document:
+                record.telegram_chat_id = telegram_message.chat.id
+                record.telegram_thread_id = telegram_message.message_thread_id
+                record.telegram_message_id = telegram_message.message_id
+                record.telegram_file_id = telegram_message.document.file_id
+                record.telegram_file_unique_id = telegram_message.document.file_unique_id
+
+            await session.commit()
+
+    async def _sync_backup_record_after_local_delete(
+        self,
+        *,
+        backup_filename: str,
+        deleted_path: Optional[Path],
+    ) -> None:
+        async with self.session_pool() as session:
+            result = await session.execute(
+                select(BackupRecord).where(BackupRecord.filename == backup_filename)
+            )
+            records = list(result.scalars().all())
+            changed = False
+
+            for record in records:
+                matches_deleted_path = (
+                    deleted_path is not None and record.local_path == str(deleted_path)
+                )
+                matches_fallback_path = (
+                    deleted_path is not None
+                    and deleted_path == (self.backup_dir / record.filename)
+                )
+                if record.local_path is None and not matches_fallback_path:
+                    continue
+                if (
+                    deleted_path is not None
+                    and not matches_deleted_path
+                    and not matches_fallback_path
+                ):
+                    continue
+
+                record.local_path = None
+                changed = True
+                if not record.telegram_file_id:
+                    await session.delete(record)
+
+            if changed:
+                await session.commit()
+
+    async def _download_telegram_backup_file(
+        self,
+        *,
+        telegram_file_id: str,
+        destination: Path,
+    ) -> None:
+        file = await self.bot.get_file(telegram_file_id)
+        if not file.file_path:
+            raise ValueError(f"File path not found for telegram backup '{telegram_file_id}'")
+
+        await self.bot.download_file(file.file_path, destination=destination)
+
+    async def import_backup_file(
+        self,
+        *,
+        source_file_path: Path,
+        original_filename: Optional[str],
+        created_by: Optional[int],
+    ) -> Tuple[bool, Optional[BackupInfo], str]:
+        filename = self._build_imported_backup_filename(original_filename or source_file_path.name)
+        target_path = self.backup_dir / filename
+
+        shutil.copy2(source_file_path, target_path)
+
+        try:
+            metadata = await self._read_backup_metadata(target_path)
+            if not metadata:
+                raise ValueError("Backup metadata file is missing.")
+
+            scope = self._normalize_backup_scope(metadata)
+            includes_database = bool(metadata.get("includes_database", metadata.get("database")))
+            includes_assets = bool(metadata.get("includes_assets", metadata.get("assets")))
+            if not includes_database and not includes_assets:
+                raise ValueError("Backup does not contain restorable data.")
+
+            file_stats = target_path.stat()
+            backup_info = self._metadata_to_backup_info(target_path, file_stats, metadata)
+            backup_info.backup_scope = scope
+            backup_info.includes_database = includes_database
+            backup_info.includes_assets = includes_assets
+            backup_info.created_by = (
+                created_by if created_by is not None else backup_info.created_by
+            )
+            await self._upsert_backup_record(backup_info=backup_info, local_path=target_path)
+            await self._cleanup_old_backups()
+            return True, backup_info, ""
+        except Exception as exc:
+            if target_path.exists():
+                target_path.unlink()
+            return False, None, str(exc)
+
+    def _build_imported_backup_filename(self, original_filename: str) -> str:
+        candidate = (
+            Path(original_filename or "backup_import.tar.gz").name.strip()
+            or "backup_import.tar.gz"
+        )
+        base_name = candidate.replace(" ", "_")
+        timestamp = datetime_now().strftime("%Y%m%d_%H%M%S")
+        target_name = f"backup_import_{timestamp}_{base_name}"
+        target_path = self.backup_dir / target_name
+        suffix = 1
+        while target_path.exists():
+            target_name = f"backup_import_{timestamp}_{suffix}_{base_name}"
+            target_path = self.backup_dir / target_name
+            suffix += 1
+        return target_name
 
     def _model_to_dict(self, record: Any, model: Any) -> Dict[str, Any]:
         """Конвертирует ORM модель в словарь."""
@@ -969,6 +1382,8 @@ class BackupService(BaseService):
                 continue
 
             relative_path = source_file.relative_to(source_dir)
+            if self._should_skip_asset_file(relative_path):
+                continue
             target_file = target_dir / relative_path
             target_file.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_file, target_file)
@@ -1288,11 +1703,18 @@ class BackupService(BaseService):
     async def _cleanup_old_backups(self) -> None:
         """Удаляет старые бэкапы."""
         try:
-            backups = await self.get_backup_list()
+            backups = [
+                backup
+                for backup in await self.get_backup_list()
+                if backup.has_local_copy and backup.filepath
+            ]
 
             if len(backups) > self.config.backup.max_keep:
                 # Сортируем по времени (новые первые)
-                backups.sort(key=lambda x: x.timestamp, reverse=True)
+                backups.sort(
+                    key=lambda backup: self._backup_sort_timestamp(backup.timestamp),
+                    reverse=True,
+                )
 
                 for backup in backups[self.config.backup.max_keep :]:
                     try:
@@ -1304,15 +1726,15 @@ class BackupService(BaseService):
         except Exception as e:
             logger.error(f"Ошибка очистки старых бэкапов: {e}")
 
-    async def _send_backup_file_to_chat(self, file_path: str) -> None:
+    async def _send_backup_file_to_chat(self, file_path: str) -> Optional[Message]:
         """Отправляет файл бэкапа в Telegram чат."""
         try:
             if not self.config.backup.is_send_enabled():
-                return
+                return None
 
             chat_id = self.config.backup.send_chat_id
             if not chat_id:
-                return
+                return None
 
             document = FSInputFile(file_path)
             caption = (
@@ -1321,7 +1743,7 @@ class BackupService(BaseService):
             )
 
             if self.config.backup.send_topic_id:
-                await self.bot.send_document(
+                message = await self.bot.send_document(
                     chat_id=chat_id,
                     document=document,
                     caption=caption,
@@ -1329,13 +1751,15 @@ class BackupService(BaseService):
                     message_thread_id=self.config.backup.send_topic_id,
                 )
             else:
-                await self.bot.send_document(
+                message = await self.bot.send_document(
                     chat_id=chat_id,
                     document=document,
                     caption=caption,
                     parse_mode="HTML",
                 )
             logger.info(f"Бэкап отправлен в чат {chat_id}")
+            return message
 
         except Exception as e:
             logger.error(f"Ошибка отправки бэкапа в чат: {e}")
+            return None

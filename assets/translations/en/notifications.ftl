@@ -653,6 +653,13 @@ ntf-backup-restored-failed = <i>❌ Restore failed</i>
 ntf-backup-creation-started = <i>⏳ Starting backup creation...</i>
 ntf-backup-restore-started = <i>⏳ Starting restore...</i>
 ntf-backup-deleted = <i>🗑️ Backup deleted.</i>
+ntf-backup-import-invalid = <i>⚠️ Send a backup archive as a document.</i>
+ntf-backup-imported-success = <i>✅ Backup imported successfully: <code>{ $filename }</code></i>
+ntf-backup-imported-failed = <i>❌ Backup import failed</i>
+
+    <blockquote>
+    { $message }
+    </blockquote>
 
 ntf-trial-already-used = <i>⚠️ Trial has already been used.</i>
 ntf-trial-existing-subscription = <i>⚠️ Trial is available only before the first subscription.</i>

@@ -681,6 +681,13 @@ ntf-backup-restored-failed = <i>❌ Ошибка восстановления</i
 ntf-backup-creation-started = <i>⏳ Запускаю создание бэкапа...</i>
 ntf-backup-restore-started = <i>⏳ Запускаю восстановление...</i>
 ntf-backup-deleted = <i>🗑️ Бэкап удалён.</i>
+ntf-backup-import-invalid = <i>⚠️ Отправьте архив бэкапа документом.</i>
+ntf-backup-imported-success = <i>✅ Бэкап импортирован: <code>{ $filename }</code></i>
+ntf-backup-imported-failed = <i>❌ Ошибка импорта бэкапа</i>
+
+    <blockquote>
+    { $message }
+    </blockquote>
 
 ntf-trial-already-used = <i>⚠️ Пробный период уже был использован.</i>
 ntf-trial-existing-subscription = <i>⚠️ Пробный период доступен только до первой подписки.</i>

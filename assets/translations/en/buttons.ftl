@@ -859,3 +859,5 @@ btn-user-referral-invite-use-global = 🌐 Use global settings: { $use_global ->
     [true] yes
     *[false] no
     }
+btn-backup-import = 📥 Import backup
+btn-backup-delete-local = 🗑️ Delete local copy

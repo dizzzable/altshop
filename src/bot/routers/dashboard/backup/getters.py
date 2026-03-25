@@ -6,6 +6,7 @@ from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
 
 from src.core.config import AppConfig
+from src.core.enums import BackupSourceKind
 from src.services.backup import BackupService
 
 
@@ -16,6 +17,15 @@ def _scope_label(scope_value: str, i18n: TranslatorRunner) -> str:
         "FULL": i18n.get("msg-backup-scope-full-label"),
     }
     return mapping.get(scope_value, scope_value.title())
+
+
+def _source_label(source_kind: BackupSourceKind, i18n: TranslatorRunner) -> str:
+    mapping = {
+        BackupSourceKind.LOCAL: i18n.get("msg-backup-source-local"),
+        BackupSourceKind.TELEGRAM: i18n.get("msg-backup-source-telegram"),
+        BackupSourceKind.LOCAL_AND_TELEGRAM: i18n.get("msg-backup-source-local-and-telegram"),
+    }
+    return mapping[source_kind]
 
 
 @inject
@@ -82,15 +92,21 @@ async def backup_list_getter(
     backups_list = []
     for backup in backups:
         scope_label = _scope_label(backup.backup_scope.value, i18n)
+        source_label = _source_label(backup.source_kind, i18n)
         timestamp = backup.timestamp[:16].replace("T", " ") if backup.timestamp else "?"
         backups_list.append(
             {
+                "selection_key": backup.selection_key,
                 "filename": backup.filename,
                 "timestamp": timestamp,
                 "file_size_mb": backup.file_size_mb,
                 "total_records": backup.total_records,
                 "scope_label": scope_label,
-                "display": f"{scope_label} • {timestamp} • {backup.file_size_mb}MB",
+                "source_label": source_label,
+                "display": (
+                    f"{scope_label} | {source_label} | {timestamp} | "
+                    f"{backup.file_size_mb}MB"
+                ),
             }
         )
 
@@ -109,15 +125,13 @@ async def backup_manage_getter(
     **kwargs: Any,
 ) -> dict[str, Any]:
     del kwargs
-    filename = dialog_manager.dialog_data.get("backup_filename", "")
-
-    backups = await backup_service.get_backup_list()
-    backup_info = next((backup for backup in backups if backup.filename == filename), None)
+    selection_key = dialog_manager.dialog_data.get("backup_selection_key", "")
+    backup_info = await backup_service.get_backup_by_key(selection_key)
 
     if not backup_info:
         return {
             "found": False,
-            "filename": filename,
+            "filename": selection_key,
             "content_details": "",
         }
 
@@ -126,7 +140,10 @@ async def backup_manage_getter(
     except Exception:
         timestamp_str = i18n.get("msg-backup-value-unknown")
 
-    content_lines: list[str] = []
+    source_label = _source_label(backup_info.source_kind, i18n)
+    content_lines: list[str] = [
+        i18n.get("msg-backup-content-source", source=source_label),
+    ]
     if backup_info.includes_database:
         content_lines.append(
             i18n.get("msg-backup-content-db-tables", count=backup_info.tables_count)
@@ -149,6 +166,7 @@ async def backup_manage_getter(
 
     return {
         "found": True,
+        "selection_key": backup_info.selection_key,
         "filename": backup_info.filename,
         "timestamp": timestamp_str,
         "file_size_mb": backup_info.file_size_mb,
@@ -161,8 +179,17 @@ async def backup_manage_getter(
         "error": backup_info.error,
         "content_details": "\n".join(content_lines),
         "scope_label": scope_label,
+        "source_label": source_label,
         "includes_database": backup_info.includes_database,
         "includes_assets": backup_info.includes_assets,
+        "has_local_copy": backup_info.has_local_copy,
+        "has_telegram_copy": backup_info.has_telegram_copy,
+        "can_delete_local_copy": backup_info.has_local_copy,
+        "delete_button_label": (
+            i18n.get("btn-backup-delete-local")
+            if backup_info.has_telegram_copy
+            else i18n.get("btn-backup-delete")
+        ),
     }
 
 
@@ -198,22 +225,24 @@ async def backup_restore_confirm_getter(
     **kwargs: Any,
 ) -> dict[str, Any]:
     del kwargs
-    filename = dialog_manager.dialog_data.get("backup_filename", "")
+    selection_key = dialog_manager.dialog_data.get("backup_selection_key", "")
     clear_before = dialog_manager.dialog_data.get("clear_existing", False)
-
-    backups = await backup_service.get_backup_list()
-    backup_info = next((backup for backup in backups if backup.filename == filename), None)
+    backup_info = await backup_service.get_backup_by_key(selection_key)
 
     timestamp = i18n.get("msg-backup-value-unknown")
     total_records = 0
     scope_label = i18n.get("msg-backup-value-unknown")
+    source_label = i18n.get("msg-backup-value-unknown")
+    filename = selection_key
     if backup_info:
+        filename = backup_info.filename
         try:
             timestamp = backup_info.timestamp[:19].replace("T", " ")
         except Exception:
             pass
         total_records = backup_info.total_records
         scope_label = _scope_label(backup_info.backup_scope.value, i18n)
+        source_label = _source_label(backup_info.source_kind, i18n)
 
     return {
         "filename": filename,
@@ -221,6 +250,7 @@ async def backup_restore_confirm_getter(
         "timestamp": timestamp,
         "total_records": total_records,
         "scope_label": scope_label,
+        "source_label": source_label,
     }
 
 
@@ -232,19 +262,22 @@ async def backup_delete_confirm_getter(
     **kwargs: Any,
 ) -> dict[str, Any]:
     del kwargs
-    filename = dialog_manager.dialog_data.get("backup_filename", "")
-
-    backups = await backup_service.get_backup_list()
-    backup_info = next((backup for backup in backups if backup.filename == filename), None)
+    selection_key = dialog_manager.dialog_data.get("backup_selection_key", "")
+    backup_info = await backup_service.get_backup_by_key(selection_key)
 
     timestamp = i18n.get("msg-backup-value-unknown")
+    filename = selection_key
+    source_label = i18n.get("msg-backup-value-unknown")
     if backup_info:
+        filename = backup_info.filename
         try:
             timestamp = backup_info.timestamp[:19].replace("T", " ")
         except Exception:
             pass
+        source_label = _source_label(backup_info.source_kind, i18n)
 
     return {
         "filename": filename,
         "timestamp": timestamp,
+        "source_label": source_label,
     }

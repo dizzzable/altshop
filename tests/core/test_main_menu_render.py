@@ -187,6 +187,20 @@ def test_main_menu_miniapp_only_keeps_dashboard_for_privileged_user() -> None:
     assert _contains_button(buttons, "Control Panel")
 
 
+def test_main_menu_active_partner_hides_invite_button_but_keeps_partner() -> None:
+    manager = _build_manager()
+    data = _build_menu_data(locked=False) | {
+        "can_show_referral_invite": False,
+        "is_partner": True,
+    }
+
+    keyboard = run_async(menu.render_kbd(data, manager))
+    buttons = _flatten_button_texts(keyboard)
+
+    assert _contains_button(buttons, "Partner")
+    assert not _contains_button(buttons, "Invite")
+
+
 def test_main_menu_public_none_status_renders_human_readable_copy_in_ru() -> None:
     manager = _build_manager(locale="ru")
     data = _build_menu_data(locked=False) | {

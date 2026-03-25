@@ -6,6 +6,23 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-03-25
+
+### Added
+
+- a backup registry that tracks local and Telegram-delivered archives, plus a new dashboard import flow for manually uploading legacy backup files back into the restore list
+- restore support for Telegram-backed backups that no longer exist locally, allowing the bot to download the archived document and run the normal restore pipeline from that temporary copy
+
+### Changed
+
+- runtime `assets/` are now fully resynced from the image defaults whenever the app version changes, with the previous runtime assets archived into `.bak` before replacement
+- the backup dashboard now shows the archive source (`Local`, `Telegram`, or both), exposes restore for any valid source, and limits delete actions to the local copy when a Telegram copy also exists
+
+### Fixed
+
+- updated translation assets from the release image now actually reach deployed bots without requiring a manual `RESET_ASSETS`, so buttons like `🎫 Назначить план` stop getting stuck on stale runtime translations
+- active partners no longer see the regular `Invite` entrypoint in the bot, and direct web visits to the referrals page now redirect into the partner flow instead of leaving a dead-end referral screen
+
 ## [1.2.0] - 2026-03-25
 
 ### Added

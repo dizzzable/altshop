@@ -1,4 +1,6 @@
+from aiogram.enums import ContentType
 from aiogram_dialog import Dialog, StartMode, Window
+from aiogram_dialog.widgets.input import MessageInput
 from aiogram_dialog.widgets.kbd import Button, Column, Row, Select, Start, SwitchTo
 from aiogram_dialog.widgets.text import Format
 from magic_filter import F
@@ -23,6 +25,7 @@ from .handlers import (
     on_create_backup_scope,
     on_delete_backup,
     on_delete_confirm,
+    on_import_backup_input,
     on_restore_backup,
     on_restore_backup_clear,
     on_restore_confirm,
@@ -48,6 +51,11 @@ backup_main = Window(
             text=I18nFormat("btn-backup-settings"),
             id="backup_settings",
             state=DashboardBackup.SETTINGS,
+        ),
+        SwitchTo(
+            text=I18nFormat("btn-backup-import"),
+            id="backup_import",
+            state=DashboardBackup.IMPORT,
         ),
     ),
     Row(
@@ -97,7 +105,7 @@ backup_list = Window(
         Select(
             Format("{item[display]}"),
             id="backup_select",
-            item_id_getter=lambda item: item["filename"],
+            item_id_getter=lambda item: item["selection_key"],
             items="backups",
             on_click=on_backup_select,
         ),
@@ -138,11 +146,11 @@ backup_manage = Window(
     ),
     Row(
         Button(
-            text=I18nFormat("btn-backup-delete"),
+            text=Format("{delete_button_label}"),
             id="delete_backup",
             on_click=on_delete_backup,
         ),
-        when=F["found"],
+        when=F["found"] & F["can_delete_local_copy"],
     ),
     Row(
         SwitchTo(
@@ -170,6 +178,25 @@ backup_settings = Window(
     IgnoreUpdate(),
     state=DashboardBackup.SETTINGS,
     getter=backup_settings_getter,
+)
+
+
+backup_import = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-backup-import"),
+    MessageInput(
+        func=on_import_backup_input,
+        content_types=[ContentType.DOCUMENT],
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardBackup.MAIN,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardBackup.IMPORT,
 )
 
 
@@ -221,6 +248,7 @@ router = Dialog(
     backup_list,
     backup_manage,
     backup_settings,
+    backup_import,
     backup_restore_confirm,
     backup_delete_confirm,
 )

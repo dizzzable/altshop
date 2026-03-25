@@ -872,3 +872,5 @@ btn-user-referral-invite-use-global = 🌐 Глобальные настройк
     [true] да
     *[false] нет
     }
+btn-backup-import = 📥 Импортировать бэкап
+btn-backup-delete-local = 🗑️ Удалить локальную копию

@@ -2432,9 +2432,20 @@ msg-backup-content-db-records = • Записей: { $count }
 msg-backup-content-db-includes = • Включает тарифы, цены, пользователей, подписки, настройки и транзакции
 msg-backup-content-assets-files = • Файлов assets: { $count }
 msg-backup-content-assets-root = • Корень assets: <code>{ $path }</code>
+msg-backup-content-source = • Источник: { $source }
 msg-backup-value-unknown = неизвестно
 msg-backup-value-system = система
 msg-backup-value-not-set = не задано
+msg-backup-source-local = Локально
+msg-backup-source-telegram = Telegram
+msg-backup-source-local-and-telegram = Локально + Telegram
+msg-backup-import =
+    <b>📥 Импорт архива бэкапа</b>
+
+    Отправьте архив бэкапа документом. Поддерживаются файлы <code>.tar</code>, <code>.tar.gz</code> и совместимые legacy-архивы.
+
+    Импортированный архив будет скопирован в локальную директорию бэкапов, проиндексирован и появится в обычном списке.
+msg-backup-error-telegram-only-delete = У этого бэкапа нет локальной копии, поэтому удалять нечего.
 msg-common-plan-fallback = Подписка
 msg-common-empty-value = не указано
 msg-common-unlimited = ∞ (безлимит)

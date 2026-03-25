@@ -1,3 +1,4 @@
+from .backup_record import BackupRecord
 from .base import BaseSql
 from .broadcast import Broadcast, BroadcastMessage
 from .partner import Partner, PartnerReferral, PartnerTransaction, PartnerWithdrawal
@@ -16,6 +17,7 @@ from .web_analytics_event import WebAnalyticsEvent
 
 __all__ = [
     "BaseSql",
+    "BackupRecord",
     "Broadcast",
     "BroadcastMessage",
     "Partner",

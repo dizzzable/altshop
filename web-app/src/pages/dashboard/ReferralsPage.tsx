@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useBranding } from '@/components/common/BrandingProvider'
 import { useI18n } from '@/components/common/I18nProvider'
@@ -275,16 +276,7 @@ export function ReferralsPage() {
   )
 
   if (isPartnerActive) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{translateText(referralLocale, 'referrals.auto.005')}</CardTitle>
-          <CardDescription>
-            {translateText(referralLocale, 'referrals.auto.006')}
-          </CardDescription>
-        </CardHeader>
-      </Card>
-    )
+    return <Navigate to="/dashboard/partner" replace />
   }
 
   if (infoLoading) {

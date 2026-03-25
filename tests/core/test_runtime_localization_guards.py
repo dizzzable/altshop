@@ -42,8 +42,12 @@ def test_targeted_bot_runtime_strings_use_i18n_keys() -> None:
     ).read_text(encoding="utf-8")
 
     assert "msg-backup-scope-db-label" in backup_getters
+    assert "msg-backup-source-local" in backup_getters
+    assert "msg-backup-content-source" in backup_getters
     assert "msg-backup-scope-title" in backup_dialog
+    assert "msg-backup-import" in backup_dialog
     assert "ntf-backup-creation-started" in backup_handlers
+    assert "ntf-backup-imported-success" in backup_handlers
     assert "ntf-banner-upload-success" in banner_handlers
     assert "msg-common-plan-fallback" in menu_getters
     assert "msg-common-empty-value" in menu_getters
@@ -72,6 +76,9 @@ def test_targeted_bot_runtime_strings_use_i18n_keys() -> None:
         "Backup creation started": [backup_handlers],
         "Restore started": [backup_handlers],
         "Backup deleted": [backup_handlers],
+        "Import backup": [backup_dialog, backup_handlers],
+        "Delete local copy": [backup_dialog, backup_getters],
+        "Local + Telegram": [backup_getters],
         "Select a banner first.": [banner_handlers],
         "Project Name": [branding_getters, branding_dialog],
         "Web Title": [branding_getters, branding_dialog],

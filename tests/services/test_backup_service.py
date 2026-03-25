@@ -7,8 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-from src.core.enums import BackupScope
-from src.services.backup import BackupService
+from src.core.enums import BackupScope, BackupSourceKind
+from src.services.backup import BackupInfo, BackupService
 
 
 def run_async(coroutine):
@@ -54,8 +54,12 @@ def build_backup_service(
         session_pool=MagicMock(),
         engine=MagicMock(),
     )
-    service._send_backup_file_to_chat = AsyncMock()  # type: ignore[method-assign]
+    service._send_backup_file_to_chat = AsyncMock(return_value=None)  # type: ignore[method-assign]
     service._cleanup_old_backups = AsyncMock()  # type: ignore[method-assign]
+    service._list_registered_backup_infos = AsyncMock(return_value=[])  # type: ignore[method-assign]
+    service._upsert_backup_record = AsyncMock()  # type: ignore[method-assign]
+    service._sync_backup_record_after_local_delete = AsyncMock()  # type: ignore[method-assign]
+    service._download_telegram_backup_file = AsyncMock()  # type: ignore[method-assign]
     return service, config
 
 
@@ -117,6 +121,10 @@ def test_create_assets_backup_contains_assets_only(tmp_path: Path) -> None:
     branded_file = assets_dir / "branding" / "logo.txt"
     branded_file.parent.mkdir(parents=True, exist_ok=True)
     branded_file.write_text("custom-logo", encoding="utf-8")
+    (assets_dir / ".altshop_assets_version").write_text("1.2.1", encoding="utf-8")
+    backup_dir = assets_dir / ".bak"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    (backup_dir / "assets_backup_20260325.tar.gz").write_text("backup-payload", encoding="utf-8")
 
     service, _config = build_backup_service(tmp_path, assets_dir=assets_dir)
 
@@ -133,6 +141,8 @@ def test_create_assets_backup_contains_assets_only(tmp_path: Path) -> None:
     assert metadata["includes_assets"] is True
     assert "database.json" not in names
     assert "assets/branding/logo.txt" in names
+    assert "assets/.altshop_assets_version" not in names
+    assert "assets/.bak/assets_backup_20260325.tar.gz" not in names
 
 
 def test_create_full_backup_contains_database_and_assets(tmp_path: Path) -> None:
@@ -192,6 +202,31 @@ def test_restore_assets_backup_merges_files_without_deleting_unrelated(tmp_path:
     assert unrelated_file.read_text(encoding="utf-8") == "keep-me"
 
 
+def test_restore_assets_backup_skips_internal_asset_sync_files(tmp_path: Path) -> None:
+    source_assets_dir = tmp_path / "source-assets"
+    marker_file = source_assets_dir / ".altshop_assets_version"
+    backup_archive = source_assets_dir / ".bak" / "assets_backup_20260325.tar.gz"
+    actual_file = source_assets_dir / "branding" / "banner.txt"
+    backup_archive.parent.mkdir(parents=True, exist_ok=True)
+    actual_file.parent.mkdir(parents=True, exist_ok=True)
+    marker_file.write_text("1.2.0", encoding="utf-8")
+    backup_archive.write_text("old-assets", encoding="utf-8")
+    actual_file.write_text("banner-v1", encoding="utf-8")
+
+    service, config = build_backup_service(tmp_path)
+    target_assets_dir = tmp_path / "target-assets"
+    config.assets_dir = target_assets_dir
+
+    restore_message = run_async(service._restore_assets_from_dir(source_assets_dir))
+
+    assert "Assets restored successfully!" in restore_message
+    assert (target_assets_dir / "branding" / "banner.txt").read_text(encoding="utf-8") == (
+        "banner-v1"
+    )
+    assert not (target_assets_dir / ".altshop_assets_version").exists()
+    assert not (target_assets_dir / ".bak").exists()
+
+
 def test_restore_database_backup_leaves_assets_untouched(tmp_path: Path) -> None:
     service, config = build_backup_service(tmp_path)
     service._collect_database_overview = AsyncMock(  # type: ignore[method-assign]
@@ -216,3 +251,125 @@ def test_restore_database_backup_leaves_assets_untouched(tmp_path: Path) -> None
     assert restore_message == "DB restored"
     assert existing_file.read_text(encoding="utf-8") == "do-not-touch"
     service._restore_from_json.assert_awaited_once()
+
+
+def test_get_backup_list_merges_registry_entries_with_local_fallback(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+
+    fallback_file = service.backup_dir / "backup_local_only.tar.gz"
+    fallback_file.write_text("broken backup", encoding="utf-8")
+
+    registry_backup = BackupInfo(
+        selection_key="registry:1",
+        filename="backup_registry.tar.gz",
+        filepath=str(service.backup_dir / "backup_registry.tar.gz"),
+        timestamp="2026-03-25T11:00:00+00:00",
+        tables_count=1,
+        total_records=2,
+        compressed=True,
+        file_size_bytes=1024,
+        file_size_mb=0.0,
+        created_by=1,
+        database_type="postgresql",
+        version="3.0",
+        source_kind=BackupSourceKind.LOCAL_AND_TELEGRAM,
+        has_local_copy=True,
+        has_telegram_copy=True,
+        telegram_file_id="telegram-file",
+    )
+    service._list_registered_backup_infos = AsyncMock(return_value=[registry_backup])  # type: ignore[method-assign]
+
+    backups = run_async(service.get_backup_list())
+
+    assert len(backups) == 2
+    assert any(backup.selection_key == "registry:1" for backup in backups)
+    assert any(backup.selection_key == "local:backup_local_only.tar.gz" for backup in backups)
+
+
+def test_restore_selected_backup_downloads_telegram_only_backup(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    telegram_backup = BackupInfo(
+        selection_key="registry:42",
+        filename="backup_remote.tar.gz",
+        filepath="",
+        timestamp="2026-03-25T11:00:00+00:00",
+        tables_count=1,
+        total_records=2,
+        compressed=True,
+        file_size_bytes=1024,
+        file_size_mb=0.0,
+        created_by=1,
+        database_type="postgresql",
+        version="3.0",
+        source_kind=BackupSourceKind.TELEGRAM,
+        has_local_copy=False,
+        has_telegram_copy=True,
+        telegram_file_id="telegram-file",
+    )
+    service.get_backup_by_key = AsyncMock(return_value=telegram_backup)  # type: ignore[method-assign]
+    service.restore_backup = AsyncMock(return_value=(True, "restored"))  # type: ignore[method-assign]
+
+    success, message = run_async(service.restore_selected_backup("registry:42"))
+
+    assert success is True
+    assert message == "restored"
+    service._download_telegram_backup_file.assert_awaited_once()
+    service.restore_backup.assert_awaited_once()
+
+
+def test_import_backup_file_registers_local_copy(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    archive_path = tmp_path / "backup_import.tar.gz"
+    archive_path.write_text("fake", encoding="utf-8")
+    service._read_backup_metadata = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "timestamp": "2026-03-25T10:00:00+00:00",
+            "backup_scope": BackupScope.DB.value,
+            "includes_database": True,
+            "includes_assets": False,
+        }
+    )
+
+    success, backup_info, error = run_async(
+        service.import_backup_file(
+            source_file_path=archive_path,
+            original_filename="backup_import.tar.gz",
+            created_by=7,
+        )
+    )
+
+    assert success is True
+    assert backup_info is not None
+    assert error == ""
+    service._upsert_backup_record.assert_awaited_once()
+
+
+def test_delete_selected_backup_removes_local_copy_only(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    local_path = service.backup_dir / "backup_local.tar.gz"
+    local_path.write_text("payload", encoding="utf-8")
+    local_backup = BackupInfo(
+        selection_key="registry:9",
+        filename=local_path.name,
+        filepath=str(local_path),
+        timestamp="2026-03-25T11:00:00+00:00",
+        tables_count=1,
+        total_records=2,
+        compressed=True,
+        file_size_bytes=local_path.stat().st_size,
+        file_size_mb=0.0,
+        created_by=1,
+        database_type="postgresql",
+        version="3.0",
+        source_kind=BackupSourceKind.LOCAL_AND_TELEGRAM,
+        has_local_copy=True,
+        has_telegram_copy=True,
+        telegram_file_id="telegram-file",
+    )
+    service.get_backup_by_key = AsyncMock(return_value=local_backup)  # type: ignore[method-assign]
+
+    success, _message = run_async(service.delete_selected_backup("registry:9"))
+
+    assert success is True
+    assert not local_path.exists()
+    service._sync_backup_record_after_local_delete.assert_awaited_once()

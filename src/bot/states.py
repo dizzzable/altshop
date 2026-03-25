@@ -158,6 +158,7 @@ class DashboardBackup(StatesGroup):
 
     MAIN = State()  # Главное окно системы бэкапов
     CREATE_SCOPE = State()  # Backup scope selection
+    IMPORT = State()  # Импорт архива бэкапа
     LIST = State()  # Список бэкапов
     MANAGE = State()  # Управление конкретным бэкапом
     SETTINGS = State()  # Настройки бэкапов

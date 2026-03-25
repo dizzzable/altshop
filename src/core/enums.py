@@ -418,6 +418,12 @@ class BackupScope(UpperStrEnum):
     FULL = auto()
 
 
+class BackupSourceKind(UpperStrEnum):
+    LOCAL = auto()
+    TELEGRAM = auto()
+    LOCAL_AND_TELEGRAM = auto()
+
+
 class BotMenuCustomButtonKind(UpperStrEnum):
     URL = auto()
     WEB_APP = auto()

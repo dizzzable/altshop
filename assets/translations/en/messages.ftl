@@ -2555,9 +2555,20 @@ msg-backup-content-db-records = • Records: { $count }
 msg-backup-content-db-includes = • Includes plans, prices, users, subscriptions, settings, and transactions
 msg-backup-content-assets-files = • Asset files: { $count }
 msg-backup-content-assets-root = • Assets root: <code>{ $path }</code>
+msg-backup-content-source = • Source: { $source }
 msg-backup-value-unknown = unknown
 msg-backup-value-system = system
 msg-backup-value-not-set = not set
+msg-backup-source-local = Local
+msg-backup-source-telegram = Telegram
+msg-backup-source-local-and-telegram = Local + Telegram
+msg-backup-import =
+    <b>📥 Import backup archive</b>
+
+    Send a backup file as a document. Supported files: <code>.tar</code>, <code>.tar.gz</code>, and compatible legacy backup archives.
+
+    Imported archives will be copied into the local backup directory, indexed, and then appear in the regular backup list.
+msg-backup-error-telegram-only-delete = Telegram-only backup cannot delete a local copy because no local file is stored.
 msg-common-plan-fallback = Subscription
 msg-common-empty-value = not specified
 msg-common-unlimited = ∞ (unlimited)

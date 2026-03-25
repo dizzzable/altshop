@@ -165,7 +165,7 @@ async def menu_getter(
     is_partner_active = partner is not None and partner.is_active
     is_referral_enabled = await settings_service.is_referral_enable()
     can_show_referral_controls = is_referral_enabled and not is_partner_active
-    can_show_referral_invite = is_partner_active or is_referral_enabled
+    can_show_referral_invite = is_referral_enabled and not is_partner_active
     can_show_referral_inline_send = (not is_referral_enabled) and not is_partner_active
 
     base_data = {
