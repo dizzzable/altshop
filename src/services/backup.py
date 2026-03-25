@@ -6,8 +6,10 @@ import tarfile
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+from uuid import UUID
 
 import aiofiles  # type: ignore[import-untyped]
 from aiogram import Bot
@@ -15,7 +17,7 @@ from aiogram.types import FSInputFile, Message
 from fluentogram import TranslatorHub
 from loguru import logger
 from redis.asyncio import Redis
-from sqlalchemy import inspect, select, text
+from sqlalchemy import ARRAY, inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
@@ -48,6 +50,7 @@ from src.infrastructure.redis import RedisRepository
 from .base import BaseService
 
 _aiofiles_open = cast(Callable[..., Any], aiofiles.open)
+BACKUP_FORMAT_VERSION = "3.1"
 
 
 @dataclass
@@ -55,7 +58,7 @@ class BackupMetadata:
     """Метаданные бэкапа."""
 
     timestamp: str
-    version: str = "3.0"
+    version: str = BACKUP_FORMAT_VERSION
     database_type: str = "postgresql"
     backup_scope: BackupScope = BackupScope.FULL
     includes_database: bool = True
@@ -238,7 +241,7 @@ class BackupService(BaseService):
 
                 # Метаданные
                 metadata = {
-                    "format_version": "3.0",
+                    "format_version": BACKUP_FORMAT_VERSION,
                     "timestamp": datetime_now().isoformat(),
                     "database_type": "postgresql",
                     "backup_scope": scope.value,
@@ -1204,21 +1207,30 @@ class BackupService(BaseService):
 
         for column in model.__table__.columns:
             value = getattr(record, column.name)
-
-            if value is None:
-                record_dict[column.name] = None
-            elif isinstance(value, datetime):
-                record_dict[column.name] = value.isoformat()
-            elif isinstance(value, (list, dict)):
-                record_dict[column.name] = json_lib.dumps(value) if value else None
-            elif hasattr(value, "value"):  # Enum
-                record_dict[column.name] = value.value
-            elif hasattr(value, "__dict__"):
-                record_dict[column.name] = str(value)
-            else:
-                record_dict[column.name] = value
+            record_dict[column.name] = self._normalize_backup_value(value)
 
         return record_dict
+
+    def _normalize_backup_value(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return str(value)
+        if isinstance(value, UUID):
+            return str(value)
+        if hasattr(value, "value"):  # Enum
+            return value.value
+        if hasattr(value, "model_dump"):
+            return self._normalize_backup_value(value.model_dump(mode="json"))
+        if isinstance(value, list):
+            return [self._normalize_backup_value(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): self._normalize_backup_value(item) for key, item in value.items()}
+        if hasattr(value, "__dict__"):
+            return str(value)
+        return value
 
     def _is_archive_backup(self, backup_path: Path) -> bool:
         """Проверяет, является ли файл архивом."""
@@ -1580,7 +1592,70 @@ class BackupService(BaseService):
 
         return None
 
-    def _process_column_value(self, key: str, value: Any, column_type_str: str) -> Any:
+    @staticmethod
+    def _parse_decimal_value(value: str) -> Decimal:
+        try:
+            return Decimal(value)
+        except Exception:
+            return Decimal("0")
+
+    @staticmethod
+    def _parse_uuid_value(value: str) -> UUID | str:
+        try:
+            return UUID(value)
+        except (ValueError, TypeError, AttributeError):
+            return value
+
+    def _parse_array_item(self, item: Any, item_type_str: str) -> Any:
+        if item is None:
+            return None
+        if "UUID" in item_type_str and isinstance(item, str):
+            return self._parse_uuid_value(item)
+        if (
+            "INTEGER" in item_type_str
+            or "INT" in item_type_str
+            or "BIGINT" in item_type_str
+        ) and isinstance(item, str):
+            return self._parse_integer_value(item)
+        if (
+            "FLOAT" in item_type_str
+            or "REAL" in item_type_str
+            or "NUMERIC" in item_type_str
+        ) and isinstance(item, str):
+            return self._parse_decimal_value(item)
+        if ("BOOLEAN" in item_type_str or "BOOL" in item_type_str) and isinstance(item, str):
+            return self._parse_boolean_value(item)
+        return item
+
+    def _parse_array_value(self, value: Any, column: Any) -> Any:
+        if value is None:
+            return [] if not column.nullable else None
+
+        items = value
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return [] if not column.nullable else None
+            try:
+                items = json_lib.loads(stripped)
+            except (ValueError, TypeError):
+                items = value
+
+        if items is None:
+            return [] if not column.nullable else None
+
+        if not isinstance(items, list):
+            return items
+
+        item_type_str = str(column.type.item_type).upper()
+        return [self._parse_array_item(item, item_type_str) for item in items]
+
+    def _process_column_value(self, key: str, value: Any, column: Any) -> Any:
+        column_type_str = str(column.type).upper()
+
+        if isinstance(column.type, ARRAY):
+            return self._parse_array_value(value, column)
+
         if ("DATETIME" in column_type_str or "TIMESTAMP" in column_type_str) and isinstance(
             value, str
         ):
@@ -1601,10 +1676,13 @@ class BackupService(BaseService):
             or "REAL" in column_type_str
             or "NUMERIC" in column_type_str
         ) and isinstance(value, str):
-            return self._parse_float_value(value)
+            return self._parse_decimal_value(value)
 
         if "JSON" in column_type_str:
             return self._parse_json_value(value)
+
+        if "UUID" in column_type_str and isinstance(value, str):
+            return self._parse_uuid_value(value)
 
         return value
 
@@ -1618,17 +1696,19 @@ class BackupService(BaseService):
         processed_data: Dict[str, Any] = {}
 
         for key, value in record_data.items():
-            if value is None:
-                processed_data[key] = None
-                continue
-
             column = getattr(model.__table__.columns, key, None)
             if column is None:
                 logger.warning(f"Колонка {key} не найдена в модели {table_name}")
                 continue
 
-            column_type_str = str(column.type).upper()
-            processed_data[key] = self._process_column_value(key, value, column_type_str)
+            if value is None and isinstance(column.type, ARRAY) and not column.nullable:
+                processed_data[key] = []
+                continue
+            if value is None:
+                processed_data[key] = None
+                continue
+
+            processed_data[key] = self._process_column_value(key, value, column)
             """
 
             if ("DATETIME" in column_type_str or "TIMESTAMP" in column_type_str) and isinstance(
@@ -1679,6 +1759,12 @@ class BackupService(BaseService):
             else:
                 processed_data[key] = value
             """
+
+        for column in model.__table__.columns:
+            if column.name in processed_data:
+                continue
+            if isinstance(column.type, ARRAY) and not column.nullable:
+                processed_data[column.name] = []
 
         return processed_data
 

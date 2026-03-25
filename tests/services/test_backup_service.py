@@ -3,11 +3,34 @@ from __future__ import annotations
 import asyncio
 import json
 import tarfile
+from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID, uuid4
 
-from src.core.enums import BackupScope, BackupSourceKind
+from remnawave.enums.users import TrafficLimitStrategy
+
+from src.core.enums import (
+    ArchivedPlanRenewMode,
+    BackupScope,
+    BackupSourceKind,
+    Currency,
+    DeviceType,
+    PaymentGatewayType,
+    PlanAvailability,
+    PlanType,
+    PromocodeAvailability,
+    PromocodeRewardType,
+    PurchaseType,
+    SubscriptionStatus,
+    TransactionStatus,
+)
+from src.infrastructure.database.models.sql.plan import Plan, PlanDuration, PlanPrice
+from src.infrastructure.database.models.sql.promocode import Promocode
+from src.infrastructure.database.models.sql.subscription import Subscription
+from src.infrastructure.database.models.sql.transaction import Transaction
 from src.services.backup import BackupInfo, BackupService
 
 
@@ -373,3 +396,228 @@ def test_delete_selected_backup_removes_local_copy_only(tmp_path: Path) -> None:
     assert success is True
     assert not local_path.exists()
     service._sync_backup_record_after_local_delete.assert_awaited_once()
+
+
+def test_model_to_dict_preserves_plan_arrays_and_empty_lists(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    internal_squad_id = uuid4()
+    external_squad_id = uuid4()
+    plan = Plan(
+        id=10,
+        order_index=1,
+        is_active=True,
+        is_archived=False,
+        type=PlanType.BOTH,
+        availability=PlanAvailability.ALLOWED,
+        archived_renew_mode=ArchivedPlanRenewMode.SELF_RENEW,
+        name="Starter",
+        description="Base plan",
+        tag="starter",
+        traffic_limit=100,
+        device_limit=3,
+        traffic_limit_strategy=TrafficLimitStrategy.NO_RESET,
+        replacement_plan_ids=[],
+        upgrade_to_plan_ids=[11, 12],
+        allowed_user_ids=[],
+        internal_squads=[internal_squad_id],
+        external_squad=[external_squad_id],
+    )
+    duration = PlanDuration(id=20, plan_id=10, days=30)
+    price = PlanPrice(id=30, plan_duration_id=20, currency=Currency.RUB, price=Decimal("99.90"))
+
+    serialized_plan = service._model_to_dict(plan, Plan)
+    serialized_duration = service._model_to_dict(duration, PlanDuration)
+    serialized_price = service._model_to_dict(price, PlanPrice)
+
+    assert serialized_plan["replacement_plan_ids"] == []
+    assert serialized_plan["upgrade_to_plan_ids"] == [11, 12]
+    assert serialized_plan["allowed_user_ids"] == []
+    assert serialized_plan["internal_squads"] == [str(internal_squad_id)]
+    assert serialized_plan["external_squad"] == [str(external_squad_id)]
+    assert serialized_duration["days"] == 30
+    assert serialized_price["price"] == "99.90"
+
+
+def test_model_to_dict_preserves_transaction_json_objects(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    transaction = Transaction(
+        id=1,
+        payment_id=uuid4(),
+        user_telegram_id=123,
+        status=TransactionStatus.PENDING,
+        is_test=False,
+        purchase_type=PurchaseType.NEW,
+        channel=None,
+        gateway_type=PaymentGatewayType.PLATEGA,
+        pricing={"amount": "9.99", "currency": "RUB"},
+        currency=Currency.RUB,
+        payment_asset=None,
+        plan={"id": 10, "name": "Starter"},
+        renew_subscription_id=None,
+        renew_subscription_ids=[1, 2],
+        device_types=["ios", "android"],
+    )
+
+    serialized = service._model_to_dict(transaction, Transaction)
+
+    assert serialized["pricing"] == {"amount": "9.99", "currency": "RUB"}
+    assert serialized["plan"] == {"id": 10, "name": "Starter"}
+    assert serialized["renew_subscription_ids"] == [1, 2]
+    assert serialized["device_types"] == ["ios", "android"]
+
+
+def test_process_record_data_restores_legacy_plan_arrays_and_missing_defaults(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+    squad_id = str(uuid4())
+
+    processed = service._process_record_data(
+        {
+            "id": 10,
+            "order_index": 1,
+            "is_active": True,
+            "is_archived": False,
+            "type": PlanType.BOTH.value,
+            "availability": PlanAvailability.ALLOWED.value,
+            "archived_renew_mode": ArchivedPlanRenewMode.SELF_RENEW.value,
+            "name": "Starter",
+            "description": "Base plan",
+            "tag": "starter",
+            "traffic_limit": 100,
+            "device_limit": 3,
+            "traffic_limit_strategy": TrafficLimitStrategy.NO_RESET.value,
+            "replacement_plan_ids": "[11, 12]",
+            "upgrade_to_plan_ids": None,
+            "allowed_user_ids": "[]",
+            "internal_squads": f'["{squad_id}"]',
+            # external_squad intentionally omitted to verify default salvage
+        },
+        Plan,
+        "plans",
+    )
+
+    assert processed["replacement_plan_ids"] == [11, 12]
+    assert processed["upgrade_to_plan_ids"] == []
+    assert processed["allowed_user_ids"] == []
+    assert processed["internal_squads"] == [UUID(squad_id)]
+    assert "external_squad" not in processed
+
+
+def test_process_record_data_restores_other_array_backed_models(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    squad_id = str(uuid4())
+
+    promocode_processed = service._process_record_data(
+        {
+            "id": 1,
+            "code": "PROMO",
+            "is_active": True,
+            "availability": PromocodeAvailability.ALL.value,
+            "reward_type": PromocodeRewardType.DURATION.value,
+            "reward": 30,
+            "plan": '{"id": 10}',
+            "lifetime": -1,
+            "max_activations": -1,
+            "allowed_user_ids": "[1, 2]",
+            "allowed_plan_ids": None,
+        },
+        Promocode,
+        "promocodes",
+    )
+    subscription_processed = service._process_record_data(
+        {
+            "id": 1,
+            "user_remna_id": str(uuid4()),
+            "user_telegram_id": 123,
+            "status": SubscriptionStatus.ACTIVE.value,
+            "is_trial": False,
+            "traffic_limit": 100,
+            "device_limit": 3,
+            "internal_squads": f'["{squad_id}"]',
+            "external_squad": str(uuid4()),
+            "expire_at": datetime.now(timezone.utc).isoformat(),
+            "url": "https://example.com",
+            "device_type": DeviceType.IPHONE.value,
+            "plan": '{"id": 10, "name": "Starter"}',
+        },
+        Subscription,
+        "subscriptions",
+    )
+    transaction_processed = service._process_record_data(
+        {
+            "id": 1,
+            "payment_id": str(uuid4()),
+            "user_telegram_id": 123,
+            "status": TransactionStatus.PENDING.value,
+            "is_test": False,
+            "purchase_type": PurchaseType.NEW.value,
+            "channel": None,
+            "gateway_type": PaymentGatewayType.PLATEGA.value,
+            "pricing": '{"amount": "9.99"}',
+            "currency": Currency.RUB.value,
+            "payment_asset": None,
+            "plan": '{"id": 10}',
+            "renew_subscription_id": None,
+            "renew_subscription_ids": "[1, 2]",
+            "device_types": '["ios", "android"]',
+        },
+        Transaction,
+        "transactions",
+    )
+
+    assert promocode_processed["allowed_user_ids"] == [1, 2]
+    assert promocode_processed["allowed_plan_ids"] is None
+    assert promocode_processed["plan"] == {"id": 10}
+    assert subscription_processed["internal_squads"] == [UUID(squad_id)]
+    assert subscription_processed["plan"] == {"id": 10, "name": "Starter"}
+    assert transaction_processed["renew_subscription_ids"] == [1, 2]
+    assert transaction_processed["device_types"] == ["ios", "android"]
+    assert transaction_processed["pricing"] == {"amount": "9.99"}
+
+
+def test_restore_table_records_builds_plan_instance_with_restored_arrays(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    squad_id = str(uuid4())
+    captured_instances: list[Plan] = []
+    session = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None)),
+        add=lambda instance: captured_instances.append(instance),
+    )
+
+    restored_count = run_async(
+        service._restore_table_records(
+            session,
+            Plan,
+            "plans",
+            [
+                {
+                    "id": 10,
+                    "order_index": 1,
+                    "is_active": True,
+                    "is_archived": False,
+                    "type": PlanType.BOTH.value,
+                    "availability": PlanAvailability.ALLOWED.value,
+                    "archived_renew_mode": ArchivedPlanRenewMode.SELF_RENEW.value,
+                    "name": "Starter",
+                    "description": "Base plan",
+                    "tag": "starter",
+                    "traffic_limit": 100,
+                    "device_limit": 3,
+                    "traffic_limit_strategy": TrafficLimitStrategy.NO_RESET.value,
+                    "replacement_plan_ids": "[11, 12]",
+                    "upgrade_to_plan_ids": None,
+                    "allowed_user_ids": "[]",
+                    "internal_squads": f'["{squad_id}"]',
+                    "external_squad": "[]",
+                }
+            ],
+            False,
+        )
+    )
+
+    assert restored_count == 1
+    assert len(captured_instances) == 1
+    assert captured_instances[0].replacement_plan_ids == [11, 12]
+    assert captured_instances[0].upgrade_to_plan_ids == []
+    assert captured_instances[0].internal_squads == [UUID(squad_id)]

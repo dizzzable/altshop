@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-03-25
+
+### Changed
+
+- database and full backups now preserve `ARRAY`- and `JSON`-backed fields in a restore-safe structure instead of stringifying lists and collapsing empty containers to `null`
+- restore now understands both the new native backup container format and legacy pre-`1.2.2` payloads with stringified arrays, so older imported and Telegram-backed archives stay recoverable
+
+### Fixed
+
+- restoring `DB` and `Full` backups now correctly brings back created plans, durations, prices, transition arrays, and other array-backed data that previously disappeared after restore
+- legacy backups with missing or `null` non-nullable array fields now recover into usable empty arrays, which prevents plan and related records from silently breaking on restore
+
 ## [1.2.1] - 2026-03-25
 
 ### Added
