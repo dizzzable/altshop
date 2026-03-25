@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.3] - 2026-03-25
+
+### Changed
+
+- database restore now flushes each restored table before moving to dependent child tables, which makes the restore order deterministic for plans, durations, prices, and other foreign-key chains
+- per-record existence checks during restore now run without accidental autoflush, so pending child rows no longer get pushed into PostgreSQL before their parent tables are fully restored
+
+### Fixed
+
+- restoring `DB` and `Full` backups no longer trips foreign-key errors like `plan_durations_plan_id_fkey` when plans and their durations are recovered into a non-empty database
+- plan restore now reliably repopulates the admin `Plans` screen after restore instead of leaving durations/prices orphaned behind failed child inserts
+
 ## [1.2.2] - 2026-03-25
 
 ### Changed

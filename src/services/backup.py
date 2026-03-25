@@ -1468,6 +1468,7 @@ class BackupService(BaseService):
                         records,
                         clear_existing,
                     )
+                    await session.flush()
                     restored_records += restored
 
                     if restored:
@@ -1522,11 +1523,12 @@ class BackupService(BaseService):
                 primary_key_col = self._get_primary_key_column(model)
 
                 if primary_key_col and primary_key_col in processed_data:
-                    existing_record = await session.execute(
-                        select(model).where(
-                            getattr(model, primary_key_col) == processed_data[primary_key_col]
+                    with session.no_autoflush:
+                        existing_record = await session.execute(
+                            select(model).where(
+                                getattr(model, primary_key_col) == processed_data[primary_key_col]
+                            )
                         )
-                    )
                     existing = existing_record.scalar_one_or_none()
 
                     if existing and not clear_existing:
