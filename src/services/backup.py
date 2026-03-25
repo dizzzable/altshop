@@ -47,11 +47,13 @@ from src.infrastructure.database.models.sql import (
     Promocode,
     PromocodeActivation,
     Referral,
+    ReferralInvite,
     ReferralReward,
     Settings,
     Subscription,
     Transaction,
     User,
+    WebAccount,
 )
 from src.infrastructure.redis import RedisRepository
 
@@ -132,11 +134,13 @@ class BackupService(BaseService):
         PlanDuration,
         PlanPrice,
         User,
+        WebAccount,
+        ReferralInvite,
         Partner,
         PartnerReferral,
         Promocode,
-        PromocodeActivation,
         Subscription,
+        PromocodeActivation,
         Transaction,
         PartnerTransaction,
         PartnerWithdrawal,
@@ -878,10 +882,7 @@ class BackupService(BaseService):
             return "unknown restore error"
 
         if "Circular dependency detected" in normalized:
-            return (
-                "users and subscriptions could not be linked automatically; "
-                "retry after updating to the latest restore hotfix"
-            )
+            return "users and subscriptions could not be linked automatically"
 
         if "[SQL:" in normalized:
             normalized = normalized.split("[SQL:", 1)[0].strip()
@@ -1497,7 +1498,7 @@ class BackupService(BaseService):
                 deferred_updates: list[DeferredRestoreUpdate] = []
                 if clear_existing:
                     logger.warning("🗑️ Очищаем существующие данные...")
-                    await self._clear_database_tables(session)
+                    await self._clear_database_tables_atomic(session)
 
                 # Восстанавливаем таблицы в порядке зависимостей
                 for model in self.BACKUP_MODELS:
@@ -1575,7 +1576,7 @@ class BackupService(BaseService):
         logger.info(message)
         return True, message
 
-    async def _restore_table_records(
+    async def _restore_table_records(  # noqa: C901
         self,
         session: AsyncSession,
         model: Any,
@@ -1597,6 +1598,18 @@ class BackupService(BaseService):
                 primary_key_col = self._get_primary_key_column(model)
 
                 existing = None
+                if not clear_existing and model is User:
+                    updated = await self._merge_existing_user_record(
+                        session=session,
+                        processed_data=processed_data,
+                        primary_key_col=primary_key_col,
+                    )
+                    if updated:
+                        if deferred_update is not None and deferred_updates is not None:
+                            deferred_updates.append(deferred_update)
+                        restored_count += 1
+                        continue
+
                 if not clear_existing:
                     existing = await self._find_existing_restore_record(
                         session=session,
@@ -1624,6 +1637,64 @@ class BackupService(BaseService):
                 raise e
 
         return restored_count
+
+    async def _merge_existing_user_record(
+        self,
+        *,
+        session: AsyncSession,
+        processed_data: Dict[str, Any],
+        primary_key_col: Optional[str],
+    ) -> bool:
+        restore_target = await self._find_existing_user_restore_target(
+            session=session,
+            processed_data=processed_data,
+            primary_key_col=primary_key_col,
+        )
+        if restore_target is None:
+            return False
+
+        lookup_field, lookup_value = restore_target
+        values = {
+            key: value for key, value in processed_data.items() if key != primary_key_col
+        }
+        await self._apply_scalar_restore_update(
+            session=session,
+            model=User,
+            lookup_field=lookup_field,
+            lookup_value=lookup_value,
+            values=values,
+        )
+        return True
+
+    async def _find_existing_user_restore_target(
+        self,
+        *,
+        session: AsyncSession,
+        processed_data: Dict[str, Any],
+        primary_key_col: Optional[str],
+    ) -> tuple[str, Any] | None:
+        telegram_id = processed_data.get("telegram_id")
+        if telegram_id is not None:
+            with session.no_autoflush:
+                existing_record = await session.execute(
+                    select(User.telegram_id).where(User.telegram_id == telegram_id)
+                )
+            existing_telegram_id = existing_record.scalar_one_or_none()
+            if existing_telegram_id is not None:
+                return "telegram_id", existing_telegram_id
+
+        if primary_key_col and primary_key_col in processed_data:
+            with session.no_autoflush:
+                existing_record = await session.execute(
+                    select(getattr(User, primary_key_col)).where(
+                        getattr(User, primary_key_col) == processed_data[primary_key_col]
+                    )
+                )
+            existing_primary_key = existing_record.scalar_one_or_none()
+            if existing_primary_key is not None:
+                return primary_key_col, existing_primary_key
+
+        return None
 
     async def _find_existing_restore_record(
         self,
@@ -1732,16 +1803,13 @@ class BackupService(BaseService):
         deferred_update: DeferredRestoreUpdate,
         values: Dict[str, Any],
     ) -> None:
-        result = await session.execute(
-            update(deferred_update.model)
-            .where(
-                getattr(deferred_update.model, deferred_update.lookup_field)
-                == deferred_update.lookup_value
-            )
-            .values(**values)
-            .execution_options(synchronize_session=False)
+        rows_updated = await self._apply_scalar_restore_update(
+            session=session,
+            model=deferred_update.model,
+            lookup_field=deferred_update.lookup_field,
+            lookup_value=deferred_update.lookup_value,
+            values=values,
         )
-        rows_updated = getattr(result, "rowcount", None)
         if rows_updated == 0:
             logger.warning(
                 "Skipped scalar deferred restore update for {}.{}={}",
@@ -1749,6 +1817,23 @@ class BackupService(BaseService):
                 deferred_update.lookup_field,
                 deferred_update.lookup_value,
             )
+
+    async def _apply_scalar_restore_update(
+        self,
+        *,
+        session: AsyncSession,
+        model: Any,
+        lookup_field: str,
+        lookup_value: Any,
+        values: Dict[str, Any],
+    ) -> int | None:
+        result = await session.execute(
+            update(model)
+            .where(getattr(model, lookup_field) == lookup_value)
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        return cast(Optional[int], getattr(result, "rowcount", None))
 
     async def _filter_deferred_restore_values(
         self,
@@ -2192,6 +2277,12 @@ class BackupService(BaseService):
                 logger.info(f"🗑️ Очищена таблица {table_name}")
             except Exception as e:
                 logger.warning(f"⚠️ Не удалось очистить таблицу {table_name}: {e}")
+
+    async def _clear_database_tables_atomic(self, session: AsyncSession) -> None:
+        """Clear restore-owned tables in one atomic TRUNCATE statement."""
+        table_names = ", ".join(model.__tablename__ for model in self.BACKUP_MODELS)
+        await session.execute(text(f"TRUNCATE TABLE {table_names} RESTART IDENTITY CASCADE"))
+        logger.info("🗑️ Cleared restore-owned tables with TRUNCATE CASCADE")
 
     async def _cleanup_old_backups(self) -> None:
         """Удаляет старые бэкапы."""

@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.8] - 2026-03-25
+
+### Changed
+
+- `clear_existing` database restore now clears restore-owned tables in one atomic PostgreSQL `TRUNCATE ... RESTART IDENTITY CASCADE` pass, which avoids half-cleared transactions and removes dependent invite/account records safely before inserts begin
+- merge restore for `users` now reconciles existing rows through direct scalar SQL updates keyed by `telegram_id`, so restore no longer mutates ORM relationship graphs while user and subscription links are being rebuilt
+- new backups now include durable `referral_invites` and `web_accounts` data, while older archives that do not contain those tables still restore as empty sets
+
+### Fixed
+
+- `clear_existing=true` restore no longer aborts on foreign keys like `referral_invites_inviter_telegram_id_fkey` and no longer continues inside an already failed transaction
+- merge and full restore no longer fail on SQLAlchemy `Circular dependency detected` while syncing existing users and post-restore subscription links
+- restore failure notifications remain short and Telegram-safe, while full technical details stay only in server logs
+
 ## [1.2.7] - 2026-03-25
 
 ### Changed

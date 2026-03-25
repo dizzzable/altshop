@@ -32,9 +32,11 @@ from src.core.enums import (
 )
 from src.infrastructure.database.models.sql.plan import Plan, PlanDuration, PlanPrice
 from src.infrastructure.database.models.sql.promocode import Promocode
+from src.infrastructure.database.models.sql.referral import ReferralInvite
 from src.infrastructure.database.models.sql.subscription import Subscription
 from src.infrastructure.database.models.sql.transaction import Transaction
 from src.infrastructure.database.models.sql.user import User
+from src.infrastructure.database.models.sql.web_account import WebAccount
 from src.services.backup import BackupInfo, BackupService
 
 
@@ -278,6 +280,21 @@ def test_restore_database_backup_leaves_assets_untouched(tmp_path: Path) -> None
     assert restore_message == "DB restored"
     assert existing_file.read_text(encoding="utf-8") == "do-not-touch"
     service._restore_from_json.assert_awaited_once()
+
+
+def test_clear_database_tables_uses_single_truncate_statement(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    session = SimpleNamespace(execute=AsyncMock())
+
+    run_async(service._clear_database_tables_atomic(session))
+
+    assert session.execute.await_count == 1
+    statement = str(session.execute.await_args.args[0])
+    assert "TRUNCATE TABLE" in statement
+    assert "RESTART IDENTITY CASCADE" in statement
+    assert "users" in statement
+    assert "referral_invites" in statement
+    assert "web_accounts" in statement
 
 
 def test_get_backup_list_merges_registry_entries_with_local_fallback(tmp_path: Path) -> None:
@@ -630,30 +647,11 @@ def test_restore_table_records_builds_plan_instance_with_restored_arrays(tmp_pat
 
 def test_restore_table_records_merges_existing_user_by_telegram_id(tmp_path: Path) -> None:
     service, _config = build_backup_service(tmp_path)
-    existing_user = SimpleNamespace(
-        id=999,
-        telegram_id=7534150980,
-        username="existing_user",
-        referral_code="oldCode",
-        name="Existing Name",
-        role=UserRole.USER,
-        language=Locale.RU,
-        personal_discount=0,
-        purchase_discount=0,
-        points=0,
-        is_blocked=False,
-        is_bot_blocked=False,
-        is_rules_accepted=True,
-        partner_balance_currency_override=None,
-        referral_invite_settings={},
-        max_subscriptions=None,
-        current_subscription_id=None,
-    )
     session = SimpleNamespace(
         execute=AsyncMock(
             side_effect=[
-                SimpleNamespace(scalar_one_or_none=lambda: None),
-                SimpleNamespace(scalar_one_or_none=lambda: existing_user),
+                SimpleNamespace(scalar_one_or_none=lambda: 7534150980),
+                SimpleNamespace(rowcount=1),
             ]
         ),
         add=MagicMock(),
@@ -692,10 +690,12 @@ def test_restore_table_records_merges_existing_user_by_telegram_id(tmp_path: Pat
 
     assert restored_count == 1
     session.add.assert_not_called()
-    assert existing_user.id == 999
-    assert existing_user.telegram_id == 7534150980
-    assert existing_user.referral_code == "newCode"
-    assert existing_user.name == "Restored Name"
+    assert session.execute.await_count == 2
+    lookup_query = str(session.execute.await_args_list[0].args[0])
+    update_query = str(session.execute.await_args_list[1].args[0])
+    assert "SELECT users.telegram_id" in lookup_query
+    assert "UPDATE users SET" in update_query
+    assert "users.telegram_id" in update_query
 
 
 def test_extract_and_apply_deferred_user_subscription_restore_update(tmp_path: Path) -> None:
@@ -783,8 +783,66 @@ def test_build_backup_restore_error_message_summarizes_circular_dependency(tmp_p
         "Circular dependency detected. (" + ("x" * 500) + ")"
     )
 
-    assert "users and subscriptions could not be linked automatically" in message
+    assert message == "Restore failed: users and subscriptions could not be linked automatically"
     assert len(message) < 160
+
+
+def test_dump_database_json_includes_referral_invites_and_web_accounts(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    staging_dir = tmp_path / "staging"
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    referral_invite = ReferralInvite(
+        id=1,
+        inviter_telegram_id=123,
+        token="invite-token",
+        expires_at=None,
+        revoked_at=None,
+    )
+    web_account = WebAccount(
+        id=2,
+        user_telegram_id=123,
+        username="demo_user",
+        password_hash="hash",
+        email="demo@example.com",
+        email_normalized="demo@example.com",
+        email_verified_at=None,
+        credentials_bootstrapped_at=None,
+        token_version=0,
+        requires_password_change=False,
+        temporary_password_expires_at=None,
+        link_prompt_snooze_until=None,
+    )
+
+    def _result_for(model: object) -> SimpleNamespace:
+        records = {
+            ReferralInvite: [referral_invite],
+            WebAccount: [web_account],
+        }.get(model, [])
+        return SimpleNamespace(
+            scalars=lambda: SimpleNamespace(all=lambda: records),
+        )
+
+    async def execute(statement):
+        model = statement.column_descriptions[0]["entity"]
+        return _result_for(model)
+
+    fake_session = SimpleNamespace(execute=AsyncMock(side_effect=execute))
+
+    class FakeSessionContext:
+        async def __aenter__(self) -> SimpleNamespace:
+            return fake_session
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    service.session_pool = lambda: FakeSessionContext()  # type: ignore[assignment]
+
+    dump_info = run_async(service._dump_database_json(staging_dir))
+    dump_payload = json.loads((staging_dir / "database.json").read_text(encoding="utf-8"))
+
+    assert dump_info["tables_count"] == len(service.BACKUP_MODELS)
+    assert dump_payload["data"]["referral_invites"][0]["token"] == "invite-token"
+    assert dump_payload["data"]["web_accounts"][0]["username"] == "demo_user"
 
 
 def test_recover_legacy_missing_plans_from_snapshots_and_durations(tmp_path: Path) -> None:
