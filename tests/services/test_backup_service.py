@@ -625,6 +625,64 @@ def test_restore_table_records_builds_plan_instance_with_restored_arrays(tmp_pat
     assert captured_instances[0].internal_squads == [UUID(squad_id)]
 
 
+def test_recover_legacy_missing_plans_from_snapshots_and_durations(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    squad_id = str(uuid4())
+    external_squad_id = str(uuid4())
+
+    recovered_data, recovered_count = service._recover_legacy_missing_plans(
+        {
+            "plans": [],
+            "plan_durations": [
+                {"id": 1, "plan_id": 1, "days": 30},
+                {"id": 2, "plan_id": 2, "days": 90},
+            ],
+            "transactions": [
+                {
+                    "id": 10,
+                    "plan": {
+                        "id": 1,
+                        "name": "Starter",
+                        "tag": "starter",
+                        "type": PlanType.BOTH.value,
+                        "traffic_limit": 100,
+                        "device_limit": 3,
+                        "traffic_limit_strategy": TrafficLimitStrategy.NO_RESET.value,
+                        "internal_squads": [squad_id],
+                        "external_squad": external_squad_id,
+                    },
+                }
+            ],
+            "subscriptions": [
+                {
+                    "id": 11,
+                    "plan": {
+                        "id": 2,
+                        "name": "Pro",
+                        "tag": None,
+                        "type": PlanType.TRAFFIC.value,
+                        "traffic_limit": 500,
+                        "device_limit": 1,
+                        "traffic_limit_strategy": TrafficLimitStrategy.NO_RESET.value,
+                        "internal_squads": [],
+                        "external_squad": None,
+                    },
+                }
+            ],
+        }
+    )
+
+    assert recovered_count == 2
+    plans = recovered_data["plans"]
+    assert len(plans) == 2
+    assert plans[0]["name"] == "Starter"
+    assert plans[0]["internal_squads"] == [squad_id]
+    assert plans[0]["external_squad"] == [external_squad_id]
+    assert plans[1]["name"] == "Pro"
+    assert plans[1]["availability"] == PlanAvailability.ALL.value
+    assert plans[1]["archived_renew_mode"] == ArchivedPlanRenewMode.SELF_RENEW.value
+
+
 def test_restore_from_json_flushes_each_table_before_children(tmp_path: Path) -> None:
     service, _config = build_backup_service(tmp_path)
     dump_path = tmp_path / "database.json"
@@ -693,3 +751,71 @@ def test_restore_from_json_flushes_each_table_before_children(tmp_path: Path) ->
     assert fake_session.flush.await_count == 2
     assert fake_session.commit.await_count == 1
     assert len(fake_session.instances) == 2
+
+
+def test_restore_from_json_recovers_missing_plans_before_restoring_durations(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+    dump_path = tmp_path / "database.json"
+    dump_path.write_text(
+        json.dumps(
+            {
+                "metadata": {"timestamp": "2026-03-25T12:00:00+00:00"},
+                "data": {
+                    "plans": [],
+                    "plan_durations": [{"id": 1, "plan_id": 1, "days": 30}],
+                    "transactions": [
+                        {
+                            "id": 1,
+                            "plan": {
+                                "id": 1,
+                                "name": "Recovered Starter",
+                                "tag": "starter",
+                                "type": PlanType.BOTH.value,
+                                "traffic_limit": 100,
+                                "device_limit": 3,
+                                "traffic_limit_strategy": TrafficLimitStrategy.NO_RESET.value,
+                                "internal_squads": [],
+                                "external_squad": None,
+                            },
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
+            self.flush = AsyncMock()
+            self.commit = AsyncMock()
+            self.rollback = AsyncMock()
+            self.no_autoflush = nullcontext()
+            self.instances: list[object] = []
+
+        def add(self, instance: object) -> None:
+            self.instances.append(instance)
+
+    class FakeSessionContext:
+        def __init__(self, session: FakeSession) -> None:
+            self.session = session
+
+        async def __aenter__(self) -> FakeSession:
+            return self.session
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    fake_session = FakeSession()
+    service.session_pool = lambda: FakeSessionContext(fake_session)  # type: ignore[assignment]
+
+    restored, message = run_async(service._restore_from_json(dump_path, clear_existing=False))
+
+    assert restored is True
+    assert "Recovered plans: 1" in message
+    assert len(fake_session.instances) == 3
+    assert isinstance(fake_session.instances[0], Plan)
+    assert isinstance(fake_session.instances[1], PlanDuration)

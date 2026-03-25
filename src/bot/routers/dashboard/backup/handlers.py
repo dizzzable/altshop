@@ -1,4 +1,5 @@
 import tempfile
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -192,7 +193,7 @@ async def on_restore_confirm(
             user=user,
             payload=MessagePayload(
                 i18n_key="ntf-backup-restored-success",
-                i18n_kwargs={"message": message},
+                i18n_kwargs={"message": escape(message)},
             ),
         )
     else:
@@ -200,7 +201,7 @@ async def on_restore_confirm(
             user=user,
             payload=MessagePayload(
                 i18n_key="ntf-backup-restored-failed",
-                i18n_kwargs={"message": message},
+                i18n_kwargs={"message": escape(message)},
             ),
         )
 

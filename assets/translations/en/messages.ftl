@@ -2409,6 +2409,7 @@ msg-backup-result-assets-restored-title = ✅ Assets restored successfully!
 msg-backup-result-target = 🎯 Target: { $value }
 msg-backup-result-db-restored-title = ✅ Restore completed!
 msg-backup-result-backup-date = 🗓 Backup date: { $value }
+msg-backup-result-recovered-plans = 🧩 Recovered plans from the legacy backup: { $count }
 msg-backup-result-deleted = 🗑️ Backup { $filename } deleted.
 msg-backup-error-create = ❌ Backup creation failed: { $error }
 msg-backup-error-restore = ❌ Restore failed: { $error }

@@ -2566,6 +2566,7 @@ msg-backup-result-assets-restored-title = ✅ Файлы assets восстано
 msg-backup-result-target = 🎯 Цель: { $value }
 msg-backup-result-db-restored-title = ✅ Восстановление завершено!
 msg-backup-result-backup-date = 🗓 Дата бэкапа: { $value }
+msg-backup-result-recovered-plans = 🧩 Восстановлено планов из legacy-архива: { $count }
 msg-backup-result-deleted = 🗑️ Бэкап { $filename } удалён.
 msg-backup-error-create = ❌ Ошибка создания бэкапа: { $error }
 msg-backup-error-restore = ❌ Ошибка восстановления: { $error }

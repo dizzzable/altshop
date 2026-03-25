@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-03-25
+
+### Changed
+
+- restore now detects legacy backups that contain `plan_durations` and related plan snapshots but an empty `plans` table, and reconstructs minimal plan records before restoring child tables
+- backup restore notifications now escape service error text before sending HTML-formatted Telegram messages, so failed restore alerts do not break on raw exception text
+
+### Fixed
+
+- restoring legacy broken archives from `1.2.1` and earlier no longer immediately dies on `plan_durations_plan_id_fkey` when the backup lost the parent `plans` rows during export
+- backup failure notifications no longer crash with Telegram `can't parse entities` errors when the restore exception text contains fragments like `<class ...>`
+
 ## [1.2.3] - 2026-03-25
 
 ### Changed

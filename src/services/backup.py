@@ -17,11 +17,19 @@ from aiogram.types import FSInputFile, Message
 from fluentogram import TranslatorHub
 from loguru import logger
 from redis.asyncio import Redis
+from remnawave.enums.users import TrafficLimitStrategy
 from sqlalchemy import ARRAY, inspect, select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
-from src.core.enums import BackupScope, BackupSourceKind, Locale
+from src.core.enums import (
+    ArchivedPlanRenewMode,
+    BackupScope,
+    BackupSourceKind,
+    Locale,
+    PlanAvailability,
+    PlanType,
+)
 from src.core.utils.assets_sync import ASSETS_BACKUP_DIRNAME, ASSETS_VERSION_MARKER
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.sql import (
@@ -50,7 +58,7 @@ from src.infrastructure.redis import RedisRepository
 from .base import BaseService
 
 _aiofiles_open = cast(Callable[..., Any], aiofiles.open)
-BACKUP_FORMAT_VERSION = "3.1"
+BACKUP_FORMAT_VERSION = "3.2"
 
 
 @dataclass
@@ -1421,7 +1429,7 @@ class BackupService(BaseService):
             f"Target: {target_dir}"
         )
 
-    async def _restore_from_json(
+    async def _restore_from_json(  # noqa: C901
         self,
         dump_path: Path,
         clear_existing: bool,
@@ -1433,6 +1441,7 @@ class BackupService(BaseService):
 
         metadata = dump_data.get("metadata", {})
         backup_data = dump_data.get("data", {})
+        backup_data, recovered_legacy_plans = self._recover_legacy_missing_plans(backup_data)
 
         if not backup_data:
             if locale is not None:
@@ -1502,6 +1511,18 @@ class BackupService(BaseService):
                     ),
                 ]
             )
+            if recovered_legacy_plans:
+                message = "\n".join(
+                    [
+                        message,
+                        i18n.get(
+                            "msg-backup-result-recovered-plans",
+                            count=recovered_legacy_plans,
+                        ),
+                    ]
+                )
+        elif recovered_legacy_plans:
+            message += f"\nRecovered plans: {recovered_legacy_plans}"
 
         logger.info(message)
         return True, message
@@ -1593,6 +1614,186 @@ class BackupService(BaseService):
             return value
 
         return None
+
+    @staticmethod
+    def _parse_backup_snapshot(value: Any) -> dict[str, Any] | None:
+        if isinstance(value, dict):
+            return value
+
+        if isinstance(value, str) and value.strip():
+            try:
+                parsed = json_lib.loads(value)
+            except (ValueError, TypeError):
+                return None
+            if isinstance(parsed, dict):
+                return parsed
+
+        return None
+
+    @staticmethod
+    def _coerce_plan_enum_value(value: Any, enum_cls: Any, fallback: str) -> str:
+        if isinstance(value, str) and value in enum_cls._value2member_map_:
+            return value
+        return fallback
+
+    @staticmethod
+    def _coerce_int_value(value: Any, fallback: int) -> int:
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                return fallback
+        return fallback
+
+    def _build_recovered_plan_record(
+        self,
+        *,
+        plan_id: int,
+        order_index: int,
+        snapshot: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        snapshot = snapshot or {}
+        external_squad = snapshot.get("external_squad")
+        if external_squad is not None and not isinstance(external_squad, list):
+            external_squad = [external_squad]
+
+        return {
+            "id": plan_id,
+            "order_index": order_index,
+            "is_active": True,
+            "is_archived": False,
+            "type": self._coerce_plan_enum_value(
+                snapshot.get("type"),
+                PlanType,
+                PlanType.BOTH.value,
+            ),
+            "availability": PlanAvailability.ALL.value,
+            "archived_renew_mode": ArchivedPlanRenewMode.SELF_RENEW.value,
+            "name": snapshot.get("name") or f"Recovered plan #{plan_id}",
+            "description": None,
+            "tag": snapshot.get("tag"),
+            "traffic_limit": self._coerce_int_value(snapshot.get("traffic_limit"), 0),
+            "device_limit": self._coerce_int_value(snapshot.get("device_limit"), 1),
+            "traffic_limit_strategy": self._coerce_plan_enum_value(
+                snapshot.get("traffic_limit_strategy"),
+                TrafficLimitStrategy,
+                TrafficLimitStrategy.NO_RESET.value,
+            ),
+            "replacement_plan_ids": [],
+            "upgrade_to_plan_ids": [],
+            "allowed_user_ids": [],
+            "internal_squads": snapshot.get("internal_squads") or [],
+            "external_squad": external_squad,
+        }
+
+    def _recover_legacy_missing_plans(  # noqa: C901
+        self,
+        backup_data: Dict[str, List[Dict[str, Any]]],
+    ) -> Tuple[Dict[str, List[Dict[str, Any]]], int]:
+        plans = backup_data.get(Plan.__tablename__) or []
+        durations = backup_data.get(PlanDuration.__tablename__) or []
+        if plans or not durations:
+            return backup_data, 0
+
+        referenced_plan_ids_set: set[int] = set()
+        for duration in durations:
+            if not isinstance(duration, dict):
+                continue
+            raw_plan_id = duration.get("plan_id")
+            if not isinstance(raw_plan_id, int | str):
+                continue
+            try:
+                referenced_plan_ids_set.add(int(raw_plan_id))
+            except ValueError:
+                continue
+
+        referenced_plan_ids = sorted(referenced_plan_ids_set)
+        if not referenced_plan_ids:
+            return backup_data, 0
+
+        snapshots_by_id: dict[int, dict[str, Any]] = {}
+        for table_name in (
+            Subscription.__tablename__,
+            Transaction.__tablename__,
+            Promocode.__tablename__,
+        ):
+            for record in backup_data.get(table_name) or []:
+                if not isinstance(record, dict):
+                    continue
+                snapshot = self._parse_backup_snapshot(record.get("plan"))
+                if not snapshot:
+                    continue
+                snapshot_plan_id = snapshot.get("id")
+                if snapshot_plan_id is None or not isinstance(snapshot_plan_id, int | str):
+                    continue
+                try:
+                    plan_id = int(snapshot_plan_id)
+                except (TypeError, ValueError):
+                    continue
+                snapshots_by_id.setdefault(plan_id, snapshot)
+
+        recovered_plans = [
+            self._build_recovered_plan_record(
+                plan_id=plan_id,
+                order_index=index,
+                snapshot=snapshots_by_id.get(plan_id),
+            )
+            for index, plan_id in enumerate(referenced_plan_ids, start=1)
+        ]
+        backup_data = dict(backup_data)
+        backup_data[Plan.__tablename__] = recovered_plans
+        logger.warning(
+            "Recovered {} missing plan records from a legacy backup using related snapshots",
+            len(recovered_plans),
+        )
+        return backup_data, len(recovered_plans)
+
+    def _build_restore_result_message(
+        self,
+        *,
+        locale: Locale | None,
+        metadata: dict[str, Any],
+        restored_tables: int,
+        restored_records: int,
+        recovered_legacy_plans: int,
+    ) -> str:
+        message = (
+            f"вњ… Р’РѕСЃСЃС‚Р°РЅРѕРІР»РµРЅРёРµ Р·Р°РІРµСЂС€РµРЅРѕ!\n"
+            f"рџ“Љ РўР°Р±Р»РёС†: {restored_tables}\n"
+            f"рџ“€ Р—Р°РїРёСЃРµР№: {restored_records:,}\n"
+            f"рџ“… Р”Р°С‚Р° Р±СЌРєР°РїР°: {metadata.get('timestamp', 'РЅРµРёР·РІРµСЃС‚РЅРѕ')}"
+        )
+
+        if locale is None:
+            if recovered_legacy_plans:
+                message += f"\nRecovered plans: {recovered_legacy_plans}"
+            return message
+
+        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+        message = "\n".join(
+            [
+                i18n.get("msg-backup-result-db-restored-title"),
+                i18n.get("msg-backup-result-tables", count=restored_tables),
+                i18n.get("msg-backup-result-records", count=f"{restored_records:,}"),
+                i18n.get(
+                    "msg-backup-result-backup-date",
+                    value=metadata.get("timestamp", i18n.get("msg-backup-value-unknown")),
+                ),
+            ]
+        )
+        if recovered_legacy_plans:
+            message = "\n".join(
+                [
+                    message,
+                    i18n.get(
+                        "msg-backup-result-recovered-plans",
+                        count=recovered_legacy_plans,
+                    ),
+                ]
+            )
+        return message
 
     @staticmethod
     def _parse_decimal_value(value: str) -> Decimal:
