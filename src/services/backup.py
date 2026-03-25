@@ -114,6 +114,7 @@ class DeferredRestoreUpdate:
     lookup_field: str
     lookup_value: Any
     values: Dict[str, Any]
+    phase: str = "default"
 
 
 class BackupService(BaseService):
@@ -147,6 +148,8 @@ class BackupService(BaseService):
     RESTORE_LOOKUP_FIELDS: dict[str, tuple[str, ...]] = {
         User.__tablename__: ("telegram_id",),
     }
+    RESTORE_PHASE_DEFAULT = "default"
+    RESTORE_PHASE_POST_SUBSCRIPTIONS = "post_subscriptions"
 
     def __init__(
         self,
@@ -1498,7 +1501,11 @@ class BackupService(BaseService):
                         restored_tables += 1
                         logger.info(f"✅ Таблица {table_name} восстановлена")
 
-                await self._apply_deferred_restore_updates(session, deferred_updates)
+                await self._apply_deferred_restore_updates(
+                    session,
+                    deferred_updates,
+                    phase=self.RESTORE_PHASE_POST_SUBSCRIPTIONS,
+                )
                 if deferred_updates:
                     await session.flush()
 
@@ -1649,14 +1656,20 @@ class BackupService(BaseService):
             lookup_field="telegram_id",
             lookup_value=telegram_id,
             values={"current_subscription_id": current_subscription_id},
+            phase=self.RESTORE_PHASE_POST_SUBSCRIPTIONS,
         )
 
     async def _apply_deferred_restore_updates(
         self,
         session: AsyncSession,
         deferred_updates: list[DeferredRestoreUpdate],
+        *,
+        phase: str,
     ) -> None:
         for deferred_update in deferred_updates:
+            if deferred_update.phase != phase:
+                continue
+
             with session.no_autoflush:
                 existing_record = await session.execute(
                     select(deferred_update.model).where(
@@ -1674,8 +1687,38 @@ class BackupService(BaseService):
                 )
                 continue
 
-            for key, value in deferred_update.values.items():
+            values = await self._filter_deferred_restore_values(session, deferred_update)
+            if not values:
+                continue
+
+            for key, value in values.items():
                 setattr(existing, key, value)
+
+    async def _filter_deferred_restore_values(
+        self,
+        session: AsyncSession,
+        deferred_update: DeferredRestoreUpdate,
+    ) -> Dict[str, Any]:
+        values = dict(deferred_update.values)
+
+        if deferred_update.model is User and "current_subscription_id" in values:
+            current_subscription_id = values["current_subscription_id"]
+            if current_subscription_id is not None:
+                with session.no_autoflush:
+                    subscription_record = await session.execute(
+                        select(Subscription).where(Subscription.id == current_subscription_id)
+                    )
+                subscription = subscription_record.scalar_one_or_none()
+                if subscription is None:
+                    logger.warning(
+                        "Skipped deferred restore update for users.telegram_id={} "
+                        "because subscription '{}' was not restored",
+                        deferred_update.lookup_value,
+                        current_subscription_id,
+                    )
+                    values.pop("current_subscription_id", None)
+
+        return values
 
     def _parse_datetime_value(self, key: str, value: str) -> datetime:
         try:

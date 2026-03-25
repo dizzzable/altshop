@@ -6,6 +6,17 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.6] - 2026-03-25
+
+### Changed
+
+- deferred restore updates now carry an explicit phase, and user `current_subscription_id` links are applied only in the post-subscription phase of database recovery
+
+### Fixed
+
+- restoring `DB` and `Full` backups no longer fails on `fk_users_current_subscription_id` when a backup references current subscriptions that are missing or restored later in the pipeline
+- missing subscription targets during deferred user relinking are now skipped with a warning instead of aborting the whole restore
+
 ## [1.2.5] - 2026-03-25
 
 ### Changed

@@ -702,7 +702,12 @@ def test_extract_and_apply_deferred_user_subscription_restore_update(tmp_path: P
     service, _config = build_backup_service(tmp_path)
     existing_user = SimpleNamespace(telegram_id=7534150980, current_subscription_id=None)
     session = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: existing_user)),
+        execute=AsyncMock(
+            side_effect=[
+                SimpleNamespace(scalar_one_or_none=lambda: existing_user),
+                SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(id=83)),
+            ]
+        ),
         no_autoflush=nullcontext(),
     )
 
@@ -717,10 +722,54 @@ def test_extract_and_apply_deferred_user_subscription_restore_update(tmp_path: P
 
     assert processed_data["current_subscription_id"] is None
     assert deferred_update is not None
+    assert deferred_update.phase == service.RESTORE_PHASE_POST_SUBSCRIPTIONS
 
-    run_async(service._apply_deferred_restore_updates(session, [deferred_update]))
+    run_async(
+        service._apply_deferred_restore_updates(
+            session,
+            [deferred_update],
+            phase=service.RESTORE_PHASE_POST_SUBSCRIPTIONS,
+        )
+    )
 
     assert existing_user.current_subscription_id == 83
+
+
+def test_apply_deferred_user_subscription_restore_update_skips_missing_subscription(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+    existing_user = SimpleNamespace(telegram_id=7534150980, current_subscription_id=None)
+    session = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                SimpleNamespace(scalar_one_or_none=lambda: existing_user),
+                SimpleNamespace(scalar_one_or_none=lambda: None),
+            ]
+        ),
+        no_autoflush=nullcontext(),
+    )
+
+    _, deferred_update = service._extract_deferred_restore_fields(
+        User,
+        {
+            "id": 49,
+            "telegram_id": 7534150980,
+            "current_subscription_id": 83,
+        },
+    )
+
+    assert deferred_update is not None
+
+    run_async(
+        service._apply_deferred_restore_updates(
+            session,
+            [deferred_update],
+            phase=service.RESTORE_PHASE_POST_SUBSCRIPTIONS,
+        )
+    )
+
+    assert existing_user.current_subscription_id is None
 
 
 def test_recover_legacy_missing_plans_from_snapshots_and_durations(tmp_path: Path) -> None:
