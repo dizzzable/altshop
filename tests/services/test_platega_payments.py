@@ -51,6 +51,7 @@ def build_payment_gateway_service(
     *,
     transaction_service: object | None = None,
     payment_webhook_event_service: object | None = None,
+    settings_service: object | None = None,
 ) -> PaymentGatewayService:
     return PaymentGatewayService(
         config=MagicMock(),
@@ -66,6 +67,7 @@ def build_payment_gateway_service(
         referral_service=MagicMock(),
         partner_service=MagicMock(),
         user_service=MagicMock(),
+        settings_service=settings_service or SimpleNamespace(get=AsyncMock()),
     )
 
 

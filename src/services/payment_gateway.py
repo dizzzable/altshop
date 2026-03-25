@@ -23,12 +23,14 @@ from src.core.enums import (
     TransactionStatus,
 )
 from src.core.observability import emit_counter
+from src.core.utils.bot_menu import resolve_bot_menu_url
 from src.core.utils.formatters import (
     i18n_format_days,
     i18n_format_device_limit,
     i18n_format_traffic_limit,
 )
 from src.core.utils.message_payload import MessagePayload
+from src.core.utils.mini_app_urls import build_telegram_payment_return_url
 from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import (
     AnyGatewaySettingsDto,
@@ -75,6 +77,7 @@ from src.services.user import UserService
 
 from .base import BaseService
 from .payment_webhook_event import PaymentWebhookEventService
+from .settings import SettingsService
 from .transaction import TransactionService
 
 
@@ -87,6 +90,7 @@ class PaymentGatewayService(BaseService):
     referral_service: ReferralService
     partner_service: PartnerService
     user_service: UserService
+    settings_service: SettingsService
 
     def __init__(
         self,
@@ -104,6 +108,7 @@ class PaymentGatewayService(BaseService):
         referral_service: ReferralService,
         partner_service: PartnerService,
         user_service: UserService,
+        settings_service: SettingsService,
     ) -> None:
         super().__init__(config, bot, redis_client, redis_repository, translator_hub)
         self.uow = uow
@@ -114,6 +119,8 @@ class PaymentGatewayService(BaseService):
         self.referral_service = referral_service
         self.partner_service = partner_service
         self.user_service = user_service
+        self.settings_service = settings_service
+        self._bot_username: str | None = None
 
     async def create_default(self) -> None:  # noqa: C901
         for gateway_type in PaymentGatewayType:
@@ -327,6 +334,15 @@ class PaymentGatewayService(BaseService):
         fail_redirect_url: Optional[str] = None,
     ) -> PaymentResult:
         gateway_instance = await self._get_gateway_instance(gateway_type)
+        if channel == PurchaseChannel.TELEGRAM and (
+            success_redirect_url is None or fail_redirect_url is None
+        ):
+            (
+                default_success_redirect_url,
+                default_fail_redirect_url,
+            ) = await self._resolve_telegram_payment_redirect_urls()
+            success_redirect_url = success_redirect_url or default_success_redirect_url
+            fail_redirect_url = fail_redirect_url or default_fail_redirect_url
 
         i18n = self.translator_hub.get_translator_by_locale(locale=user.language)
         key, kw = i18n_format_days(plan.duration)
@@ -398,6 +414,29 @@ class PaymentGatewayService(BaseService):
             payment.url,
         )
         return payment
+
+    async def _resolve_telegram_payment_redirect_urls(self) -> tuple[str | None, str | None]:
+        settings = await self.settings_service.get()
+        mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=self.config)
+        bot_username = await self._get_bot_username()
+        return (
+            build_telegram_payment_return_url(
+                status="success",
+                mini_app_url=mini_app_url,
+                bot_username=bot_username,
+            ),
+            build_telegram_payment_return_url(
+                status="failed",
+                mini_app_url=mini_app_url,
+                bot_username=bot_username,
+            ),
+        )
+
+    async def _get_bot_username(self) -> str | None:
+        if self._bot_username is None:
+            bot_info = await self.bot.get_me()
+            self._bot_username = (bot_info.username or "").strip().lstrip("@") or None
+        return self._bot_username
 
     async def create_test_payment(
         self,

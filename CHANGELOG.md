@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.12] - 2026-03-25
+
+### Changed
+
+- on mobile and Telegram Mini App referral screens, the invite-link status summary now lives inside the existing top-right info dialog instead of taking permanent inline space in the main links card
+- Telegram payment return resolution now uses a shared Mini App-aware resolver that prefers the configured `bot_menu.mini_app_url`, then `BOT_MINI_APP`, and only falls back to a plain bot `startapp` link when neither Mini App entry is configured
+- exact `/webapp/` requests are now served through a backend-rendered branded shell, so runtime `project_name` and `web_title` are available to crawlers and Telegram link previews before the SPA boots
+
+### Fixed
+
+- non-desktop clients opening `/dashboard` now go directly to `/dashboard/subscription`, matching the existing post-login mobile behavior without a visible overview-page flicker
+- external payment flows for Telegram users now reopen the configured Mini App entry after checkout and preserve the existing success/failure subscription landing flow after auth/bootstrap
+- Telegram previews for shared `/webapp/?ref=...` links no longer show stale hardcoded `AltShop` branding from the static frontend shell
+
 ## [1.2.11] - 2026-03-25
 
 ### Changed

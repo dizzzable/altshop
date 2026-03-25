@@ -9,6 +9,7 @@ import { openExternalLink } from '@/lib/openExternalLink'
 import {
   persistPendingPaymentReturnStatus,
   resolvePaymentRedirectPath,
+  resolvePaymentReturnStatusFromQueryParam,
   resolvePaymentReturnStatusFromTelegramStartParam,
 } from '@/lib/payment-return'
 import { sendWebTelemetryEvent } from '@/lib/telemetry'
@@ -111,9 +112,9 @@ export function MiniAppLandingPage() {
   })
   const deepLink = useMemo(() => resolveMiniAppDeepLink(), [])
   const { isReady, isInTelegram, initData, launchContext, deviceMode } = useTelegramWebApp()
-  const paymentReturnStatus = resolvePaymentReturnStatusFromTelegramStartParam(
-    launchContext.startParam
-  )
+  const paymentReturnStatus =
+    resolvePaymentReturnStatusFromTelegramStartParam(launchContext.startParam)
+    ?? resolvePaymentReturnStatusFromQueryParam(location.search)
 
   useEffect(() => {
     if (!isReady) {
@@ -133,7 +134,7 @@ export function MiniAppLandingPage() {
   }, [deviceMode, initData, isInTelegram, isReady, launchContext, location.pathname])
 
   useEffect(() => {
-    if (!isReady || !isInTelegram || !paymentReturnStatus) {
+    if (!paymentReturnStatus) {
       return
     }
 
@@ -141,6 +142,10 @@ export function MiniAppLandingPage() {
 
     if (isAuthenticated) {
       navigate(resolvePaymentRedirectPath(paymentReturnStatus), { replace: true })
+      return
+    }
+
+    if (!isReady || !isInTelegram) {
       return
     }
 

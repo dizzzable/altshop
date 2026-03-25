@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from html import escape
 from typing import Literal
 
 from fastapi import Request
@@ -80,6 +82,7 @@ class WebBrandingResponse(BaseModel):
     default_locale: Literal["ru", "en"]
     supported_locales: list[Literal["ru", "en"]]
     support_url: str | None = None
+    mini_app_url: str | None = None
 
 
 class RegistrationAccessRequirementsResponse(BaseModel):
@@ -275,6 +278,7 @@ def _build_web_branding_response(
     branding: BrandingSettingsDto,
     *,
     config: AppConfig,
+    mini_app_url: str | None = None,
 ) -> WebBrandingResponse:
     return WebBrandingResponse(
         project_name=branding.project_name,
@@ -282,6 +286,44 @@ def _build_web_branding_response(
         default_locale=_resolve_default_web_locale(config),
         supported_locales=_resolve_supported_web_locales(config),
         support_url=_resolve_support_url(config),
+        mini_app_url=mini_app_url,
+    )
+
+
+def _render_webapp_entry_html(
+    *,
+    project_name: str,
+    web_title: str,
+    entry_url: str,
+) -> str:
+    escaped_project_name = escape(project_name)
+    escaped_web_title = escape(web_title)
+    escaped_entry_url = escape(entry_url, quote=True)
+    js_entry_url = json.dumps(entry_url)
+
+    return (
+        "<!DOCTYPE html>\n"
+        '<html lang="en">\n'
+        "<head>\n"
+        '  <meta charset="utf-8" />\n'
+        '  <meta name="viewport" content="width=device-width, initial-scale=1.0" />\n'
+        f"  <title>{escaped_web_title}</title>\n"
+        f'  <meta name="description" content="{escaped_web_title}" />\n'
+        f'  <meta property="og:title" content="{escaped_project_name}" />\n'
+        f'  <meta property="og:description" content="{escaped_web_title}" />\n'
+        '  <meta property="og:type" content="website" />\n'
+        f'  <meta property="og:site_name" content="{escaped_project_name}" />\n'
+        '  <meta name="robots" content="index,follow" />\n'
+        '  <meta name="theme-color" content="#3B82F6" />\n'
+        '  <noscript>'
+        f'<meta http-equiv="refresh" content="0;url={escaped_entry_url}" />'
+        "</noscript>\n"
+        "</head>\n"
+        "<body>\n"
+        f'  <a href="{escaped_entry_url}">Continue to {escaped_project_name}</a>\n'
+        f"  <script>window.location.replace({js_entry_url} + window.location.hash);</script>\n"
+        "</body>\n"
+        "</html>\n"
     )
 
 
@@ -301,6 +343,7 @@ __all__ = [
     "_build_registration_access_requirements_response",
     "_build_web_branding_response",
     "_normalize_web_locale",
+    "_render_webapp_entry_html",
     "_resolve_default_web_locale",
     "_resolve_support_url",
     "_resolve_supported_web_locales",

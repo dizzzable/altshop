@@ -25,6 +25,7 @@ def test_client_facing_branding_targets_are_runtime_driven() -> None:
     miniapp_source = Path("web-app/src/pages/landing/MiniAppLandingPage.tsx").read_text(
         encoding="utf-8"
     )
+    index_html = Path("web-app/index.html").read_text(encoding="utf-8")
     en_buttons = Path("assets/translations/en/buttons.ftl").read_text(encoding="utf-8")
     ru_buttons = Path("assets/translations/ru/buttons.ftl").read_text(encoding="utf-8")
     en_messages = Path("assets/translations/en/messages.ftl").read_text(encoding="utf-8")
@@ -37,6 +38,7 @@ def test_client_facing_branding_targets_are_runtime_driven() -> None:
     assert "{ $shop_label }" in ru_buttons
     assert "{ $project_name }" in en_messages
     assert "{ $project_name }" in ru_messages
+    assert "AltShop" not in index_html
     assert 'subject = "AltShop email verification"' not in email_recovery_source
     assert 'subject = "AltShop password reset"' not in email_recovery_source
     assert "Your AltShop password reset code" not in email_recovery_source
@@ -46,6 +48,7 @@ def test_client_facing_branding_targets_do_not_hardcode_altshop_literals() -> No
     guarded_paths = [
         Path("web-app/src/pages/landing/LandingPage.tsx"),
         Path("web-app/src/pages/landing/MiniAppLandingPage.tsx"),
+        Path("web-app/index.html"),
         Path("assets/translations/en/buttons.ftl"),
         Path("assets/translations/ru/buttons.ftl"),
         Path("assets/translations/en/messages.ftl"),

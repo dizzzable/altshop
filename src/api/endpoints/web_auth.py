@@ -12,6 +12,7 @@ from aiogram.types import User as AiogramUser
 from dishka import FromDishka
 from dishka.integrations.fastapi import inject
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import HTMLResponse
 from loguru import logger
 from pydantic import BaseModel
 from redis.asyncio import Redis
@@ -56,6 +57,7 @@ from src.api.presenters.web_auth import (
     _build_auth_me_response,
     _build_registration_access_requirements_response,
     _build_web_branding_response,
+    _render_webapp_entry_html,
     _resolve_web_request_locale,
 )
 from src.api.utils.request_ip import resolve_client_ip
@@ -76,6 +78,8 @@ from src.core.security.jwt_handler import (
     create_refresh_token,
     verify_refresh_token,
 )
+from src.core.utils.bot_menu import resolve_bot_menu_url
+from src.core.utils.branding import normalize_text, resolve_project_name
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.database.models.dto import UserDto, WebAccountDto
 from src.services.email_recovery import EmailRecoveryService
@@ -876,8 +880,37 @@ async def get_web_branding(
     settings_service: FromDishka[SettingsService] = _DISHKA_DEFAULT,
     config: FromDishka[AppConfig] = _DISHKA_DEFAULT,
 ) -> WebBrandingResponse:
-    branding = await settings_service.get_branding_settings()
-    return _build_web_branding_response(branding, config=config)
+    settings = await settings_service.get()
+    mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=config)
+    return _build_web_branding_response(
+        settings.branding,
+        config=config,
+        mini_app_url=mini_app_url,
+    )
+
+
+@router.get("/webapp-shell", response_class=HTMLResponse, include_in_schema=False)
+@inject
+async def get_webapp_shell(
+    request: Request,
+    settings_service: FromDishka[SettingsService] = _DISHKA_DEFAULT,
+) -> HTMLResponse:
+    settings = await settings_service.get()
+    branding = settings.branding
+    project_name = resolve_project_name(branding.project_name)
+    web_title = normalize_text(branding.web_title) or project_name
+    entry_url = "entry"
+    if request.url.query:
+        entry_url = f"{entry_url}?{request.url.query}"
+
+    return HTMLResponse(
+        _render_webapp_entry_html(
+            project_name=project_name,
+            web_title=web_title,
+            entry_url=entry_url,
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/telegram-link/request", response_model=TelegramLinkRequestResponse)

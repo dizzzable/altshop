@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
 import {
   persistPendingPaymentReturnStatus,
+  resolvePaymentReturnStatusFromQueryParam,
   resolvePaymentReturnStatusFromTelegramStartParam,
 } from '@/lib/payment-return'
 import { sendWebTelemetryEvent } from '@/lib/telemetry'
@@ -122,9 +123,9 @@ export function LandingPage() {
   const { t } = useI18n()
   const { projectName } = useBranding()
   const { isReady, isInTelegram, initData, launchContext, deviceMode } = useTelegramWebApp()
-  const paymentReturnStatus = resolvePaymentReturnStatusFromTelegramStartParam(
-    launchContext.startParam
-  )
+  const paymentReturnStatus =
+    resolvePaymentReturnStatusFromTelegramStartParam(launchContext.startParam)
+    ?? resolvePaymentReturnStatusFromQueryParam(location.search)
 
   const handleLogin = () => navigate('/auth/login')
   const handleRegister = () => navigate('/auth/register')
@@ -160,21 +161,29 @@ export function LandingPage() {
   }, [deviceMode, initData, isInTelegram, isReady, launchContext, location.pathname])
 
   useEffect(() => {
-    if (!isReady || !isInTelegram) {
+    if (!paymentReturnStatus) {
       return
     }
 
-    if (paymentReturnStatus) {
-      persistPendingPaymentReturnStatus(paymentReturnStatus)
+    persistPendingPaymentReturnStatus(paymentReturnStatus)
+    if (isInTelegram) {
       navigate('/miniapp?tg_open=1', { replace: true })
       return
     }
 
+    navigate('/miniapp', { replace: true })
+  }, [isInTelegram, navigate, paymentReturnStatus])
+
+  useEffect(() => {
+    if (!isReady || !isInTelegram) {
+      return
+    }
+
     // If Telegram opens the classic root entry, forward to Mini App landing.
-    if (location.pathname === '/' && !location.search) {
+    if ((location.pathname === '/' || location.pathname === '/entry') && !location.search) {
       navigate('/miniapp', { replace: true })
     }
-  }, [isInTelegram, isReady, location.pathname, location.search, navigate, paymentReturnStatus])
+  }, [isInTelegram, isReady, location.pathname, location.search, navigate])
 
   return (
     <div className="relative isolate overflow-hidden">

@@ -5,6 +5,9 @@ import { BrandingProvider } from './components/common/BrandingProvider'
 import { I18nProvider, useI18n } from './components/common/I18nProvider'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { PublicRoute } from './components/auth/PublicRoute'
+import { useMobileTelegramUiV2 } from './hooks/useMobileTelegramUiV2'
+import { useTelegramWebApp } from './hooks/useTelegramWebApp'
+import { resolveDefaultPostLoginPath } from './lib/post-login-route'
 
 const loadDashboardLayout = () => import('./components/layout/DashboardLayout')
 const loadLoginPage = () => import('./pages/auth/LoginPage')
@@ -74,6 +77,18 @@ function AuthCallbackFallback() {
   return <div className="p-6 text-sm text-slate-300">{t('common.authenticating')}</div>
 }
 
+function DashboardIndexRoute() {
+  const { deviceMode } = useTelegramWebApp()
+  const preferMobileUiV2 = useMobileTelegramUiV2()
+  const defaultPath = resolveDefaultPostLoginPath(deviceMode, preferMobileUiV2)
+
+  if (defaultPath === '/dashboard') {
+    return <DashboardPage />
+  }
+
+  return <Navigate to={defaultPath} replace />
+}
+
 function PrefetchPopularRoutes() {
   const { isAuthenticated } = useAuth()
 
@@ -122,6 +137,7 @@ function App() {
               <Routes>
                 {/* Landing pages */}
                 <Route path="/" element={<LandingPage />} />
+                <Route path="/entry" element={<LandingPage />} />
                 <Route path="/miniapp" element={<MiniAppLandingPage />} />
                 <Route path="/payment-return" element={<PaymentReturnPage />} />
 
@@ -171,7 +187,7 @@ function App() {
                     </ProtectedRoute>
                   }
                 >
-                  <Route index element={<DashboardPage />} />
+                  <Route index element={<DashboardIndexRoute />} />
                   <Route path="subscription" element={<SubscriptionPage />} />
                   <Route path="subscription/purchase" element={<PurchasePage />} />
                   <Route path="subscription/:id/renew" element={<PurchasePage />} />

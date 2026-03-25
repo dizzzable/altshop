@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useBranding } from '@/components/common/BrandingProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,19 +22,27 @@ function parsePaymentReturnTarget(rawTarget: string | null): PaymentReturnTarget
 
 export function PaymentReturnPage() {
   const { t } = useI18n()
+  const { isLoaded: isBrandingLoaded, miniAppUrl } = useBranding()
   const [searchParams] = useSearchParams()
   const status = parsePaymentReturnStatus(searchParams.get('status'))
   const target = parsePaymentReturnTarget(searchParams.get('target'))
 
   const redirectUrl = useMemo(() => {
     if (target === 'telegram') {
-      return resolveTelegramPaymentReturnUrl(status)
+      if (!isBrandingLoaded) {
+        return null
+      }
+      return resolveTelegramPaymentReturnUrl(status, { miniAppUrl })
     }
 
     return buildAbsoluteAppUrl(resolvePaymentRedirectPath(status))
-  }, [status, target])
+  }, [isBrandingLoaded, miniAppUrl, status, target])
 
   useEffect(() => {
+    if (!redirectUrl) {
+      return
+    }
+
     const timeoutId = window.setTimeout(() => {
       window.location.replace(redirectUrl)
     }, 180)
@@ -44,6 +53,9 @@ export function PaymentReturnPage() {
   }, [redirectUrl])
 
   const handleContinue = () => {
+    if (!redirectUrl) {
+      return
+    }
     window.location.replace(redirectUrl)
   }
 
@@ -67,7 +79,7 @@ export function PaymentReturnPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">{t('paymentReturn.redirecting')}</p>
-          <Button className="w-full" onClick={handleContinue}>
+          <Button className="w-full" onClick={handleContinue} disabled={!redirectUrl}>
             {buttonLabel}
           </Button>
         </CardContent>

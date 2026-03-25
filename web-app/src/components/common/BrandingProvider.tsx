@@ -9,6 +9,7 @@ type BrandingContextValue = {
   defaultLocale: WebLocale
   supportedLocales: WebLocale[]
   supportUrl: string | null
+  miniAppUrl: string | null
   isLoaded: boolean
 }
 
@@ -18,6 +19,7 @@ const DEFAULT_BRANDING: BrandingContextValue = {
   defaultLocale: 'ru',
   supportedLocales: ['ru'],
   supportUrl: null,
+  miniAppUrl: null,
   isLoaded: false,
 }
 
@@ -41,6 +43,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           defaultLocale: normalizeWebLocale(data.default_locale) || DEFAULT_BRANDING.defaultLocale,
           supportedLocales: normalizeSupportedLocales(data.supported_locales),
           supportUrl: data.support_url?.trim() || null,
+          miniAppUrl: data.mini_app_url?.trim() || null,
           isLoaded: true,
         })
       } catch {
@@ -72,11 +75,13 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
       defaultLocale: branding.defaultLocale,
       supportedLocales: branding.supportedLocales,
       supportUrl: branding.supportUrl,
+      miniAppUrl: branding.miniAppUrl,
       isLoaded: branding.isLoaded,
     }),
     [
       branding.defaultLocale,
       branding.isLoaded,
+      branding.miniAppUrl,
       branding.projectName,
       branding.supportedLocales,
       branding.supportUrl,

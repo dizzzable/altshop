@@ -572,6 +572,7 @@ export interface WebBrandingResponse {
   default_locale: WebLocale
   supported_locales: WebLocale[]
   support_url?: string | null
+  mini_app_url?: string | null
 }
 
 export interface RegistrationAccessRequirements {

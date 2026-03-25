@@ -2,6 +2,7 @@ import { withAppBase } from '@/lib/app-path'
 
 export type PaymentReturnStatus = 'success' | 'failed'
 export type PaymentReturnTarget = 'web' | 'telegram'
+export const PAYMENT_RETURN_STATUS_QUERY_KEY = 'payment_return_status'
 
 const TELEGRAM_PAYMENT_START_PARAMS: Record<PaymentReturnStatus, string> = {
   success: 'payment-success',
@@ -9,6 +10,7 @@ const TELEGRAM_PAYMENT_START_PARAMS: Record<PaymentReturnStatus, string> = {
 }
 
 const PENDING_PAYMENT_RETURN_STATUS_KEY = 'pending_payment_return_status'
+const TELEGRAM_HOSTS = new Set(['t.me', 'www.t.me', 'telegram.me', 'www.telegram.me'])
 
 function resolveTelegramBotUsername(): string | null {
   const rawUsername = (import.meta.env.VITE_TELEGRAM_BOT_USERNAME || '').trim().replace(/^@/, '')
@@ -40,14 +42,46 @@ export function buildExternalPaymentReturnUrl(
   return buildAbsoluteAppUrl(`/payment-return?${params.toString()}`)
 }
 
-export function resolveTelegramPaymentReturnUrl(status: PaymentReturnStatus): string {
-  const botUsername = resolveTelegramBotUsername()
-  if (!botUsername) {
-    return buildAbsoluteAppUrl('/miniapp?tg_open=1')
+function applyPaymentReturnPayload(url: string, status: PaymentReturnStatus): string | null {
+  try {
+    const resolved = new URL(url)
+    if (TELEGRAM_HOSTS.has(resolved.hostname.toLowerCase())) {
+      resolved.searchParams.set('startapp', TELEGRAM_PAYMENT_START_PARAMS[status])
+      return resolved.toString()
+    }
+
+    resolved.searchParams.set(PAYMENT_RETURN_STATUS_QUERY_KEY, status)
+    if (resolved.pathname.replace(/\/+$/, '').endsWith('/miniapp')) {
+      resolved.searchParams.set('tg_open', '1')
+    }
+    return resolved.toString()
+  } catch {
+    return null
+  }
+}
+
+export function resolveTelegramPaymentReturnUrl(
+  status: PaymentReturnStatus,
+  options: {
+    miniAppUrl?: string | null
+  } = {}
+): string {
+  const resolvedMiniAppUrl = applyPaymentReturnPayload(options.miniAppUrl?.trim() || '', status)
+  if (resolvedMiniAppUrl) {
+    return resolvedMiniAppUrl
   }
 
-  const startParam = TELEGRAM_PAYMENT_START_PARAMS[status]
-  return `https://t.me/${botUsername}?startapp=${startParam}`
+  const botUsername = resolveTelegramBotUsername()
+  if (botUsername) {
+    const startParam = TELEGRAM_PAYMENT_START_PARAMS[status]
+    return `https://t.me/${botUsername}?startapp=${startParam}`
+  }
+
+  const fallbackParams = new URLSearchParams({
+    tg_open: '1',
+    [PAYMENT_RETURN_STATUS_QUERY_KEY]: status,
+  })
+  return buildAbsoluteAppUrl(`/miniapp?${fallbackParams.toString()}`)
 }
 
 export function resolvePaymentReturnStatusFromTelegramStartParam(
@@ -65,6 +99,27 @@ export function resolvePaymentReturnStatusFromTelegramStartParam(
     return 'failed'
   }
 
+  return null
+}
+
+export function resolvePaymentReturnStatusFromQueryParam(
+  search: string | URLSearchParams | null | undefined
+): PaymentReturnStatus | null {
+  if (!search) {
+    return null
+  }
+
+  const searchParams =
+    search instanceof URLSearchParams
+      ? search
+      : new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const rawStatus = searchParams.get(PAYMENT_RETURN_STATUS_QUERY_KEY)
+  if (rawStatus === 'success') {
+    return 'success'
+  }
+  if (rawStatus === 'failed') {
+    return 'failed'
+  }
   return null
 }
 

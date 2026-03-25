@@ -464,45 +464,18 @@ export function ReferralsPage() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-3 pt-0">
-            <div className={cn('rounded-xl border p-3', inviteStatusCardClass)}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <p className="text-sm font-medium">
-                    {translateText(referralLocale, 'referrals.inviteStatus.title')}
-                  </p>
-                  <p className="text-sm text-muted-foreground">{inviteStatusDescription}</p>
-                </div>
-                <Badge variant="secondary" className="max-w-full whitespace-normal text-left">
-                  {inviteStatusBadge}
-                </Badge>
-              </div>
-              <div className="mt-3 grid gap-2 md:grid-cols-3">
-                <div className="rounded-lg border border-white/10 bg-black/10 p-2.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {translateText(referralLocale, 'referrals.inviteStatus.expiresAt')}
-                  </p>
-                  <p className="mt-1 text-sm font-medium">{inviteExpiryValue}</p>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-black/10 p-2.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {translateText(referralLocale, 'referrals.auto.024')}
-                  </p>
-                  <p className="mt-1 text-sm font-medium">{inviteSlotsValue}</p>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-black/10 p-2.5">
-                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {translateText(referralLocale, 'referrals.auto.046')}
-                  </p>
-                  <p className="mt-1 text-sm font-medium">{inviteProgressValue}</p>
-                </div>
-              </div>
-              {(!hasActiveInviteLink || referralInfo?.requires_regeneration) && (
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {translateText(referralLocale, 'referrals.inviteStatus.regenerateHint')}{' '}
-                  {translateText(referralLocale, 'referrals.inviteStatus.noActiveLink')}
-                </p>
-              )}
-            </div>
+            {!useMobileUiV2 && (
+              <InviteStatusCard
+                locale={referralLocale}
+                statusCardClassName={inviteStatusCardClass}
+                statusDescription={inviteStatusDescription}
+                statusBadge={inviteStatusBadge}
+                expiryValue={inviteExpiryValue}
+                slotsValue={inviteSlotsValue}
+                progressValue={inviteProgressValue}
+                showRegenerationHint={!hasActiveInviteLink || Boolean(referralInfo?.requires_regeneration)}
+              />
+            )}
             <ReferralLinkField
               label={translateText(referralLocale, 'referrals.auto.016')}
               value={telegramReferralLink}
@@ -749,7 +722,21 @@ export function ReferralsPage() {
             <DialogTitle>{translateText(referralLocale, 'referrals.mobile.kpiModalTitle')}</DialogTitle>
             <DialogDescription>{translateText(referralLocale, 'referrals.mobile.kpiModalDesc')}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
+          <div className="space-y-3">
+            {useMobileUiV2 && (
+              <InviteStatusCard
+                locale={referralLocale}
+                statusCardClassName={inviteStatusCardClass}
+                statusDescription={inviteStatusDescription}
+                statusBadge={inviteStatusBadge}
+                expiryValue={inviteExpiryValue}
+                slotsValue={inviteSlotsValue}
+                progressValue={inviteProgressValue}
+                showRegenerationHint={!hasActiveInviteLink || Boolean(referralInfo?.requires_regeneration)}
+                compact
+              />
+            )}
+            <div className="space-y-2 border-t border-white/10 pt-3">
             <KpiInfoRow
               label={translateText(referralLocale, 'referrals.mobile.kpi.totalReferrals')}
               value={referralInfo?.referral_count || 0}
@@ -771,6 +758,7 @@ export function ReferralsPage() {
               description={formatText(translateText(referralLocale, 'referrals.auto.051'), { count: activeReferrals })}
               tone="primary"
             />
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1300,6 +1288,70 @@ function KpiInfoRow({
         </div>
         <div className="text-xl font-semibold text-foreground">{value}</div>
       </div>
+    </div>
+  )
+}
+
+function InviteStatusCard({
+  locale,
+  statusCardClassName,
+  statusDescription,
+  statusBadge,
+  expiryValue,
+  slotsValue,
+  progressValue,
+  showRegenerationHint,
+  compact = false,
+}: {
+  locale: ReferralsLocale
+  statusCardClassName: string
+  statusDescription: string
+  statusBadge: string
+  expiryValue: string
+  slotsValue: string
+  progressValue: string
+  showRegenerationHint: boolean
+  compact?: boolean
+}) {
+  return (
+    <div className={cn('rounded-xl border p-3', statusCardClassName)}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="text-sm font-medium">
+            {translateText(locale, 'referrals.inviteStatus.title')}
+          </p>
+          <p className="text-sm text-muted-foreground">{statusDescription}</p>
+        </div>
+        <Badge variant="secondary" className="max-w-full whitespace-normal text-left">
+          {statusBadge}
+        </Badge>
+      </div>
+      <div className={cn('mt-3 grid gap-2', compact ? 'grid-cols-1' : 'md:grid-cols-3')}>
+        <div className="rounded-lg border border-white/10 bg-black/10 p-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {translateText(locale, 'referrals.inviteStatus.expiresAt')}
+          </p>
+          <p className="mt-1 text-sm font-medium">{expiryValue}</p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-black/10 p-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {translateText(locale, 'referrals.auto.024')}
+          </p>
+          <p className="mt-1 text-sm font-medium">{slotsValue}</p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-black/10 p-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            {translateText(locale, 'referrals.auto.046')}
+          </p>
+          <p className="mt-1 text-sm font-medium">{progressValue}</p>
+        </div>
+      </div>
+      {showRegenerationHint && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {translateText(locale, 'referrals.inviteStatus.regenerateHint')}{' '}
+          {translateText(locale, 'referrals.inviteStatus.noActiveLink')}
+        </p>
+      )}
     </div>
   )
 }
