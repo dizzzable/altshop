@@ -18,7 +18,7 @@ from fluentogram import TranslatorHub
 from loguru import logger
 from redis.asyncio import Redis
 from remnawave.enums.users import TrafficLimitStrategy
-from sqlalchemy import ARRAY, inspect, select, text
+from sqlalchemy import ARRAY, inspect, select, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
@@ -115,6 +115,7 @@ class DeferredRestoreUpdate:
     lookup_value: Any
     values: Dict[str, Any]
     phase: str = "default"
+    apply_as_scalar_update: bool = False
 
 
 class BackupService(BaseService):
@@ -864,10 +865,32 @@ class BackupService(BaseService):
         *,
         locale: Locale | None = None,
     ) -> str:
+        error = self._summarize_backup_restore_error(error)
         if locale is None:
             return f"Restore failed: {error}"
         i18n = self.translator_hub.get_translator_by_locale(locale=locale)
         return i18n.get("msg-backup-error-restore", error=error)
+
+    @staticmethod
+    def _summarize_backup_restore_error(error: str) -> str:
+        normalized = " ".join(str(error).split())
+        if not normalized:
+            return "unknown restore error"
+
+        if "Circular dependency detected" in normalized:
+            return (
+                "users and subscriptions could not be linked automatically; "
+                "retry after updating to the latest restore hotfix"
+            )
+
+        if "[SQL:" in normalized:
+            normalized = normalized.split("[SQL:", 1)[0].strip()
+
+        max_length = 320
+        if len(normalized) <= max_length:
+            return normalized
+
+        return f"{normalized[: max_length - 3].rstrip()}..."
 
     def _build_backup_missing_file_message(
         self,
@@ -1657,6 +1680,7 @@ class BackupService(BaseService):
             lookup_value=telegram_id,
             values={"current_subscription_id": current_subscription_id},
             phase=self.RESTORE_PHASE_POST_SUBSCRIPTIONS,
+            apply_as_scalar_update=True,
         )
 
     async def _apply_deferred_restore_updates(
@@ -1668,6 +1692,18 @@ class BackupService(BaseService):
     ) -> None:
         for deferred_update in deferred_updates:
             if deferred_update.phase != phase:
+                continue
+
+            values = await self._filter_deferred_restore_values(session, deferred_update)
+            if not values:
+                continue
+
+            if deferred_update.apply_as_scalar_update:
+                await self._apply_scalar_deferred_restore_update(
+                    session,
+                    deferred_update,
+                    values,
+                )
                 continue
 
             with session.no_autoflush:
@@ -1687,12 +1723,32 @@ class BackupService(BaseService):
                 )
                 continue
 
-            values = await self._filter_deferred_restore_values(session, deferred_update)
-            if not values:
-                continue
-
             for key, value in values.items():
                 setattr(existing, key, value)
+
+    async def _apply_scalar_deferred_restore_update(
+        self,
+        session: AsyncSession,
+        deferred_update: DeferredRestoreUpdate,
+        values: Dict[str, Any],
+    ) -> None:
+        result = await session.execute(
+            update(deferred_update.model)
+            .where(
+                getattr(deferred_update.model, deferred_update.lookup_field)
+                == deferred_update.lookup_value
+            )
+            .values(**values)
+            .execution_options(synchronize_session=False)
+        )
+        rows_updated = getattr(result, "rowcount", None)
+        if rows_updated == 0:
+            logger.warning(
+                "Skipped scalar deferred restore update for {}.{}={}",
+                deferred_update.model.__tablename__,
+                deferred_update.lookup_field,
+                deferred_update.lookup_value,
+            )
 
     async def _filter_deferred_restore_values(
         self,
@@ -1706,7 +1762,7 @@ class BackupService(BaseService):
             if current_subscription_id is not None:
                 with session.no_autoflush:
                     subscription_record = await session.execute(
-                        select(Subscription).where(Subscription.id == current_subscription_id)
+                        select(Subscription.id).where(Subscription.id == current_subscription_id)
                     )
                 subscription = subscription_record.scalar_one_or_none()
                 if subscription is None:

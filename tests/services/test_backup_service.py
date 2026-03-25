@@ -700,12 +700,11 @@ def test_restore_table_records_merges_existing_user_by_telegram_id(tmp_path: Pat
 
 def test_extract_and_apply_deferred_user_subscription_restore_update(tmp_path: Path) -> None:
     service, _config = build_backup_service(tmp_path)
-    existing_user = SimpleNamespace(telegram_id=7534150980, current_subscription_id=None)
     session = SimpleNamespace(
         execute=AsyncMock(
             side_effect=[
-                SimpleNamespace(scalar_one_or_none=lambda: existing_user),
-                SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(id=83)),
+                SimpleNamespace(scalar_one_or_none=lambda: 83),
+                SimpleNamespace(rowcount=1),
             ]
         ),
         no_autoflush=nullcontext(),
@@ -732,18 +731,21 @@ def test_extract_and_apply_deferred_user_subscription_restore_update(tmp_path: P
         )
     )
 
-    assert existing_user.current_subscription_id == 83
+    assert session.execute.await_count == 2
+    subscription_check = str(session.execute.await_args_list[0].args[0])
+    user_update = str(session.execute.await_args_list[1].args[0])
+    assert "SELECT subscriptions.id" in subscription_check
+    assert "UPDATE users SET current_subscription_id" in user_update
+    assert "users.telegram_id" in user_update
 
 
 def test_apply_deferred_user_subscription_restore_update_skips_missing_subscription(
     tmp_path: Path,
 ) -> None:
     service, _config = build_backup_service(tmp_path)
-    existing_user = SimpleNamespace(telegram_id=7534150980, current_subscription_id=None)
     session = SimpleNamespace(
         execute=AsyncMock(
             side_effect=[
-                SimpleNamespace(scalar_one_or_none=lambda: existing_user),
                 SimpleNamespace(scalar_one_or_none=lambda: None),
             ]
         ),
@@ -769,7 +771,20 @@ def test_apply_deferred_user_subscription_restore_update_skips_missing_subscript
         )
     )
 
-    assert existing_user.current_subscription_id is None
+    assert session.execute.await_count == 1
+    subscription_check = str(session.execute.await_args_list[0].args[0])
+    assert "SELECT subscriptions.id" in subscription_check
+
+
+def test_build_backup_restore_error_message_summarizes_circular_dependency(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+
+    message = service._build_backup_restore_error_message(
+        "Circular dependency detected. (" + ("x" * 500) + ")"
+    )
+
+    assert "users and subscriptions could not be linked automatically" in message
+    assert len(message) < 160
 
 
 def test_recover_legacy_missing_plans_from_snapshots_and_durations(tmp_path: Path) -> None:

@@ -49,3 +49,38 @@ def test_send_message_marks_user_blocked_for_chat_not_found() -> None:
 
     assert result is None
     user_service.set_bot_blocked.assert_awaited_once_with(user=user, blocked=True)
+
+
+def test_send_text_message_truncates_oversized_html_payload() -> None:
+    bot = MagicMock()
+    bot.send_message = AsyncMock(return_value=MagicMock())
+    user = UserDto(
+        telegram_id=123,
+        name="Test User",
+        role=UserRole.USER,
+    )
+
+    service = NotificationService(
+        config=AppConfig.get(),
+        bot=bot,
+        redis_client=MagicMock(),
+        redis_repository=MagicMock(),
+        translator_hub=MagicMock(),
+        user_service=MagicMock(),
+        settings_service=MagicMock(),
+        user_notification_event_service=MagicMock(),
+    )
+    service._get_translated_text = MagicMock(return_value=f"<i>{'x' * 5000}</i>")  # type: ignore[method-assign]
+
+    run_async(
+        service._send_text_message(
+            user=user,
+            payload=MessagePayload(i18n_key=""),
+            reply_markup=None,
+        )
+    )
+
+    sent_text = bot.send_message.await_args.kwargs["text"]
+    assert len(sent_text) == service.TELEGRAM_TEXT_LIMIT
+    assert "<i>" not in sent_text
+    assert sent_text.endswith("...")

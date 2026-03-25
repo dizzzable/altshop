@@ -1,4 +1,5 @@
 import asyncio
+import re
 from typing import Any, Optional, cast
 
 from aiogram import Bot
@@ -36,6 +37,9 @@ from .user import UserService
 
 
 class NotificationService(BaseService):
+    TELEGRAM_TEXT_LIMIT = 4096
+    TELEGRAM_CAPTION_LIMIT = 1024
+
     user_service: UserService
     settings_service: SettingsService
     user_notification_event_service: UserNotificationEventService
@@ -283,6 +287,10 @@ class NotificationService(BaseService):
             i18n_key=payload.i18n_key,
             i18n_kwargs=payload.i18n_kwargs,
         )
+        message_text = self._truncate_telegram_text(
+            message_text,
+            self.TELEGRAM_CAPTION_LIMIT,
+        )
 
         assert payload.media_type
         send_func = payload.media_type.get_function(self.bot)
@@ -312,6 +320,10 @@ class NotificationService(BaseService):
             i18n_key=payload.i18n_key,
             i18n_kwargs=payload.i18n_kwargs,
         )
+        message_text = self._truncate_telegram_text(
+            message_text,
+            self.TELEGRAM_TEXT_LIMIT,
+        )
 
         return await self.bot.send_message(
             chat_id=user.telegram_id,
@@ -320,6 +332,15 @@ class NotificationService(BaseService):
             reply_markup=reply_markup,
             disable_web_page_preview=True,
         )
+
+    @staticmethod
+    def _truncate_telegram_text(text: str, limit: int) -> str:
+        if len(text) <= limit:
+            return text
+
+        text = re.sub(r"<[^>]+>", "", text)
+        truncated_limit = max(limit - 3, 0)
+        return f"{text[:truncated_limit].rstrip()}..."
 
     def _prepare_reply_markup(
         self,

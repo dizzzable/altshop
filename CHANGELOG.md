@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.7] - 2026-03-25
+
+### Changed
+
+- deferred `users.current_subscription_id` relinking now runs as a direct scalar database update after subscriptions are restored, which avoids SQLAlchemy relationship graph cycles during merge/full restore
+- restore failure text is now summarized before it is returned to the bot flow, while full exception details remain in server logs
+
+### Fixed
+
+- restoring `DB` and `Full` backups no longer fails on SQLAlchemy `Circular dependency detected` when users and subscriptions are re-linked after a merge restore
+- overly long restore-failure notifications are now truncated safely before sending to Telegram, so backup error alerts no longer fail with `message is too long`
+
 ## [1.2.6] - 2026-03-25
 
 ### Changed
