@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.10] - 2026-03-25
+
+### Changed
+
+- legacy archive restore now analyzes structural integrity up front, reports degraded archive issues compactly, and distinguishes full recovery from panel-assisted partial recovery
+- missing `plans` are still reconstructed from `plan_durations`, but the plan catalog is now enriched from embedded plan snapshots found in transactions, promocodes, and Remnawave-synced subscriptions
+- when a broken legacy archive contains `users.current_subscription_id` links but no `subscriptions`, restore now rehydrates only the affected users from Remnawave and recomputes each local `current_subscription_id` from the subscriptions that were actually recreated
+- newly created backups now carry an integrity report in metadata and the backup registry, so archives with empty `subscriptions` or `plans` despite live references are marked as degraded instead of looking fully healthy
+
+### Fixed
+
+- restoring legacy broken backups like `backup_full_20260325_105915.tar.gz` no longer stops at five reconstructed plans and dozens of skipped current-subscription links when the archive itself is missing subscription rows
+- restore summaries now report how many users and subscriptions were recovered from Remnawave and how many subscription links remain unrecoverable, instead of emitting a long stream of per-user warnings
+
 ## [1.2.9] - 2026-03-25
 
 ### Changed

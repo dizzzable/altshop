@@ -82,6 +82,7 @@ def build_backup_service(
         translator_hub=MagicMock(),
         session_pool=MagicMock(),
         engine=MagicMock(),
+        remnawave=MagicMock(),
     )
     service._send_backup_file_to_chat = AsyncMock(return_value=None)  # type: ignore[method-assign]
     service._cleanup_old_backups = AsyncMock()  # type: ignore[method-assign]
@@ -200,6 +201,70 @@ def test_create_full_backup_contains_database_and_assets(tmp_path: Path) -> None
     assert metadata["includes_assets"] is True
     assert "database.json" in names
     assert "assets/translations/en.ftl" in names
+
+
+def test_create_backup_marks_degraded_archives_in_message_and_metadata(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    service._collect_database_overview = AsyncMock(  # type: ignore[method-assign]
+        return_value={"tables_count": 3, "total_records": 4}
+    )
+
+    async def write_degraded_dump(staging_dir: Path) -> dict[str, object]:
+        dump_path = staging_dir / "database.json"
+        dump_path.write_text(
+            json.dumps(
+                {
+                    "metadata": {
+                        "timestamp": "2026-03-24T10:00:00+00:00",
+                        "integrity": {
+                            "degraded": True,
+                            "issues": [
+                                {
+                                    "code": "missing_subscription_rows",
+                                    "message": (
+                                        "Users reference current subscriptions "
+                                        "that are absent from the export"
+                                    ),
+                                }
+                            ],
+                        },
+                    },
+                    "data": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        return {
+            "type": "postgresql",
+            "path": dump_path.name,
+            "size_bytes": dump_path.stat().st_size,
+            "format": "json",
+            "tool": "orm",
+            "tables_count": 3,
+            "total_records": 4,
+            "integrity": {
+                "degraded": True,
+                "issues": [
+                    {
+                        "code": "missing_subscription_rows",
+                        "message": (
+                            "Users reference current subscriptions that are "
+                            "absent from the export"
+                        ),
+                    }
+                ],
+            },
+        }
+
+    service._dump_database_json = AsyncMock(side_effect=write_degraded_dump)  # type: ignore[method-assign]
+
+    success, message, file_path = run_async(service.create_backup(scope=BackupScope.DB))
+
+    assert success is True
+    assert file_path is not None
+    assert "degraded" in message.lower()
+    metadata, _names = read_archive_metadata(Path(file_path))
+    assert metadata["integrity"]["degraded"] is True
 
 
 def test_restore_assets_backup_merges_files_without_deleting_unrelated(tmp_path: Path) -> None:
@@ -901,6 +966,165 @@ def test_recover_legacy_missing_plans_from_snapshots_and_durations(tmp_path: Pat
     assert plans[1]["name"] == "Pro"
     assert plans[1]["availability"] == PlanAvailability.ALL.value
     assert plans[1]["archived_renew_mode"] == ArchivedPlanRenewMode.SELF_RENEW.value
+
+
+def test_recover_legacy_missing_plans_enriches_partial_catalog_from_snapshots(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+
+    recovered_data, recovered_count = service._recover_legacy_missing_plans(
+        {
+            "plans": [
+                {
+                    "id": 1,
+                    "order_index": 1,
+                    "is_active": True,
+                    "is_archived": False,
+                    "type": PlanType.BOTH.value,
+                    "availability": PlanAvailability.ALL.value,
+                    "archived_renew_mode": ArchivedPlanRenewMode.SELF_RENEW.value,
+                    "name": "Starter",
+                    "description": None,
+                    "tag": "starter",
+                    "traffic_limit": 100,
+                    "device_limit": 1,
+                    "traffic_limit_strategy": TrafficLimitStrategy.NO_RESET.value,
+                    "replacement_plan_ids": [],
+                    "upgrade_to_plan_ids": [],
+                    "allowed_user_ids": [],
+                    "internal_squads": [],
+                    "external_squad": None,
+                }
+            ],
+            "plan_durations": [],
+            "transactions": [
+                {
+                    "id": 2,
+                    "plan": {
+                        "id": 2,
+                        "name": "Legacy Archived",
+                        "tag": "legacy",
+                        "type": PlanType.TRAFFIC.value,
+                        "traffic_limit": 500,
+                        "device_limit": 1,
+                        "traffic_limit_strategy": TrafficLimitStrategy.NO_RESET.value,
+                        "internal_squads": [],
+                        "external_squad": None,
+                    },
+                }
+            ],
+        }
+    )
+
+    assert recovered_count == 1
+    plans = recovered_data["plans"]
+    assert len(plans) == 2
+    assert plans[1]["id"] == 2
+    assert plans[1]["is_active"] is False
+    assert plans[1]["is_archived"] is True
+
+
+def test_build_backup_integrity_report_marks_missing_plan_and_subscription_data(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+
+    integrity = service._build_backup_integrity_report(
+        backup_data={
+            "plans": [],
+            "plan_durations": [{"id": 1, "plan_id": 1, "days": 30}],
+            "plan_prices": [{"id": 1, "plan_duration_id": 1, "currency": "RUB", "price": "100"}],
+            "users": [{"id": 1, "telegram_id": 123, "current_subscription_id": 77}],
+            "subscriptions": [],
+        },
+        export_errors={"subscriptions": "mock export failure"},
+    )
+
+    assert integrity["degraded"] is True
+    issue_codes = {issue["code"] for issue in integrity["issues"]}
+    assert issue_codes == {
+        "export_errors",
+        "missing_plan_catalog",
+        "missing_subscription_rows",
+    }
+
+
+def test_restore_from_json_appends_panel_recovery_summary(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    dump_path = tmp_path / "database.json"
+    dump_path.write_text(
+        json.dumps(
+            {
+                "metadata": {"timestamp": "2026-03-25T12:00:00+00:00"},
+                "data": {
+                    "plans": [],
+                    "plan_durations": [{"id": 1, "plan_id": 1, "days": 30}],
+                    "users": [{"id": 1, "telegram_id": 123, "current_subscription_id": 7}],
+                    "subscriptions": [],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
+            self.flush = AsyncMock()
+            self.commit = AsyncMock()
+            self.rollback = AsyncMock()
+            self.no_autoflush = nullcontext()
+            self.instances: list[object] = []
+
+        def add(self, instance: object) -> None:
+            self.instances.append(instance)
+
+    class FakeSessionContext:
+        def __init__(self, session: FakeSession) -> None:
+            self.session = session
+
+        async def __aenter__(self) -> FakeSession:
+            return self.session
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    fake_session = FakeSession()
+    service.session_pool = lambda: FakeSessionContext(fake_session)  # type: ignore[assignment]
+    service._recover_missing_subscriptions_from_panel = AsyncMock(  # type: ignore[method-assign]
+        return_value=SimpleNamespace(
+            archive_issue_messages=["Archive is missing subscription rows"],
+            remnawave_users_recovered=1,
+            remnawave_subscriptions_recovered=2,
+            unrecovered_user_refs=[],
+            panel_sync_errors=[],
+        )
+    )
+
+    restored, message = run_async(service._restore_from_json(dump_path, clear_existing=False))
+
+    assert restored is True
+    assert "Archive issues detected: 1" in message
+    assert "Users synced from Remnawave: 1" in message
+    assert "Subscriptions recovered from Remnawave: 2" in message
+
+
+def test_recover_missing_subscriptions_from_panel_marks_unrecoverable_users(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    diagnostics = SimpleNamespace(
+        panel_sync_candidate_ids=[123],
+        missing_archive_subscription_refs=[(123, 7)],
+        remnawave_users_recovered=0,
+        remnawave_subscriptions_recovered=0,
+        unrecovered_user_refs=[],
+        panel_sync_errors=[],
+    )
+    service._fetch_panel_users_by_telegram_id = AsyncMock(return_value=[])  # type: ignore[method-assign]
+
+    updated = run_async(service._recover_missing_subscriptions_from_panel(diagnostics))
+
+    assert updated.unrecovered_user_refs == [(123, 7)]
 
 
 def test_restore_from_json_flushes_each_table_before_children(tmp_path: Path) -> None:

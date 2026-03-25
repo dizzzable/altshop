@@ -4,7 +4,7 @@ import json as json_lib
 import shutil
 import tarfile
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -17,21 +17,28 @@ from aiogram.types import FSInputFile, Message
 from fluentogram import TranslatorHub
 from loguru import logger
 from redis.asyncio import Redis
+from remnawave import RemnawaveSDK
 from remnawave.enums.users import TrafficLimitStrategy
+from remnawave.models import TelegramUserResponseDto, UserResponseDto
 from sqlalchemy import ARRAY, inspect, select, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from src.core.config import AppConfig
+from src.core.constants import IMPORTED_TAG
 from src.core.enums import (
     ArchivedPlanRenewMode,
     BackupScope,
     BackupSourceKind,
+    DeviceType,
     Locale,
     PlanAvailability,
     PlanType,
+    SubscriptionStatus,
 )
 from src.core.utils.assets_sync import ASSETS_BACKUP_DIRNAME, ASSETS_VERSION_MARKER
+from src.core.utils.formatters import format_limits_to_plan_type
 from src.core.utils.time import datetime_now
+from src.infrastructure.database.models.dto import PlanSnapshotDto, RemnaSubscriptionDto
 from src.infrastructure.database.models.sql import (
     BackupRecord,
     Broadcast,
@@ -60,7 +67,7 @@ from src.infrastructure.redis import RedisRepository
 from .base import BaseService
 
 _aiofiles_open = cast(Callable[..., Any], aiofiles.open)
-BACKUP_FORMAT_VERSION = "3.2"
+BACKUP_FORMAT_VERSION = "3.3"
 
 
 @dataclass
@@ -120,11 +127,33 @@ class DeferredRestoreUpdate:
     apply_as_scalar_update: bool = False
 
 
+@dataclass
+class RestoreArchiveDiagnostics:
+    archive_issue_messages: list[str] = field(default_factory=list)
+    current_subscription_refs: list[tuple[int, int]] = field(default_factory=list)
+    missing_archive_subscription_refs: list[tuple[int, int]] = field(default_factory=list)
+    panel_sync_candidate_ids: list[int] = field(default_factory=list)
+    remnawave_users_recovered: int = 0
+    remnawave_subscriptions_recovered: int = 0
+    unrecovered_user_refs: list[tuple[int, int]] = field(default_factory=list)
+    panel_sync_errors: list[tuple[int, str]] = field(default_factory=list)
+
+    @property
+    def has_partial_recovery(self) -> bool:
+        return bool(
+            self.archive_issue_messages
+            or self.unrecovered_user_refs
+            or self.panel_sync_errors
+            or self.remnawave_subscriptions_recovered
+        )
+
+
 class BackupService(BaseService):
     """Сервис для создания и восстановления бэкапов базы данных."""
 
     session_pool: async_sessionmaker[AsyncSession]
     engine: AsyncEngine
+    remnawave: RemnawaveSDK
 
     # Модели для бэкапа в порядке зависимостей
     BACKUP_MODELS = [
@@ -166,10 +195,12 @@ class BackupService(BaseService):
         #
         session_pool: async_sessionmaker[AsyncSession],
         engine: AsyncEngine,
+        remnawave: RemnawaveSDK,
     ) -> None:
         super().__init__(config, bot, redis_client, redis_repository, translator_hub)
         self.session_pool = session_pool
         self.engine = engine
+        self.remnawave = remnawave
         self._auto_backup_task: Optional[asyncio.Task] = None
         self._backup_dir = self.config.backup.get_backup_dir()
 
@@ -282,6 +313,10 @@ class BackupService(BaseService):
                     "compressed": compress,
                     "created_by": created_by,
                     "database": database_info,
+                    "integrity": (database_info or {}).get(
+                        "integrity",
+                        {"degraded": False, "issues": []},
+                    ),
                     "assets": assets_info,
                     "include_logs": include_logs,
                 }
@@ -330,7 +365,7 @@ class BackupService(BaseService):
                 scope=scope,
                 filename=filename,
                 size_mb=size_mb,
-                overview=overview,
+                overview={**overview, "integrity": (database_info or {}).get("integrity", {})},
                 includes_database=includes_database,
                 assets_info=assets_info,
                 locale=locale,
@@ -681,6 +716,7 @@ class BackupService(BaseService):
         """Экспортирует БД в JSON через ORM."""
         backup_data: Dict[str, List[Dict[str, Any]]] = {}
         total_records = 0
+        export_errors: dict[str, str] = {}
 
         async with self.session_pool() as session:
             for model in self.BACKUP_MODELS:
@@ -703,17 +739,23 @@ class BackupService(BaseService):
 
                 except Exception as e:
                     logger.error(f"Ошибка экспорта таблицы {table_name}: {e}")
+                    export_errors[table_name] = str(e)
                     backup_data[table_name] = []
 
         # Сохраняем в файл
+        integrity = self._build_backup_integrity_report(
+            backup_data=backup_data,
+            export_errors=export_errors,
+        )
         dump_path = staging_dir / "database.json"
         dump_structure = {
             "metadata": {
                 "timestamp": datetime_now().isoformat(),
-                "version": "orm-1.0",
+                "version": "orm-1.1",
                 "database_type": "postgresql",
                 "tables_count": len(self.BACKUP_MODELS),
                 "total_records": total_records,
+                "integrity": integrity,
             },
             "data": backup_data,
         }
@@ -733,7 +775,489 @@ class BackupService(BaseService):
             "tool": "orm",
             "tables_count": len(self.BACKUP_MODELS),
             "total_records": total_records,
+            "integrity": integrity,
         }
+
+    def _build_backup_integrity_report(
+        self,
+        *,
+        backup_data: Dict[str, List[Dict[str, Any]]],
+        export_errors: dict[str, str],
+    ) -> dict[str, Any]:
+        issues: list[dict[str, Any]] = []
+
+        if export_errors:
+            issues.append(
+                {
+                    "code": "export_errors",
+                    "message": f"Export failed for {len(export_errors)} table(s)",
+                    "tables": sorted(export_errors),
+                }
+            )
+
+        plan_rows = backup_data.get(Plan.__tablename__) or []
+        duration_rows = backup_data.get(PlanDuration.__tablename__) or []
+        price_rows = backup_data.get(PlanPrice.__tablename__) or []
+        if not plan_rows and (duration_rows or price_rows):
+            issues.append(
+                {
+                    "code": "missing_plan_catalog",
+                    "message": "Plan rows are missing while plan durations or prices exist",
+                    "durations_count": len(duration_rows),
+                    "prices_count": len(price_rows),
+                }
+            )
+
+        subscription_rows = backup_data.get(Subscription.__tablename__) or []
+        subscription_ids = {
+            int(row["id"])
+            for row in subscription_rows
+            if isinstance(row, dict) and row.get("id") is not None
+        }
+        user_rows = backup_data.get(User.__tablename__) or []
+        current_refs = self._extract_current_subscription_refs(user_rows)
+        missing_subscription_refs = [
+            (telegram_id, subscription_id)
+            for telegram_id, subscription_id in current_refs
+            if subscription_id not in subscription_ids
+        ]
+        if missing_subscription_refs:
+            issues.append(
+                {
+                    "code": "missing_subscription_rows",
+                    "message": (
+                        "Users reference current subscriptions that are absent "
+                        "from the export"
+                    ),
+                    "users_count": len(missing_subscription_refs),
+                    "subscription_ids": sorted(
+                        {
+                            subscription_id
+                            for _telegram_id, subscription_id in missing_subscription_refs
+                        }
+                    ),
+                }
+            )
+
+        return {
+            "degraded": bool(issues),
+            "issues": issues,
+        }
+
+    def _extract_current_subscription_refs(
+        self,
+        user_rows: List[Dict[str, Any]],
+    ) -> list[tuple[int, int]]:
+        refs: list[tuple[int, int]] = []
+        for row in user_rows:
+            if not isinstance(row, dict):
+                continue
+            telegram_id = row.get("telegram_id")
+            subscription_id = row.get("current_subscription_id")
+            if telegram_id is None or subscription_id is None:
+                continue
+            try:
+                refs.append((int(telegram_id), int(subscription_id)))
+            except (TypeError, ValueError):
+                continue
+        return refs
+
+    def _analyze_restore_archive(
+        self,
+        backup_data: Dict[str, List[Dict[str, Any]]],
+    ) -> RestoreArchiveDiagnostics:
+        diagnostics = RestoreArchiveDiagnostics()
+        plan_rows = backup_data.get(Plan.__tablename__) or []
+        duration_rows = backup_data.get(PlanDuration.__tablename__) or []
+        price_rows = backup_data.get(PlanPrice.__tablename__) or []
+        if not plan_rows and (duration_rows or price_rows):
+            diagnostics.archive_issue_messages.append(
+                "Archive is missing plan rows and requires legacy plan recovery"
+            )
+
+        user_rows = backup_data.get(User.__tablename__) or []
+        current_refs = self._extract_current_subscription_refs(user_rows)
+        diagnostics.current_subscription_refs = current_refs
+        subscription_ids = {
+            int(row["id"])
+            for row in (backup_data.get(Subscription.__tablename__) or [])
+            if isinstance(row, dict) and row.get("id") is not None
+        }
+        diagnostics.missing_archive_subscription_refs = [
+            (telegram_id, subscription_id)
+            for telegram_id, subscription_id in current_refs
+            if subscription_id not in subscription_ids
+        ]
+        diagnostics.panel_sync_candidate_ids = sorted(
+            {
+                telegram_id
+                for telegram_id, _subscription_id in diagnostics.missing_archive_subscription_refs
+            }
+        )
+        if diagnostics.missing_archive_subscription_refs:
+            diagnostics.archive_issue_messages.append(
+                "Archive is missing subscription rows referenced by users.current_subscription_id"
+            )
+
+        return diagnostics
+
+    def _collect_plan_snapshots(  # noqa: C901
+        self,
+        backup_data: Dict[str, List[Dict[str, Any]]],
+        *,
+        extra_snapshots: Optional[List[Dict[str, Any]]] = None,
+    ) -> dict[int, dict[str, Any]]:
+        snapshots_by_id: dict[int, dict[str, Any]] = {}
+        for table_name in (
+            Subscription.__tablename__,
+            Transaction.__tablename__,
+            Promocode.__tablename__,
+        ):
+            for record in backup_data.get(table_name) or []:
+                if not isinstance(record, dict):
+                    continue
+                snapshot = self._parse_backup_snapshot(record.get("plan"))
+                if not snapshot:
+                    continue
+                raw_plan_id = snapshot.get("id")
+                if not isinstance(raw_plan_id, int | str):
+                    continue
+                try:
+                    plan_id = int(raw_plan_id)
+                except (TypeError, ValueError):
+                    continue
+                if plan_id <= 0:
+                    continue
+                snapshots_by_id.setdefault(plan_id, snapshot)
+
+        for snapshot in extra_snapshots or []:
+            if not isinstance(snapshot, dict):
+                continue
+            raw_plan_id = snapshot.get("id")
+            if not isinstance(raw_plan_id, int | str):
+                continue
+            try:
+                plan_id = int(raw_plan_id)
+            except (TypeError, ValueError):
+                continue
+            if plan_id <= 0:
+                continue
+            snapshots_by_id.setdefault(plan_id, snapshot)
+
+        return snapshots_by_id
+
+    def _log_restore_archive_diagnostics(self, diagnostics: RestoreArchiveDiagnostics) -> None:
+        if not diagnostics.archive_issue_messages:
+            return
+
+        logger.warning(
+            (
+                "Legacy archive diagnostics: issues={}, "
+                "users_with_missing_subscriptions={}, "
+                "missing_subscription_refs={}"
+            ),
+            diagnostics.archive_issue_messages,
+            len(diagnostics.panel_sync_candidate_ids),
+            len(diagnostics.missing_archive_subscription_refs),
+        )
+
+    @staticmethod
+    def _normalize_squad_values(values: list[UUID]) -> list[str]:
+        return sorted(str(value) for value in values)
+
+    def _match_plan_for_panel_subscription(
+        self,
+        *,
+        remna_subscription: RemnaSubscriptionDto,
+        plans: list[Plan],
+    ) -> Optional[Plan]:
+        if remna_subscription.tag:
+            exact_tag_matches = [
+                plan for plan in plans if plan.tag and plan.tag == remna_subscription.tag
+            ]
+            if exact_tag_matches:
+                exact_tag_matches.sort(key=lambda plan: (plan.order_index, plan.id))
+                return exact_tag_matches[0]
+
+        subscription_type = format_limits_to_plan_type(
+            remna_subscription.traffic_limit,
+            remna_subscription.device_limit,
+        )
+        matches = [
+            plan
+            for plan in plans
+            if plan.type == subscription_type
+            and plan.traffic_limit == remna_subscription.traffic_limit
+            and plan.device_limit == remna_subscription.device_limit
+            and plan.traffic_limit_strategy == (
+                remna_subscription.traffic_limit_strategy or TrafficLimitStrategy.NO_RESET
+            )
+            and self._normalize_squad_values(plan.internal_squads)
+            == self._normalize_squad_values(remna_subscription.internal_squads)
+            and plan.external_squad == remna_subscription.external_squad
+        ]
+        if not matches:
+            return None
+
+        matches.sort(key=lambda plan: (plan.order_index, plan.id))
+        return matches[0]
+
+    def _build_panel_subscription_snapshot(
+        self,
+        *,
+        remna_subscription: RemnaSubscriptionDto,
+        matched_plan: Optional[Plan],
+    ) -> dict[str, Any]:
+        snapshot = PlanSnapshotDto(
+            id=matched_plan.id if matched_plan and matched_plan.id is not None else -1,
+            name=matched_plan.name if matched_plan else IMPORTED_TAG,
+            tag=matched_plan.tag if matched_plan else remna_subscription.tag,
+            type=(
+                matched_plan.type
+                if matched_plan
+                else format_limits_to_plan_type(
+                    remna_subscription.traffic_limit,
+                    remna_subscription.device_limit,
+                )
+            ),
+            traffic_limit=(
+                matched_plan.traffic_limit if matched_plan else remna_subscription.traffic_limit
+            ),
+            device_limit=(
+                matched_plan.device_limit if matched_plan else remna_subscription.device_limit
+            ),
+            duration=-1,
+            traffic_limit_strategy=(
+                matched_plan.traffic_limit_strategy
+                if matched_plan
+                else remna_subscription.traffic_limit_strategy or TrafficLimitStrategy.NO_RESET
+            ),
+            internal_squads=(
+                list(matched_plan.internal_squads)
+                if matched_plan
+                else list(remna_subscription.internal_squads)
+            ),
+            external_squad=(
+                matched_plan.external_squad if matched_plan else remna_subscription.external_squad
+            ),
+        )
+        return snapshot.model_dump(mode="json")
+
+    async def _fetch_panel_users_by_telegram_id(self, telegram_id: int) -> list[UserResponseDto]:
+        users_result = await self.remnawave.users.get_users_by_telegram_id(
+            telegram_id=str(telegram_id)
+        )
+        if not isinstance(users_result, TelegramUserResponseDto):
+            raise ValueError(
+                "Unexpected Remnawave response for telegram_id "
+                f"'{telegram_id}': {users_result!r}"
+            )
+        return list(users_result.root)
+
+    async def _upsert_missing_plan_rows_from_snapshots(
+        self,
+        session: AsyncSession,
+        *,
+        snapshots_by_id: dict[int, dict[str, Any]],
+    ) -> int:
+        if not snapshots_by_id:
+            return 0
+
+        result = await session.execute(select(Plan.id, Plan.order_index))
+        existing_rows = list(result.all())
+        existing_plan_ids = {int(plan_id) for plan_id, _order_index in existing_rows}
+        max_order_index = max(
+            (int(order_index) for _plan_id, order_index in existing_rows),
+            default=0,
+        )
+        created = 0
+
+        for plan_id in sorted(snapshots_by_id):
+            if plan_id <= 0 or plan_id in existing_plan_ids:
+                continue
+
+            max_order_index += 1
+            session.add(
+                Plan(
+                    **self._build_recovered_plan_record(
+                        plan_id=plan_id,
+                        order_index=max_order_index,
+                        snapshot=snapshots_by_id[plan_id],
+                        snapshot_only=True,
+                    )
+                )
+            )
+            existing_plan_ids.add(plan_id)
+            created += 1
+
+        return created
+
+    @staticmethod
+    def _resolve_effective_subscription_status(subscription: Subscription) -> SubscriptionStatus:
+        if subscription.expire_at < datetime_now():
+            return SubscriptionStatus.EXPIRED
+        return subscription.status
+
+    def _select_current_subscription_id(
+        self,
+        subscriptions: list[Subscription],
+    ) -> Optional[int]:
+        if not subscriptions:
+            return None
+
+        status_priority = {
+            SubscriptionStatus.ACTIVE: 0,
+            SubscriptionStatus.DISABLED: 1,
+            SubscriptionStatus.EXPIRED: 2,
+        }
+        candidates = [
+            subscription
+            for subscription in subscriptions
+            if self._resolve_effective_subscription_status(subscription)
+            != SubscriptionStatus.DELETED
+        ]
+        if not candidates:
+            return None
+
+        selected = sorted(
+            candidates,
+            key=lambda subscription: (
+                status_priority.get(self._resolve_effective_subscription_status(subscription), 99),
+                -subscription.expire_at.timestamp(),
+                -(subscription.id or 0),
+            ),
+        )[0]
+        return selected.id
+
+    async def _sync_panel_profiles_for_restore(
+        self,
+        *,
+        telegram_id: int,
+        remna_users: list[UserResponseDto],
+    ) -> tuple[int, list[dict[str, Any]]]:
+        panel_snapshots: list[dict[str, Any]] = []
+
+        async with self.session_pool() as session:
+            existing_user = await session.execute(
+                select(User.telegram_id).where(User.telegram_id == telegram_id)
+            )
+            if existing_user.scalar_one_or_none() is None:
+                return 0, panel_snapshots
+
+            plans_result = await session.execute(select(Plan))
+            plans = list(plans_result.scalars().all())
+            restored_subscriptions = 0
+
+            for remna_user in remna_users:
+                remna_payload = remna_user.model_dump()
+                remna_subscription = RemnaSubscriptionDto.from_remna_user(remna_payload)
+                matched_plan = self._match_plan_for_panel_subscription(
+                    remna_subscription=remna_subscription,
+                    plans=plans,
+                )
+                plan_payload = self._build_panel_subscription_snapshot(
+                    remna_subscription=remna_subscription,
+                    matched_plan=matched_plan,
+                )
+                panel_snapshots.append(plan_payload)
+
+                status = (
+                    SubscriptionStatus.EXPIRED
+                    if remna_user.expire_at and remna_user.expire_at < datetime_now()
+                    else remna_user.status
+                )
+                values = {
+                    "user_telegram_id": telegram_id,
+                    "status": status,
+                    "is_trial": False,
+                    "traffic_limit": remna_subscription.traffic_limit,
+                    "device_limit": remna_subscription.device_limit,
+                    "internal_squads": list(remna_subscription.internal_squads),
+                    "external_squad": remna_subscription.external_squad,
+                    "expire_at": remna_user.expire_at,
+                    "url": remna_subscription.url or "",
+                    "device_type": DeviceType.OTHER,
+                    "plan": plan_payload,
+                }
+
+                subscription_result = await session.execute(
+                    select(Subscription.id).where(Subscription.user_remna_id == remna_user.uuid)
+                )
+                existing_subscription_id = subscription_result.scalar_one_or_none()
+
+                if existing_subscription_id is None:
+                    session.add(
+                        Subscription(
+                            user_remna_id=remna_user.uuid,
+                            **values,
+                        )
+                    )
+                else:
+                    await session.execute(
+                        update(Subscription)
+                        .where(Subscription.id == existing_subscription_id)
+                        .values(**values)
+                        .execution_options(synchronize_session=False)
+                    )
+                restored_subscriptions += 1
+
+            await self._upsert_missing_plan_rows_from_snapshots(
+                session,
+                snapshots_by_id=self._collect_plan_snapshots({}, extra_snapshots=panel_snapshots),
+            )
+            await session.flush()
+            subscriptions_result = await session.execute(
+                select(Subscription).where(Subscription.user_telegram_id == telegram_id)
+            )
+            subscriptions = list(subscriptions_result.scalars().all())
+            current_subscription_id = self._select_current_subscription_id(subscriptions)
+            await self._apply_scalar_restore_update(
+                session=session,
+                model=User,
+                lookup_field="telegram_id",
+                lookup_value=telegram_id,
+                values={"current_subscription_id": current_subscription_id},
+            )
+            await session.commit()
+
+        return restored_subscriptions, panel_snapshots
+
+    async def _recover_missing_subscriptions_from_panel(
+        self,
+        diagnostics: RestoreArchiveDiagnostics,
+    ) -> RestoreArchiveDiagnostics:
+        if not diagnostics.panel_sync_candidate_ids:
+            return diagnostics
+
+        for telegram_id, missing_subscription_id in diagnostics.missing_archive_subscription_refs:
+            try:
+                remna_users = await self._fetch_panel_users_by_telegram_id(telegram_id)
+            except Exception as exc:
+                logger.warning(
+                    "Panel recovery failed for telegram_id '{}': {}",
+                    telegram_id,
+                    exc,
+                )
+                diagnostics.panel_sync_errors.append((telegram_id, str(exc)))
+                diagnostics.unrecovered_user_refs.append((telegram_id, missing_subscription_id))
+                continue
+
+            if not remna_users:
+                diagnostics.unrecovered_user_refs.append((telegram_id, missing_subscription_id))
+                continue
+
+            restored_subscriptions, _panel_snapshots = await self._sync_panel_profiles_for_restore(
+                telegram_id=telegram_id,
+                remna_users=remna_users,
+            )
+            if restored_subscriptions == 0:
+                diagnostics.unrecovered_user_refs.append((telegram_id, missing_subscription_id))
+                continue
+
+            diagnostics.remnawave_users_recovered += 1
+            diagnostics.remnawave_subscriptions_recovered += restored_subscriptions
+
+        return diagnostics
 
     @staticmethod
     def _should_skip_asset_file(relative_path: Path) -> bool:
@@ -837,6 +1361,9 @@ class BackupService(BaseService):
                         count=int(assets_info.get("files_count", 0) or 0),
                     )
                 )
+            integrity = self._get_backup_integrity_from_metadata(overview)
+            if integrity.get("degraded"):
+                lines.append(i18n.get("msg-backup-result-degraded"))
             return "\n".join(lines)
 
         lines = [
@@ -850,7 +1377,36 @@ class BackupService(BaseService):
             lines.append(f"Records: {overview.get('total_records', 0):,}")
         if assets_info is not None:
             lines.append(f"Assets files: {assets_info.get('files_count', 0)}")
+        integrity = self._get_backup_integrity_from_metadata(overview)
+        if integrity.get("degraded"):
+            lines.append("Warning: backup marked as degraded")
         return "\n".join(lines)
+
+    @staticmethod
+    def _get_backup_integrity_from_metadata(metadata: Dict[str, Any]) -> dict[str, Any]:
+        integrity = metadata.get("integrity")
+        if isinstance(integrity, dict):
+            return integrity
+        return {"degraded": False, "issues": []}
+
+    def _summarize_backup_integrity(self, metadata: Dict[str, Any]) -> Optional[str]:
+        integrity = self._get_backup_integrity_from_metadata(metadata)
+        issues = integrity.get("issues")
+        if not integrity.get("degraded") or not isinstance(issues, list) or not issues:
+            return None
+
+        first_issue = issues[0]
+        first_message = (
+            first_issue.get("message")
+            if isinstance(first_issue, dict)
+            else None
+        )
+        if isinstance(first_message, str) and first_message.strip():
+            if len(issues) == 1:
+                return f"Degraded backup: {first_message}"
+            return f"Degraded backup: {first_message} (+{len(issues) - 1} more)"
+
+        return f"Degraded backup: {len(issues)} issue(s)"
 
     def _build_backup_create_error_message(
         self,
@@ -975,6 +1531,7 @@ class BackupService(BaseService):
             source_kind=BackupSourceKind.LOCAL,
             has_local_copy=True,
             has_telegram_copy=False,
+            error=self._summarize_backup_integrity(metadata),
         )
 
     def _parse_backup_timestamp(self, value: object) -> Optional[datetime]:
@@ -1077,6 +1634,9 @@ class BackupService(BaseService):
         for record in records:
             backup_info = self._record_to_backup_info(record)
             if backup_info is not None:
+                if backup_info.has_local_copy and backup_info.filepath:
+                    metadata = await self._read_backup_metadata(Path(backup_info.filepath))
+                    backup_info.error = self._summarize_backup_integrity(metadata)
                 backups.append(backup_info)
         return backups
 
@@ -1479,8 +2039,10 @@ class BackupService(BaseService):
             dump_data = json_lib.loads(await f.read())
 
         metadata = dump_data.get("metadata", {})
-        backup_data = dump_data.get("data", {})
-        backup_data, recovered_legacy_plans = self._recover_legacy_missing_plans(backup_data)
+        raw_backup_data = dump_data.get("data", {})
+        diagnostics = self._analyze_restore_archive(raw_backup_data)
+        self._log_restore_archive_diagnostics(diagnostics)
+        backup_data, recovered_legacy_plans = self._recover_legacy_missing_plans(raw_backup_data)
 
         if not backup_data:
             if locale is not None:
@@ -1572,6 +2134,13 @@ class BackupService(BaseService):
                 )
         elif recovered_legacy_plans:
             message += f"\nRecovered plans: {recovered_legacy_plans}"
+
+        diagnostics = await self._recover_missing_subscriptions_from_panel(diagnostics)
+        message = self._append_restore_diagnostics_to_message(
+            message=message,
+            locale=locale,
+            diagnostics=diagnostics,
+        )
 
         logger.info(message)
         return True, message
@@ -1851,12 +2420,6 @@ class BackupService(BaseService):
                     )
                 subscription = subscription_record.scalar_one_or_none()
                 if subscription is None:
-                    logger.warning(
-                        "Skipped deferred restore update for users.telegram_id={} "
-                        "because subscription '{}' was not restored",
-                        deferred_update.lookup_value,
-                        current_subscription_id,
-                    )
                     values.pop("current_subscription_id", None)
 
         return values
@@ -1942,6 +2505,7 @@ class BackupService(BaseService):
         plan_id: int,
         order_index: int,
         snapshot: dict[str, Any] | None,
+        snapshot_only: bool = False,
     ) -> dict[str, Any]:
         snapshot = snapshot or {}
         external_squad = snapshot.get("external_squad")
@@ -1951,8 +2515,8 @@ class BackupService(BaseService):
         return {
             "id": plan_id,
             "order_index": order_index,
-            "is_active": True,
-            "is_archived": False,
+            "is_active": not snapshot_only,
+            "is_archived": snapshot_only,
             "type": self._coerce_plan_enum_value(
                 snapshot.get("type"),
                 PlanType,
@@ -1981,11 +2545,16 @@ class BackupService(BaseService):
         self,
         backup_data: Dict[str, List[Dict[str, Any]]],
     ) -> Tuple[Dict[str, List[Dict[str, Any]]], int]:
-        plans = backup_data.get(Plan.__tablename__) or []
+        plans = list(backup_data.get(Plan.__tablename__) or [])
         durations = backup_data.get(PlanDuration.__tablename__) or []
-        if plans or not durations:
+        if not durations and not self._collect_plan_snapshots(backup_data):
             return backup_data, 0
 
+        existing_plan_ids = {
+            int(plan["id"])
+            for plan in plans
+            if isinstance(plan, dict) and isinstance(plan.get("id"), int | str)
+        }
         referenced_plan_ids_set: set[int] = set()
         for duration in durations:
             if not isinstance(duration, dict):
@@ -1994,45 +2563,33 @@ class BackupService(BaseService):
             if not isinstance(raw_plan_id, int | str):
                 continue
             try:
-                referenced_plan_ids_set.add(int(raw_plan_id))
+                plan_id = int(raw_plan_id)
             except ValueError:
                 continue
+            if plan_id > 0:
+                referenced_plan_ids_set.add(plan_id)
 
-        referenced_plan_ids = sorted(referenced_plan_ids_set)
-        if not referenced_plan_ids:
+        snapshots_by_id = self._collect_plan_snapshots(backup_data)
+        referenced_plan_ids = sorted(referenced_plan_ids_set | set(snapshots_by_id))
+        missing_plan_ids = [
+            plan_id
+            for plan_id in referenced_plan_ids
+            if plan_id > 0 and plan_id not in existing_plan_ids
+        ]
+        if not missing_plan_ids:
             return backup_data, 0
-
-        snapshots_by_id: dict[int, dict[str, Any]] = {}
-        for table_name in (
-            Subscription.__tablename__,
-            Transaction.__tablename__,
-            Promocode.__tablename__,
-        ):
-            for record in backup_data.get(table_name) or []:
-                if not isinstance(record, dict):
-                    continue
-                snapshot = self._parse_backup_snapshot(record.get("plan"))
-                if not snapshot:
-                    continue
-                snapshot_plan_id = snapshot.get("id")
-                if snapshot_plan_id is None or not isinstance(snapshot_plan_id, int | str):
-                    continue
-                try:
-                    plan_id = int(snapshot_plan_id)
-                except (TypeError, ValueError):
-                    continue
-                snapshots_by_id.setdefault(plan_id, snapshot)
 
         recovered_plans = [
             self._build_recovered_plan_record(
                 plan_id=plan_id,
-                order_index=index,
+                order_index=len(plans) + index,
                 snapshot=snapshots_by_id.get(plan_id),
+                snapshot_only=plan_id not in referenced_plan_ids_set,
             )
-            for index, plan_id in enumerate(referenced_plan_ids, start=1)
+            for index, plan_id in enumerate(missing_plan_ids, start=1)
         ]
         backup_data = dict(backup_data)
-        backup_data[Plan.__tablename__] = recovered_plans
+        backup_data[Plan.__tablename__] = [*plans, *recovered_plans]
         logger.warning(
             "Recovered {} missing plan records from a legacy backup using related snapshots",
             len(recovered_plans),
@@ -2083,6 +2640,82 @@ class BackupService(BaseService):
                 ]
             )
         return message
+
+    def _append_restore_diagnostics_to_message(  # noqa: C901
+        self,
+        *,
+        message: str,
+        locale: Locale | None,
+        diagnostics: RestoreArchiveDiagnostics,
+    ) -> str:
+        extra_lines: list[str] = []
+
+        if diagnostics.archive_issue_messages:
+            issue_count = len(diagnostics.archive_issue_messages)
+            if locale is None:
+                extra_lines.append(f"Archive issues detected: {issue_count}")
+            else:
+                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                extra_lines.append(i18n.get("msg-backup-result-archive-issues", count=issue_count))
+
+        if diagnostics.remnawave_users_recovered:
+            if locale is None:
+                extra_lines.append(
+                    f"Users synced from Remnawave: {diagnostics.remnawave_users_recovered}"
+                )
+            else:
+                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                extra_lines.append(
+                    i18n.get(
+                        "msg-backup-result-remnawave-users",
+                        count=diagnostics.remnawave_users_recovered,
+                    )
+                )
+
+        if diagnostics.remnawave_subscriptions_recovered:
+            if locale is None:
+                extra_lines.append(
+                    "Subscriptions recovered from Remnawave: "
+                    f"{diagnostics.remnawave_subscriptions_recovered}"
+                )
+            else:
+                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                extra_lines.append(
+                    i18n.get(
+                        "msg-backup-result-remnawave-subscriptions",
+                        count=diagnostics.remnawave_subscriptions_recovered,
+                    )
+                )
+
+        unrecovered_count = len(diagnostics.unrecovered_user_refs)
+        if unrecovered_count:
+            if locale is None:
+                extra_lines.append(f"Unrecoverable user subscriptions: {unrecovered_count}")
+            else:
+                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                extra_lines.append(
+                    i18n.get(
+                        "msg-backup-result-unrecoverable-subscriptions",
+                        count=unrecovered_count,
+                    )
+                )
+
+        if diagnostics.panel_sync_errors:
+            if locale is None:
+                extra_lines.append(f"Remnawave sync errors: {len(diagnostics.panel_sync_errors)}")
+            else:
+                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
+                extra_lines.append(
+                    i18n.get(
+                        "msg-backup-result-remnawave-sync-errors",
+                        count=len(diagnostics.panel_sync_errors),
+                    )
+                )
+
+        if not extra_lines:
+            return message
+
+        return "\n".join([message, *extra_lines])
 
     @staticmethod
     def _parse_decimal_value(value: str) -> Decimal:
