@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-03-25
+
+### Changed
+
+- merge-restore for `users` now reconciles existing rows by `telegram_id`, so imported backups can update live users instead of trying to insert duplicates with a different internal `id`
+- restore now defers `users.current_subscription_id` until after `subscriptions` are restored, which keeps the cyclic user/subscription linkage consistent during database recovery
+
+### Fixed
+
+- restoring `DB` and `Full` backups into a non-empty instance no longer fails on `users_telegram_id_key` when the target database already contains users created after the backup was taken
+- user restore no longer risks tripping a follow-up foreign-key problem on `current_subscription_id` before subscription rows are back in place
+
 ## [1.2.4] - 2026-03-25
 
 ### Changed

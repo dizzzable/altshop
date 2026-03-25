@@ -19,6 +19,7 @@ from src.core.enums import (
     BackupSourceKind,
     Currency,
     DeviceType,
+    Locale,
     PaymentGatewayType,
     PlanAvailability,
     PlanType,
@@ -27,11 +28,13 @@ from src.core.enums import (
     PurchaseType,
     SubscriptionStatus,
     TransactionStatus,
+    UserRole,
 )
 from src.infrastructure.database.models.sql.plan import Plan, PlanDuration, PlanPrice
 from src.infrastructure.database.models.sql.promocode import Promocode
 from src.infrastructure.database.models.sql.subscription import Subscription
 from src.infrastructure.database.models.sql.transaction import Transaction
+from src.infrastructure.database.models.sql.user import User
 from src.services.backup import BackupInfo, BackupService
 
 
@@ -623,6 +626,101 @@ def test_restore_table_records_builds_plan_instance_with_restored_arrays(tmp_pat
     assert captured_instances[0].replacement_plan_ids == [11, 12]
     assert captured_instances[0].upgrade_to_plan_ids == []
     assert captured_instances[0].internal_squads == [UUID(squad_id)]
+
+
+def test_restore_table_records_merges_existing_user_by_telegram_id(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    existing_user = SimpleNamespace(
+        id=999,
+        telegram_id=7534150980,
+        username="existing_user",
+        referral_code="oldCode",
+        name="Existing Name",
+        role=UserRole.USER,
+        language=Locale.RU,
+        personal_discount=0,
+        purchase_discount=0,
+        points=0,
+        is_blocked=False,
+        is_bot_blocked=False,
+        is_rules_accepted=True,
+        partner_balance_currency_override=None,
+        referral_invite_settings={},
+        max_subscriptions=None,
+        current_subscription_id=None,
+    )
+    session = SimpleNamespace(
+        execute=AsyncMock(
+            side_effect=[
+                SimpleNamespace(scalar_one_or_none=lambda: None),
+                SimpleNamespace(scalar_one_or_none=lambda: existing_user),
+            ]
+        ),
+        add=MagicMock(),
+        no_autoflush=nullcontext(),
+    )
+
+    restored_count = run_async(
+        service._restore_table_records(
+            session,
+            User,
+            "users",
+            [
+                {
+                    "id": 49,
+                    "telegram_id": 7534150980,
+                    "username": None,
+                    "referral_code": "newCode",
+                    "name": "Restored Name",
+                    "role": UserRole.USER.value,
+                    "language": Locale.RU.value,
+                    "personal_discount": 0,
+                    "purchase_discount": 0,
+                    "points": 0,
+                    "is_blocked": False,
+                    "is_bot_blocked": False,
+                    "is_rules_accepted": True,
+                    "partner_balance_currency_override": None,
+                    "referral_invite_settings": {},
+                    "max_subscriptions": None,
+                    "current_subscription_id": None,
+                }
+            ],
+            False,
+        )
+    )
+
+    assert restored_count == 1
+    session.add.assert_not_called()
+    assert existing_user.id == 999
+    assert existing_user.telegram_id == 7534150980
+    assert existing_user.referral_code == "newCode"
+    assert existing_user.name == "Restored Name"
+
+
+def test_extract_and_apply_deferred_user_subscription_restore_update(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    existing_user = SimpleNamespace(telegram_id=7534150980, current_subscription_id=None)
+    session = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: existing_user)),
+        no_autoflush=nullcontext(),
+    )
+
+    processed_data, deferred_update = service._extract_deferred_restore_fields(
+        User,
+        {
+            "id": 49,
+            "telegram_id": 7534150980,
+            "current_subscription_id": 83,
+        },
+    )
+
+    assert processed_data["current_subscription_id"] is None
+    assert deferred_update is not None
+
+    run_async(service._apply_deferred_restore_updates(session, [deferred_update]))
+
+    assert existing_user.current_subscription_id == 83
 
 
 def test_recover_legacy_missing_plans_from_snapshots_and_durations(tmp_path: Path) -> None:

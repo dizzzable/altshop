@@ -108,6 +108,14 @@ class BackupInfo:
     error: Optional[str] = None
 
 
+@dataclass
+class DeferredRestoreUpdate:
+    model: Any
+    lookup_field: str
+    lookup_value: Any
+    values: Dict[str, Any]
+
+
 class BackupService(BaseService):
     """Сервис для создания и восстановления бэкапов базы данных."""
 
@@ -135,6 +143,10 @@ class BackupService(BaseService):
         Broadcast,
         BroadcastMessage,
     ]
+
+    RESTORE_LOOKUP_FIELDS: dict[str, tuple[str, ...]] = {
+        User.__tablename__: ("telegram_id",),
+    }
 
     def __init__(
         self,
@@ -1456,6 +1468,7 @@ class BackupService(BaseService):
 
         async with self.session_pool() as session:
             try:
+                deferred_updates: list[DeferredRestoreUpdate] = []
                 if clear_existing:
                     logger.warning("🗑️ Очищаем существующие данные...")
                     await self._clear_database_tables(session)
@@ -1476,6 +1489,7 @@ class BackupService(BaseService):
                         table_name,
                         records,
                         clear_existing,
+                        deferred_updates=deferred_updates,
                     )
                     await session.flush()
                     restored_records += restored
@@ -1483,6 +1497,10 @@ class BackupService(BaseService):
                     if restored:
                         restored_tables += 1
                         logger.info(f"✅ Таблица {table_name} восстановлена")
+
+                await self._apply_deferred_restore_updates(session, deferred_updates)
+                if deferred_updates:
+                    await session.flush()
 
                 await session.commit()
 
@@ -1534,6 +1552,7 @@ class BackupService(BaseService):
         table_name: str,
         records: List[Dict[str, Any]],
         clear_existing: bool,
+        deferred_updates: Optional[list[DeferredRestoreUpdate]] = None,
     ) -> int:
         """Восстанавливает записи в таблицу."""
         restored_count = 0
@@ -1541,27 +1560,31 @@ class BackupService(BaseService):
         for record_data in records:
             try:
                 processed_data = self._process_record_data(record_data, model, table_name)
+                processed_data, deferred_update = self._extract_deferred_restore_fields(
+                    model,
+                    processed_data,
+                )
                 primary_key_col = self._get_primary_key_column(model)
 
-                if primary_key_col and primary_key_col in processed_data:
-                    with session.no_autoflush:
-                        existing_record = await session.execute(
-                            select(model).where(
-                                getattr(model, primary_key_col) == processed_data[primary_key_col]
-                            )
-                        )
-                    existing = existing_record.scalar_one_or_none()
+                existing = None
+                if not clear_existing:
+                    existing = await self._find_existing_restore_record(
+                        session=session,
+                        model=model,
+                        processed_data=processed_data,
+                        primary_key_col=primary_key_col,
+                    )
 
-                    if existing and not clear_existing:
-                        for key, value in processed_data.items():
-                            if key != primary_key_col:
-                                setattr(existing, key, value)
-                    else:
-                        instance = model(**processed_data)
-                        session.add(instance)
+                if existing is not None:
+                    for key, value in processed_data.items():
+                        if key != primary_key_col:
+                            setattr(existing, key, value)
                 else:
                     instance = model(**processed_data)
                     session.add(instance)
+
+                if deferred_update is not None and deferred_updates is not None:
+                    deferred_updates.append(deferred_update)
 
                 restored_count += 1
 
@@ -1571,6 +1594,88 @@ class BackupService(BaseService):
                 raise e
 
         return restored_count
+
+    async def _find_existing_restore_record(
+        self,
+        *,
+        session: AsyncSession,
+        model: Any,
+        processed_data: Dict[str, Any],
+        primary_key_col: Optional[str],
+    ) -> Any:
+        if primary_key_col and primary_key_col in processed_data:
+            with session.no_autoflush:
+                existing_record = await session.execute(
+                    select(model).where(
+                        getattr(model, primary_key_col) == processed_data[primary_key_col]
+                    )
+                )
+            existing = existing_record.scalar_one_or_none()
+            if existing is not None:
+                return existing
+
+        for lookup_field in self.RESTORE_LOOKUP_FIELDS.get(model.__tablename__, ()):
+            lookup_value = processed_data.get(lookup_field)
+            if lookup_value is None:
+                continue
+
+            with session.no_autoflush:
+                existing_record = await session.execute(
+                    select(model).where(getattr(model, lookup_field) == lookup_value)
+                )
+            existing = existing_record.scalar_one_or_none()
+            if existing is not None:
+                return existing
+
+        return None
+
+    def _extract_deferred_restore_fields(
+        self,
+        model: Any,
+        processed_data: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], Optional[DeferredRestoreUpdate]]:
+        if model is not User:
+            return processed_data, None
+
+        current_subscription_id = processed_data.get("current_subscription_id")
+        telegram_id = processed_data.get("telegram_id")
+        if current_subscription_id is None or telegram_id is None:
+            return processed_data, None
+
+        deferred_data = dict(processed_data)
+        deferred_data["current_subscription_id"] = None
+        return deferred_data, DeferredRestoreUpdate(
+            model=User,
+            lookup_field="telegram_id",
+            lookup_value=telegram_id,
+            values={"current_subscription_id": current_subscription_id},
+        )
+
+    async def _apply_deferred_restore_updates(
+        self,
+        session: AsyncSession,
+        deferred_updates: list[DeferredRestoreUpdate],
+    ) -> None:
+        for deferred_update in deferred_updates:
+            with session.no_autoflush:
+                existing_record = await session.execute(
+                    select(deferred_update.model).where(
+                        getattr(deferred_update.model, deferred_update.lookup_field)
+                        == deferred_update.lookup_value
+                    )
+                )
+            existing = existing_record.scalar_one_or_none()
+            if existing is None:
+                logger.warning(
+                    "Skipped deferred restore update for {}.{}={}",
+                    deferred_update.model.__tablename__,
+                    deferred_update.lookup_field,
+                    deferred_update.lookup_value,
+                )
+                continue
+
+            for key, value in deferred_update.values.items():
+                setattr(existing, key, value)
 
     def _parse_datetime_value(self, key: str, value: str) -> datetime:
         try:
