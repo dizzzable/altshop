@@ -28,6 +28,10 @@ class PlategaWebhookResolutionError(RuntimeError):
     """Raised when a valid Platega callback cannot be matched to a local payment."""
 
 
+class PlategaTransactionNotFoundError(RuntimeError):
+    """Raised when Platega no longer has the requested transaction."""
+
+
 class PlategaGateway(BasePaymentGateway):
     """Platega payment gateway."""
 
@@ -181,6 +185,22 @@ class PlategaGateway(BasePaymentGateway):
             response = await self._client.get(f"/transaction/{transaction_id}")
             response.raise_for_status()
             return orjson.loads(response.content)
+        except HTTPStatusError as exception:
+            if exception.response.status_code == 404:
+                logger.warning(
+                    "Platega transaction was not found for external_transaction_id='{}'",
+                    transaction_id,
+                )
+                raise PlategaTransactionNotFoundError(
+                    f"Platega transaction '{transaction_id}' was not found"
+                ) from exception
+
+            logger.error(
+                "Failed to get Platega transaction info for external_transaction_id='{}': {}",
+                transaction_id,
+                exception,
+            )
+            raise
         except Exception as exception:
             logger.error(
                 "Failed to get Platega transaction info for external_transaction_id='{}': {}",

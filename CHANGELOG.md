@@ -6,6 +6,16 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.11] - 2026-03-25
+
+### Changed
+
+- Platega webhook recovery now treats remote `GET /transaction/{id}` `404 Not Found` responses as a normal “remote transaction disappeared” outcome instead of an unexpected fetch crash
+
+### Fixed
+
+- the scheduled Platega recovery worker no longer emits full traceback spam when old recovery candidates are already gone on the Platega side; those events are now marked as reconcile-failed with a compact diagnostic and skipped cleanly
+
 ## [1.2.10] - 2026-03-25
 
 ### Changed

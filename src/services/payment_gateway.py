@@ -59,6 +59,7 @@ from src.infrastructure.database.models.sql import PaymentGateway, PaymentWebhoo
 from src.infrastructure.payment_gateways import BasePaymentGateway, PaymentGatewayFactory
 from src.infrastructure.payment_gateways.platega import (
     PlategaGateway,
+    PlategaTransactionNotFoundError,
     PlategaWebhookResolutionError,
 )
 from src.infrastructure.redis import RedisRepository
@@ -749,7 +750,7 @@ class PaymentGatewayService(BaseService):
         )
         return recovered_count
 
-    async def _recover_single_platega_event(
+    async def _recover_single_platega_event(  # noqa: C901
         self,
         *,
         gateway_instance: PlategaGateway,
@@ -769,6 +770,25 @@ class PaymentGatewayService(BaseService):
                 transaction_details=transaction_details,
                 external_transaction_id=str(external_transaction_id),
             )
+        except PlategaTransactionNotFoundError:
+            diagnostic = f"remote_transaction_missing:{external_transaction_id}"
+            await self.payment_webhook_event_service.mark_reconcile_failed(
+                gateway_type=PaymentGatewayType.PLATEGA.value,
+                payment_id=external_transaction_id,
+                diagnostic=diagnostic,
+            )
+            emit_counter(
+                "payment_gateway_platega_recovery_total",
+                result="remote_transaction_missing",
+            )
+            logger.warning(
+                (
+                    "Skipping Platega recovery because the remote transaction is gone. "
+                    "external_transaction_id='{}'"
+                ),
+                external_transaction_id,
+            )
+            return False
         except PlategaWebhookResolutionError as exception:
             diagnostic = str(exception)
             await self.payment_webhook_event_service.mark_reconcile_failed(

@@ -13,6 +13,7 @@ from src.infrastructure.database.models.dto import PaymentGatewayDto, PlategaGat
 from src.infrastructure.database.models.sql import PaymentWebhookEvent
 from src.infrastructure.payment_gateways.platega import (
     PlategaGateway,
+    PlategaTransactionNotFoundError,
     PlategaWebhookResolutionError,
 )
 from src.services.payment_gateway import PaymentGatewayService
@@ -263,4 +264,45 @@ def test_recover_stuck_platega_payments_is_idempotent_for_terminal_transactions(
         gateway_type=PaymentGatewayType.PLATEGA.value,
         payment_id=external_transaction_id,
         diagnostic=f"already_terminal:{internal_payment_id}:{TransactionStatus.COMPLETED.value}",
+    )
+
+
+def test_recover_stuck_platega_payments_skips_remote_404_transaction() -> None:
+    external_transaction_id = uuid4()
+    legacy_event = PaymentWebhookEvent(
+        gateway_type=PaymentGatewayType.PLATEGA.value,
+        payment_id=external_transaction_id,
+        status="PROCESSED",
+        payload_hash="legacy",
+        attempts=1,
+        last_error=None,
+        received_at=datetime_now(),
+    )
+    payment_webhook_event_service = SimpleNamespace(
+        get_platega_orphan_events=AsyncMock(return_value=[legacy_event]),
+        mark_reconciled=AsyncMock(),
+        mark_reconcile_failed=AsyncMock(),
+        record_received=AsyncMock(),
+        mark_processing=AsyncMock(),
+        mark_processed=AsyncMock(),
+        mark_failed=AsyncMock(),
+    )
+    service = build_payment_gateway_service(
+        payment_webhook_event_service=payment_webhook_event_service,
+    )
+    gateway = build_platega_gateway()
+    gateway.get_transaction = AsyncMock(  # type: ignore[method-assign]
+        side_effect=PlategaTransactionNotFoundError("missing remote transaction")
+    )
+    service._get_gateway_instance = AsyncMock(return_value=gateway)  # type: ignore[method-assign]
+    service.handle_payment_succeeded = AsyncMock()  # type: ignore[method-assign]
+
+    recovered = run_async(service.recover_stuck_platega_payments(limit=10))
+
+    assert recovered == 0
+    service.handle_payment_succeeded.assert_not_awaited()
+    payment_webhook_event_service.mark_reconcile_failed.assert_awaited_once_with(
+        gateway_type=PaymentGatewayType.PLATEGA.value,
+        payment_id=external_transaction_id,
+        diagnostic=f"remote_transaction_missing:{external_transaction_id}",
     )
