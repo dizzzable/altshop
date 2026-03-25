@@ -336,6 +336,103 @@ type SubmitBlockReason =
   | 'MISSING_PAYMENT_ASSET'
   | 'QUOTE_PENDING_OR_FAILED'
 
+function LimitWarningCard({
+  show,
+  maxSubscriptions,
+  blockReason,
+  activeSubscriptionsCount,
+  effectiveSubscriptionCount,
+  remainingSlots,
+  text,
+  onManageSubscriptions,
+}: {
+  show: boolean
+  maxSubscriptions: number | null
+  blockReason: SubmitBlockReason | null
+  activeSubscriptionsCount: number
+  effectiveSubscriptionCount: number
+  remainingSlots: number | null
+  text: PurchaseText
+  onManageSubscriptions: () => void
+}) {
+  if (!show || maxSubscriptions === null) {
+    return null
+  }
+
+  return (
+    <Card className="border-amber-300/25 bg-amber-500/10">
+      <CardHeader>
+        <CardTitle>{text.limitCheckTitle}</CardTitle>
+        <CardDescription className="text-amber-100/90">
+          {blockReason === 'LIMIT_WOULD_BE_EXCEEDED' ? text.limitWouldExceed : text.limitReached}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
+            <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.limitCurrentActive}</p>
+            <p className="mt-1 text-lg font-semibold text-amber-50">{activeSubscriptionsCount}</p>
+          </div>
+          <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
+            <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.limitMaximum}</p>
+            <p className="mt-1 text-lg font-semibold text-amber-50">{maxSubscriptions}</p>
+          </div>
+          <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
+            <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.subscriptionsAfterPurchase}</p>
+            <p className="mt-1 text-lg font-semibold text-amber-50">
+              {activeSubscriptionsCount + effectiveSubscriptionCount}
+            </p>
+          </div>
+          {remainingSlots !== null && remainingSlots > 0 && (
+            <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
+              <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.limitRemaining}</p>
+              <p className="mt-1 text-lg font-semibold text-amber-50">{remainingSlots}</p>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1">
+          <p className="text-sm text-amber-100">{text.limitCheckDesc}</p>
+          <p className="text-xs text-amber-200/85">{text.limitCheckServerValidation}</p>
+        </div>
+
+        <Button type="button" onClick={onManageSubscriptions}>
+          {text.manageSubscriptions}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function SubmitBlockNotice({
+  message,
+  reason,
+  isQuoteFetching,
+}: {
+  message: string | null
+  reason: SubmitBlockReason | null
+  isQuoteFetching: boolean
+}) {
+  if (!message) {
+    return null
+  }
+
+  const isQuotePending = reason === 'QUOTE_PENDING_OR_FAILED' && isQuoteFetching
+
+  return (
+    <div
+      className={cn(
+        'rounded-lg border px-3 py-2',
+        isQuotePending ? 'border-sky-300/25 bg-sky-500/10' : 'border-amber-300/20 bg-amber-500/10'
+      )}
+    >
+      <p className={cn('text-xs', isQuotePending ? 'text-sky-100' : 'text-amber-100')}>
+        {message}
+      </p>
+    </div>
+  )
+}
+
 function buildPurchaseText(locale: PurchaseLocale): PurchaseText {
   return Object.fromEntries(
     Object.entries(PURCHASE_TEXT_KEYS).map(([field, key]) => [field, translatePurchase(locale, key)])
@@ -1450,83 +1547,6 @@ export function PurchasePage() {
       </CardContent>
     </Card>
   ) : null
-  const renderLimitWarningCard = () => {
-    if (!showLimitWarning || effectiveMaxSubscriptions === null) {
-      return null
-    }
-
-    return (
-      <Card className="border-amber-300/25 bg-amber-500/10">
-        <CardHeader>
-          <CardTitle>{text.limitCheckTitle}</CardTitle>
-          <CardDescription className="text-amber-100/90">
-            {submitBlockReason === 'LIMIT_WOULD_BE_EXCEEDED' ? text.limitWouldExceed : text.limitReached}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
-              <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.limitCurrentActive}</p>
-              <p className="mt-1 text-lg font-semibold text-amber-50">{activeSubscriptionsCount}</p>
-            </div>
-            <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
-              <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.limitMaximum}</p>
-              <p className="mt-1 text-lg font-semibold text-amber-50">{effectiveMaxSubscriptions}</p>
-            </div>
-            <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
-              <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.subscriptionsAfterPurchase}</p>
-              <p className="mt-1 text-lg font-semibold text-amber-50">
-                {activeSubscriptionsCount + effectiveSubscriptionCount}
-              </p>
-            </div>
-            {remainingSlots !== null && remainingSlots > 0 && (
-              <div className="rounded-xl border border-amber-300/15 bg-black/10 p-3">
-                <p className="text-xs uppercase tracking-wide text-amber-200/80">{text.limitRemaining}</p>
-                <p className="mt-1 text-lg font-semibold text-amber-50">{remainingSlots}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-sm text-amber-100">{text.limitCheckDesc}</p>
-            <p className="text-xs text-amber-200/85">{text.limitCheckServerValidation}</p>
-          </div>
-
-          <Button type="button" onClick={() => navigate('/dashboard/subscription')}>
-            {text.manageSubscriptions}
-          </Button>
-        </CardContent>
-      </Card>
-    )
-  }
-  const renderSubmitBlockNotice = () => {
-    if (!submitBlockMessage) {
-      return null
-    }
-
-    return (
-      <div
-        className={cn(
-          'rounded-lg border px-3 py-2',
-          submitBlockReason === 'QUOTE_PENDING_OR_FAILED' && isQuoteFetching
-            ? 'border-sky-300/25 bg-sky-500/10'
-            : 'border-amber-300/20 bg-amber-500/10'
-        )}
-      >
-        <p
-          className={cn(
-            'text-xs',
-            submitBlockReason === 'QUOTE_PENDING_OR_FAILED' && isQuoteFetching
-              ? 'text-sky-100'
-              : 'text-amber-100'
-          )}
-        >
-          {submitBlockMessage}
-        </p>
-      </div>
-    )
-  }
-
   const displayPrice = selectedQuote ?? selectedPrice
   const showOriginalPrice = hasActiveDiscount(displayPrice)
   const totalFinalPrice = selectedQuote?.price ?? ((selectedPrice?.price ?? 0) * priceMultiplier)
@@ -1673,7 +1693,16 @@ export function PurchasePage() {
       )}
 
       {trialCard}
-      {renderLimitWarningCard()}
+      <LimitWarningCard
+        show={showLimitWarning}
+        maxSubscriptions={effectiveMaxSubscriptions}
+        blockReason={submitBlockReason}
+        activeSubscriptionsCount={activeSubscriptionsCount}
+        effectiveSubscriptionCount={effectiveSubscriptionCount}
+        remainingSlots={remainingSlots}
+        text={text}
+        onManageSubscriptions={() => navigate('/dashboard/subscription')}
+      />
       {purchaseWarningMessage && (
         <Card className="border-amber-300/25 bg-amber-500/10">
           <CardContent className="space-y-2 pt-6">
@@ -1781,7 +1810,11 @@ export function PurchasePage() {
                   text.proceedPayment
                 )}
               </Button>
-              {renderSubmitBlockNotice()}
+              <SubmitBlockNotice
+                message={submitBlockMessage}
+                reason={submitBlockReason}
+                isQuoteFetching={isQuoteFetching}
+              />
 
               <Button
                 variant="outline"
@@ -1907,7 +1940,16 @@ export function PurchasePage() {
             <div className="mt-4 space-y-4 pb-[calc(0.5rem+var(--app-safe-bottom))] [overflow-anchor:none]">
               {paymentSourceSelector}
               {paymentGatewaySelector}
-              {renderLimitWarningCard()}
+              <LimitWarningCard
+                show={showLimitWarning}
+                maxSubscriptions={effectiveMaxSubscriptions}
+                blockReason={submitBlockReason}
+                activeSubscriptionsCount={activeSubscriptionsCount}
+                effectiveSubscriptionCount={effectiveSubscriptionCount}
+                remainingSlots={remainingSlots}
+                text={text}
+                onManageSubscriptions={() => navigate('/dashboard/subscription')}
+              />
 
               <Card className={MOBILE_PURCHASE_SURFACE_CLASS_NAME}>
                 <CardContent className="pt-4">
@@ -1929,7 +1971,11 @@ export function PurchasePage() {
                   text.proceedPayment
                 )}
               </Button>
-              {renderSubmitBlockNotice()}
+              <SubmitBlockNotice
+                message={submitBlockMessage}
+                reason={submitBlockReason}
+                isQuoteFetching={isQuoteFetching}
+              />
             </div>
           </SheetContent>
         </Sheet>

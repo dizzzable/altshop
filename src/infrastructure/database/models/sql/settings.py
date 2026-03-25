@@ -6,6 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.core.enums import AccessMode, Currency
 from src.infrastructure.database.models.dto import (
+    BotMenuSettingsDto,
     BrandingSettingsDto,
     PartnerSettingsDto,
     ReferralSettingsDto,
@@ -84,5 +85,11 @@ class Settings(BaseSql):
     branding: Mapped[BrandingSettingsDto] = mapped_column(
         JSON,
         default=lambda: BrandingSettingsDto().model_dump(mode="json"),
+        nullable=False,
+    )
+
+    bot_menu: Mapped[BotMenuSettingsDto] = mapped_column(
+        JSON,
+        default=lambda: BotMenuSettingsDto().model_dump(mode="json"),
         nullable=False,
     )

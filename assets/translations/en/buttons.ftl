@@ -335,6 +335,37 @@ btn-remnashop-logs = 📄 Logs
 btn-remnashop-audit = 🔍 Audit
 btn-remnashop-multi-subscription = 📦 Multi-Subscription
 btn-remnashop-branding = 🎨 Branding
+btn-remnashop-bot-menu = 📱 Bot Menu
+
+# Bot Menu
+btn-bot-menu-mode-toggle = { $enabled ->
+    [true] 🟢 Mini App-first Enabled
+    *[false] 🔴 Mini App-first Disabled
+    }
+btn-bot-menu-mini-app-url = 🔗 Mini App URL
+btn-bot-menu-add-button = ➕ Add Button
+btn-bot-menu-button-item = { $enabled ->
+    [true] 🟢
+    *[false] 🔴
+    } { $kind ->
+    [URL] 🔗
+    [WEB_APP] 📱
+    *[other] { $kind }
+    } { $label }
+btn-bot-menu-button-enabled = { $enabled ->
+    [true] 🟢 Enabled
+    *[false] 🔴 Disabled
+    }
+btn-bot-menu-button-kind = { $kind ->
+    [URL] 🔗 Type: URL
+    [WEB_APP] 📱 Type: Web App
+    *[other] { $kind }
+    }
+btn-bot-menu-button-edit-label = ✏️ Edit Label
+btn-bot-menu-button-edit-url = 🔗 Edit URL
+btn-bot-menu-button-move-up = 🔼 Move Up
+btn-bot-menu-button-move-down = 🔽 Move Down
+btn-bot-menu-button-delete = ❌ Delete Button
 
 # Multi Subscription
 btn-multi-subscription-toggle = { $is_enabled ->

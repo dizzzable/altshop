@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-25
+
+### Added
+
+- a new bot `Mini App-first` main-menu mode with settings-backed Mini App URL resolution, custom link buttons, and a dedicated admin `Bot Menu` section for configuring the user-facing menu without touching other bot flows
+- a new internal `bot_menu` settings contract and migration, including `miniapp_only_enabled`, `mini_app_url`, and ordered custom buttons with `URL` and `WEB_APP` kinds
+- regression coverage for Mini App-first menu rendering, button resolution order, legacy `BOT_MINI_APP` fallback, and localization guardrails for the new bot-menu surfaces
+
+### Changed
+
+- privileged bot users now keep access to the dashboard button even when Mini App-first mode is enabled, while ordinary users see only the primary Mini App entry, enabled custom buttons, and support in `MainMenu.MAIN`
+- the purchase screen internals were cleaned up to replace inline render helpers with dedicated components, and the dashboard navigation module was trimmed to remove an unused public export
+- the `v1.2.0` release bundles the full pending worktree, including the prepared bot-menu feature package and the already-staged web cleanup changes
+
 ## [1.1.18] - 2026-03-24
 
 ### Changed

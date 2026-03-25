@@ -418,6 +418,11 @@ class BackupScope(UpperStrEnum):
     FULL = auto()
 
 
+class BotMenuCustomButtonKind(UpperStrEnum):
+    URL = auto()
+    WEB_APP = auto()
+
+
 class Command(Enum):
     START = BotCommand(command="start", description="cmd-start")
     PAYSUPPORT = BotCommand(command="paysupport", description="cmd-paysupport")

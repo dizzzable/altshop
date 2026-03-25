@@ -20,7 +20,7 @@ from magic_filter import F
 from src.bot.routers.dashboard.users.handlers import on_user_search
 from src.bot.states import Dashboard, MainMenu, Subscription, UserPartner
 from src.bot.widgets import Banner, I18nFormat, IgnoreUpdate
-from src.core.constants import MIDDLEWARE_DATA_KEY, PURCHASE_PREFIX, USER_KEY
+from src.core.constants import PURCHASE_PREFIX
 from src.core.enums import BannerName
 
 from .getters import (
@@ -77,7 +77,7 @@ menu = Window(
             on_click=show_reason,
             when=~F["connectable"],
         ),
-        when=F["has_subscription"] & F["product_sections_enabled"],
+        when=F["has_subscription"] & F["product_sections_enabled"] & ~F["miniapp_only_active"],
     ),
     Row(
         Button(
@@ -86,7 +86,7 @@ menu = Window(
             on_click=on_get_trial,
             when=F["trial_available"],
         ),
-        when=F["product_sections_enabled"],
+        when=F["product_sections_enabled"] & ~F["miniapp_only_active"],
     ),
     Row(
         SwitchTo(
@@ -100,7 +100,7 @@ menu = Window(
             id=f"{PURCHASE_PREFIX}subscription",
             state=Subscription.MAIN,
         ),
-        when=F["product_sections_enabled"],
+        when=F["product_sections_enabled"] & ~F["miniapp_only_active"],
     ),
     Row(
         SwitchTo(
@@ -109,7 +109,7 @@ menu = Window(
             state=MainMenu.EXCHANGE,
             when=F["can_show_referral_exchange"],
         ),
-        when=F["product_sections_enabled"],
+        when=F["product_sections_enabled"] & ~F["miniapp_only_active"],
     ),
     Row(
         Start(
@@ -118,7 +118,15 @@ menu = Window(
             state=UserPartner.MAIN,
             when=F["is_partner"],
         ),
-        when=F["product_sections_enabled"],
+        when=F["product_sections_enabled"] & ~F["miniapp_only_active"],
+    ),
+    Row(
+        WebApp(
+            text=Format("{mini_app_button_text}"),
+            url=Format("{menu_mini_app_url}"),
+            id="main_miniapp",
+        ),
+        when=F["product_sections_enabled"] & F["miniapp_only_active"],
     ),
     Row(
         Button(
@@ -136,12 +144,34 @@ menu = Window(
             id="send",
             when=F["can_show_referral_send_inline"],
         ),
+        when=F["product_sections_enabled"] & ~F["miniapp_only_active"],
+    ),
+    ListGroup(
+        Row(
+            WebApp(
+                text=Format("{item[label]}"),
+                url=Format("{item[url]}"),
+                id="custom_web_app",
+                when=F["item"]["is_web_app"],
+            ),
+            Url(
+                text=Format("{item[label]}"),
+                url=Format("{item[url]}"),
+                id="custom_url",
+                when=F["item"]["is_url"],
+            ),
+        ),
+        id="custom_menu_buttons",
+        item_id_getter=lambda item: item["id"],
+        items="custom_menu_buttons",
+        when=F["miniapp_only_active"] & F["has_custom_menu_buttons"],
+    ),
+    Row(
         Url(
             text=I18nFormat("btn-menu-support"),
             id="support",
             url=Format("{support}"),
         ),
-        when=F["product_sections_enabled"],
     ),
     Row(
         Start(
@@ -149,7 +179,7 @@ menu = Window(
             id="dashboard",
             state=Dashboard.MAIN,
             mode=StartMode.RESET_STACK,
-            when=F[MIDDLEWARE_DATA_KEY][USER_KEY].is_privileged,
+            when=F["is_privileged_user"],
         ),
     ),
     MessageInput(func=on_user_search),

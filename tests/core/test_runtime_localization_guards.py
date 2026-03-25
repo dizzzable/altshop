@@ -31,6 +31,15 @@ def test_targeted_bot_runtime_strings_use_i18n_keys() -> None:
     branding_handlers = Path(
         "src/bot/routers/dashboard/remnashop/branding/handlers.py"
     ).read_text(encoding="utf-8")
+    bot_menu_dialog = Path(
+        "src/bot/routers/dashboard/remnashop/bot_menu/dialog.py"
+    ).read_text(encoding="utf-8")
+    bot_menu_getters = Path(
+        "src/bot/routers/dashboard/remnashop/bot_menu/getters.py"
+    ).read_text(encoding="utf-8")
+    bot_menu_handlers = Path(
+        "src/bot/routers/dashboard/remnashop/bot_menu/handlers.py"
+    ).read_text(encoding="utf-8")
 
     assert "msg-backup-scope-db-label" in backup_getters
     assert "msg-backup-scope-title" in backup_dialog
@@ -48,6 +57,11 @@ def test_targeted_bot_runtime_strings_use_i18n_keys() -> None:
     assert "edit_locale_en_label" in branding_dialog
     assert "ntf-branding-field-not-selected" in branding_handlers
     assert "ntf-branding-save-failed" in branding_handlers
+    assert "msg-bot-menu-main" in bot_menu_dialog
+    assert "msg-bot-menu-source-settings" in bot_menu_getters
+    assert "msg-bot-menu-new-button-label" in bot_menu_handlers
+    assert "ntf-bot-menu-button-created" in bot_menu_handlers
+    assert "ntf-bot-menu-mode-missing-url" in bot_menu_handlers
 
     forbidden_literals = {
         "Database only": [backup_getters, backup_dialog],
@@ -67,9 +81,14 @@ def test_targeted_bot_runtime_strings_use_i18n_keys() -> None:
         "Edit RU (Override)": [branding_getters, branding_dialog],
         "No branding field selected.": [branding_handlers],
         "Failed to save value:": [branding_handlers],
-        "Подписка": [menu_handlers, multisubscription_getters],
-        "∞ (безлимит)": [multisubscription_getters],
-        "Не указаны": [partner_getters],
+        "Mini App URL": [bot_menu_dialog, bot_menu_getters, bot_menu_handlers],
+        "Custom Button": [bot_menu_dialog, bot_menu_getters, bot_menu_handlers],
+        "Mini App-first": [bot_menu_dialog, bot_menu_getters, bot_menu_handlers],
+        "Custom button not found": [bot_menu_handlers],
+        "New Button": [bot_menu_handlers],
+        "РџРѕРґРїРёСЃРєР°": [menu_handlers, multisubscription_getters],
+        "в€ћ (Р±РµР·Р»РёРјРёС‚)": [multisubscription_getters],
+        "РќРµ СѓРєР°Р·Р°РЅС‹": [partner_getters],
     }
 
     hits: list[str] = []
@@ -110,7 +129,7 @@ def test_targeted_web_runtime_strings_use_locale_map() -> None:
         'placeholder="username"',
         'placeholder="you@example.com"',
         'placeholder="123456789"',
-        'placeholder="••••••••"',
+        'placeholder="вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў"',
     ]
     sources = [login_page, register_page, forgot_page, reset_page, devices_page]
 

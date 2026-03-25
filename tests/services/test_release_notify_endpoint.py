@@ -83,10 +83,10 @@ def test_notify_release_returns_notified_snapshot_for_newer_remote_version() -> 
     config.release_notify_secret = SecretStr("test-secret")
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config=config)))
     payload = ReleaseNotifyRequest(
-        version="1.1.19",
-        tag_name="v1.1.19",
-        name="AltShop v1.1.19",
-        html_url="https://github.com/dizzzable/altshop/releases/tag/v1.1.19",
+        version="1.2.1",
+        tag_name="v1.2.1",
+        name="AltShop v1.2.1",
+        html_url="https://github.com/dizzzable/altshop/releases/tag/v1.2.1",
         published_at=datetime(2026, 3, 24, 12, 0, tzinfo=timezone.utc),
     )
     redis_repository, settings_service, user_service, notification_service = (
@@ -112,7 +112,7 @@ def test_notify_release_returns_notified_snapshot_for_newer_remote_version() -> 
     )
 
     assert snapshot.outcome == "notified"
-    assert snapshot.remote_version == "1.1.19"
+    assert snapshot.remote_version == "1.2.1"
     redis_repository.set.assert_awaited()
     notification_service.system_notify.assert_awaited_once()
 
@@ -122,10 +122,10 @@ def test_notify_release_skips_same_version_release() -> None:
     config.release_notify_secret = SecretStr("test-secret")
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(config=config)))
     payload = ReleaseNotifyRequest(
-        version="1.1.18",
-        tag_name="v1.1.18",
-        name="AltShop v1.1.18",
-        html_url="https://github.com/dizzzable/altshop/releases/tag/v1.1.18",
+        version="1.2.0",
+        tag_name="v1.2.0",
+        name="AltShop v1.2.0",
+        html_url="https://github.com/dizzzable/altshop/releases/tag/v1.2.0",
         published_at=datetime(2026, 3, 24, 12, 0, tzinfo=timezone.utc),
     )
     redis_repository, settings_service, user_service, notification_service = (

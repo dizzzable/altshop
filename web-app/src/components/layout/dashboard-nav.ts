@@ -101,7 +101,7 @@ function normalizePathname(pathname: string): string {
   return normalized
 }
 
-export function getMobileNavSwipeSequence(isPartnerActive: boolean): string[] {
+function getMobileNavSwipeSequence(isPartnerActive: boolean): string[] {
   const [firstPage, secondPage] = getMobileNavPages(isPartnerActive)
   return [...firstPage, ...secondPage].map((item) => item.href)
 }

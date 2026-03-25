@@ -2333,6 +2333,72 @@ msg-branding-field-label-ru-override = { $label } (RU Override)
 msg-branding-field-empty-uses-en = <empty: uses EN base>
 msg-branding-edit-locale-en = Edit EN (Base)
 msg-branding-edit-locale-ru = Edit RU (Override)
+msg-bot-menu-main =
+    <b>📱 Bot Menu</b>
+
+    <blockquote>
+    • <b>Mini App-first mode</b>: { $miniapp_only_enabled ->
+        [true] enabled
+        *[false] disabled
+        }
+    • <b>Stored Mini App URL</b>: <code>{ $mini_app_url }</code>
+    • <b>Effective Mini App URL</b>: <code>{ $resolved_mini_app_url }</code>
+    • <b>Source</b>: { $resolved_source_label }
+    • <b>Custom buttons</b>: { $custom_button_count } / { $custom_button_limit }
+    </blockquote>
+
+    In Mini App-first mode, the main menu keeps only the primary Mini App button, custom buttons, support, and the DEV dashboard for privileged users.
+
+    { $has_custom_buttons ->
+        [true] <i>Select a button below to edit it.</i>
+        *[false] <i>No custom buttons added yet.</i>
+    }
+msg-bot-menu-url-input =
+    <b>🔗 Mini App URL</b>
+
+    <blockquote>
+    • <b>Stored URL</b>: <code>{ $stored_url }</code>
+    • <b>Effective URL</b>: <code>{ $resolved_url }</code>
+    • <b>Source</b>: { $resolved_source_label }
+    </blockquote>
+
+    Send a new absolute URL for the Telegram Mini App.
+    Send <code>/clear</code> to remove the stored URL and fall back to <code>BOT_MINI_APP</code> if available.
+msg-bot-menu-button-edit =
+    <b>🧩 Custom Button</b>
+
+    <blockquote>
+    • <b>Label</b>: { $button_label }
+    • <b>Type</b>: { $button_kind }
+    • <b>URL</b>: <code>{ $button_url }</code>
+    • <b>Status</b>: { $button_enabled ->
+        [true] enabled
+        *[false] disabled
+        }
+    • <b>Position</b>: { $button_position } / { $button_count }
+    </blockquote>
+
+    You can edit label, URL, type, enabled state, and order.
+msg-bot-menu-button-label-input =
+    <b>✏️ Edit Button Label</b>
+
+    <blockquote>
+    • <b>Current label</b>: { $current_label }
+    </blockquote>
+
+    Send new text from 1 to 32 characters.
+msg-bot-menu-button-url-input =
+    <b>🔗 Edit Button URL</b>
+
+    <blockquote>
+    • <b>Current URL</b>: <code>{ $current_url }</code>
+    </blockquote>
+
+    Send a new absolute URL.
+msg-bot-menu-source-settings = settings
+msg-bot-menu-source-config = BOT_MINI_APP fallback
+msg-bot-menu-source-missing = not configured
+msg-bot-menu-new-button-label = New Button
 msg-backup-result-created-title = ✅ Backup created successfully!
 msg-backup-result-scope = 📦 Scope: { $scope }
 msg-backup-result-file = 📁 File: { $value }
@@ -2399,6 +2465,11 @@ msg-main-menu-invite-locked =
     Ask the inviter for a fresh invite link and open the bot through that link.
 
     Only safe actions remain available: rules, language and support.
+msg-main-menu-miniapp-only =
+    <b>📱 Open the Mini App</b>
+
+    The main service actions are available inside the Telegram Mini App.
+    Use the button below to open the app. Support remains available here if you need help.
 msg-menu-invite-status-title = <b>Invite link status</b>
 msg-menu-invite-status-active = ✅ Link is active and ready to share.
 msg-menu-invite-status-expired = ⌛ This invite link has expired. Generate a new one.

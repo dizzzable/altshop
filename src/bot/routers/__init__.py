@@ -52,6 +52,7 @@ def setup_routers(router: Router) -> None:
         #
         remnashop.dialog.router,
         remnashop.banners.dialog.router,
+        remnashop.bot_menu.dialog.router,
         remnashop.gateways.dialog.router,
         remnashop.referral.dialog.router,
         remnashop.notifications.dialog.router,

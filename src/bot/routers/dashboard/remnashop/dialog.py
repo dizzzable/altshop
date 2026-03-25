@@ -10,6 +10,7 @@ from src.bot.states import (
     DashboardBackup,
     DashboardRemnashop,
     RemnashopBanners,
+    RemnashopBotMenu,
     RemnashopBranding,
     RemnashopGateways,
     RemnashopMultiSubscription,
@@ -87,6 +88,11 @@ remnashop = Window(
             text=I18nFormat("btn-remnashop-branding"),
             id="branding",
             state=RemnashopBranding.MAIN,
+        ),
+        Start(
+            text=I18nFormat("btn-remnashop-bot-menu"),
+            id="bot_menu",
+            state=RemnashopBotMenu.MAIN,
         ),
     ),
     Row(

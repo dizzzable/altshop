@@ -28,6 +28,7 @@ from src.core.utils.time import datetime_now
 from src.core.utils.types import AnyNotification
 from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import (
+    BotMenuSettingsDto,
     BrandingSettingsDto,
     LocalizedTextDto,
     PartnerSettingsDto,
@@ -112,6 +113,8 @@ class SettingsService(BaseService):
         settings.branding = BrandingSettingsDto.model_validate(settings.branding.model_dump())
         if settings.branding.changed_data or settings.branding.verification:
             settings.branding = settings.branding
+
+        settings.bot_menu = BotMenuSettingsDto.model_validate(settings.bot_menu.model_dump())
 
         changed_data = settings.prepare_changed_data()
         db_updated_settings = await self.uow.repository.settings.update(**changed_data)
@@ -254,6 +257,10 @@ class SettingsService(BaseService):
         """Получить настройки мультиподписок."""
         settings = await self.get()
         return settings.multi_subscription
+
+    async def get_bot_menu_settings(self) -> BotMenuSettingsDto:
+        settings = await self.get()
+        return settings.bot_menu
 
     async def get_branding_settings(self) -> BrandingSettingsDto:
         settings = await self.get()

@@ -1,5 +1,6 @@
 from . import (
     banners,
+    bot_menu,
     branding,
     dialog,
     gateways,
@@ -13,6 +14,7 @@ from . import (
 __all__ = [
     "branding",
     "banners",
+    "bot_menu",
     "dialog",
     "gateways",
     "multisubscription",

@@ -2611,6 +2611,11 @@ msg-main-menu-invite-locked =
     Получите новую invite-ссылку от пригласившего вас пользователя и откройте бота по ней.
 
     Доступны только безопасные действия: правила, язык и поддержка.
+msg-main-menu-miniapp-only =
+    <b>📱 Откройте Mini App</b>
+
+    Основные действия сервиса теперь доступны внутри Telegram Mini App.
+    Используйте кнопку ниже, чтобы открыть приложение. Поддержка по-прежнему доступна здесь.
 msg-menu-invite-status-title = <b>Статус ссылки приглашения</b>
 msg-menu-invite-status-active = ✅ Ссылка активна и готова к отправке.
 msg-menu-invite-status-expired = ⌛ Срок действия ссылки истёк. Сгенерируйте новую ссылку.
@@ -2684,3 +2689,70 @@ msg-user-referral-invite-settings-summary =
     • Порог квалификаций: { $effective_refill_threshold }
     • Добавлять слотов: { $effective_refill_amount }
     </blockquote>
+
+msg-bot-menu-main =
+    <b>📱 Меню бота</b>
+
+    <blockquote>
+    • <b>Режим Mini App-first</b>: { $miniapp_only_enabled ->
+        [true] включён
+        *[false] выключен
+        }
+    • <b>Сохранённая ссылка Mini App</b>: <code>{ $mini_app_url }</code>
+    • <b>Итоговая ссылка Mini App</b>: <code>{ $resolved_mini_app_url }</code>
+    • <b>Источник</b>: { $resolved_source_label }
+    • <b>Кастомные кнопки</b>: { $custom_button_count } / { $custom_button_limit }
+    </blockquote>
+
+    В режиме Mini App-first в главном меню остаются только основная кнопка Mini App, кастомные кнопки, поддержка и DEV-панель для привилегированных пользователей.
+
+    { $has_custom_buttons ->
+        [true] <i>Выберите кнопку ниже, чтобы отредактировать её.</i>
+        *[false] <i>Кастомные кнопки ещё не добавлены.</i>
+    }
+msg-bot-menu-url-input =
+    <b>🔗 Ссылка Mini App</b>
+
+    <blockquote>
+    • <b>Сохранённая ссылка</b>: <code>{ $stored_url }</code>
+    • <b>Итоговая ссылка</b>: <code>{ $resolved_url }</code>
+    • <b>Источник</b>: { $resolved_source_label }
+    </blockquote>
+
+    Отправьте новый абсолютный URL для Telegram Mini App.
+    Отправьте <code>/clear</code>, чтобы убрать сохранённую ссылку и использовать <code>BOT_MINI_APP</code> как fallback, если он задан.
+msg-bot-menu-button-edit =
+    <b>🧩 Кастомная кнопка</b>
+
+    <blockquote>
+    • <b>Текст</b>: { $button_label }
+    • <b>Тип</b>: { $button_kind }
+    • <b>URL</b>: <code>{ $button_url }</code>
+    • <b>Статус</b>: { $button_enabled ->
+        [true] включена
+        *[false] выключена
+        }
+    • <b>Позиция</b>: { $button_position } / { $button_count }
+    </blockquote>
+
+    Здесь можно изменить текст, ссылку, тип, состояние и порядок кнопки.
+msg-bot-menu-button-label-input =
+    <b>✏️ Изменение текста кнопки</b>
+
+    <blockquote>
+    • <b>Текущий текст</b>: { $current_label }
+    </blockquote>
+
+    Отправьте новый текст длиной от 1 до 32 символов.
+msg-bot-menu-button-url-input =
+    <b>🔗 Изменение ссылки кнопки</b>
+
+    <blockquote>
+    • <b>Текущий URL</b>: <code>{ $current_url }</code>
+    </blockquote>
+
+    Отправьте новый абсолютный URL.
+msg-bot-menu-source-settings = настройка из БД
+msg-bot-menu-source-config = fallback из BOT_MINI_APP
+msg-bot-menu-source-missing = не настроено
+msg-bot-menu-new-button-label = Новая кнопка

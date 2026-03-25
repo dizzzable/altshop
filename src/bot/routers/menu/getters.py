@@ -7,6 +7,7 @@ from fluentogram import TranslatorRunner
 
 from src.core.config import AppConfig
 from src.core.enums import DeviceType, PointsExchangeType, PurchaseChannel, SubscriptionStatus
+from src.core.utils.bot_menu import resolve_bot_menu_state, resolve_bot_menu_url
 from src.core.utils.formatters import (
     format_username_to_url,
     i18n_format_device_limit,
@@ -40,13 +41,6 @@ DEVICE_TYPE_NAMES = {
 }
 
 
-def _resolve_mini_app_entry_url(config: AppConfig) -> str | None:
-    mini_app_url = config.bot.mini_app_url
-    if isinstance(mini_app_url, str) and mini_app_url.strip():
-        return mini_app_url.rstrip("/")
-    return None
-
-
 def _resolve_device_visual(device_type: DeviceType | None) -> tuple[str, str]:
     if device_type is None:
         return DEVICE_TYPE_EMOJIS[DeviceType.OTHER], DEVICE_TYPE_NAMES[DeviceType.OTHER]
@@ -78,9 +72,14 @@ def _empty_value(i18n: TranslatorRunner) -> str:
     return i18n.get("msg-common-empty-value")
 
 
-def _resolve_main_menu_view_state(invite_locked: bool) -> tuple[str, bool]:
+def _resolve_main_menu_view_state(
+    invite_locked: bool,
+    miniapp_only_active: bool = False,
+) -> tuple[str, bool]:
     if invite_locked:
         return "msg-main-menu-invite-locked", False
+    if miniapp_only_active:
+        return "msg-main-menu-miniapp-only", True
     return "msg-main-menu-public", True
 
 
@@ -105,13 +104,23 @@ async def menu_getter(
         )
     except PurchaseAccessError:
         trial_eligibility = None
-    mini_app_url = _resolve_mini_app_entry_url(config)
-    is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
+    settings = await settings_service.get()
+    bot_menu_state = resolve_bot_menu_state(
+        bot_menu=settings.bot_menu,
+        branding=settings.branding,
+        config=config,
+    )
+    mini_app_url = bot_menu_state.mini_app_url
+    is_app_enabled = bool(mini_app_url)
     support_username = config.bot.support_username.get_secret_value()
     support_link = format_username_to_url(support_username, i18n.get("contact-support-help"))
-    access_mode = await settings_service.get_access_mode()
+    access_mode = settings.access_mode
     invite_locked = await access_service.is_invite_locked(user, mode=access_mode)
-    menu_message_key, product_sections_enabled = _resolve_main_menu_view_state(invite_locked)
+    menu_message_key, product_sections_enabled = _resolve_main_menu_view_state(
+        invite_locked,
+        bot_menu_state.miniapp_only_active,
+    )
+    miniapp_only_active = product_sections_enabled and bot_menu_state.miniapp_only_active
     invite_state = await referral_service.get_invite_state(user, create_if_missing=True)
     has_active_invite = (
         invite_state.invite is not None
@@ -148,7 +157,7 @@ async def menu_getter(
     )
 
     # Получаем настройки реферальной системы для проверки типа награды
-    referral_settings = await settings_service.get_referral_settings()
+    referral_settings = settings.referral
     is_points_reward = referral_settings.reward.is_points
 
     # Проверяем, является ли пользователь партнером
@@ -162,6 +171,7 @@ async def menu_getter(
     base_data = {
         "user_id": str(user.telegram_id),
         "user_name": user.name,
+        "is_privileged_user": user.is_privileged,
         "personal_discount": user.personal_discount,
         "support": support_link,
         "invite": i18n.get("referral-invite-message", url=ref_link) if ref_link else "",
@@ -179,6 +189,23 @@ async def menu_getter(
         "invite_locked": invite_locked,
         "menu_message_key": menu_message_key,
         "product_sections_enabled": product_sections_enabled,
+        "miniapp_only_active": miniapp_only_active,
+        "mini_app_button_text": bot_menu_state.primary_button_text,
+        "menu_mini_app_url": mini_app_url or "",
+        "custom_menu_buttons": [
+            {
+                "id": button.id,
+                "label": button.label,
+                "url": button.url,
+                "kind": button.kind.value,
+                "is_url": button.is_url,
+                "is_web_app": button.is_web_app,
+            }
+            for button in bot_menu_state.custom_buttons
+        ]
+        if miniapp_only_active
+        else [],
+        "has_custom_menu_buttons": miniapp_only_active and bool(bot_menu_state.custom_buttons),
     }
 
     subscription = user.current_subscription
@@ -467,14 +494,16 @@ async def connect_device_url_getter(
     config: AppConfig,
     user: UserDto,
     i18n: FromDishka[TranslatorRunner],
+    settings_service: FromDishka[SettingsService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     """
     Getter для окна с URL выбранного устройства.
     """
     subscription_url = dialog_manager.dialog_data.get("selected_subscription_url", "")
-    mini_app_url = _resolve_mini_app_entry_url(config)
-    is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
+    settings = await settings_service.get()
+    mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=config)
+    is_app_enabled = bool(mini_app_url)
     plan_name = dialog_manager.dialog_data.get(
         "selected_subscription_plan_name",
         i18n.get("msg-common-plan-fallback"),

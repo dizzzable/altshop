@@ -244,6 +244,14 @@ class RemnashopBranding(StatesGroup):
     EDIT = State()
 
 
+class RemnashopBotMenu(StatesGroup):
+    MAIN = State()
+    MINI_APP_URL = State()
+    BUTTON = State()
+    BUTTON_LABEL = State()
+    BUTTON_URL = State()
+
+
 class RemnashopPlans(StatesGroup):
     MAIN = State()
     CONFIGURATOR = State()

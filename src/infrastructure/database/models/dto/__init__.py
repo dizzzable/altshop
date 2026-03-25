@@ -30,6 +30,8 @@ from .plan import PlanDto, PlanDurationDto, PlanPriceDto, PlanSnapshotDto
 from .promocode import PromocodeActivationBaseDto, PromocodeActivationDto, PromocodeDto
 from .referral import ReferralDto, ReferralInviteDto, ReferralRewardDto
 from .settings import (
+    BotMenuCustomButtonDto,
+    BotMenuSettingsDto,
     BrandingSettingsDto,
     BrandingVerificationDto,
     ExchangeTypeSettingsDto,
@@ -103,6 +105,8 @@ __all__ = [
     "ReferralInviteDto",
     "ReferralRewardDto",
     "SettingsDto",
+    "BotMenuSettingsDto",
+    "BotMenuCustomButtonDto",
     "BrandingSettingsDto",
     "BrandingVerificationDto",
     "LocalizedTextDto",

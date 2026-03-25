@@ -7,6 +7,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from src.core.constants import T_ME
 from src.core.enums import (
     AccessMode,
+    BotMenuCustomButtonKind,
     Currency,
     PartnerLevel,
     PointsExchangeType,
@@ -22,6 +23,7 @@ from src.core.utils.branding import (
     normalize_text,
     validate_template,
 )
+from src.core.utils.validators import is_valid_url
 
 from .base import BaseDto, TrackableDto
 
@@ -605,6 +607,91 @@ class BrandingSettingsDto(TrackableDto):
         )
 
 
+class BotMenuCustomButtonDto(TrackableDto):
+    id: str
+    label: str
+    kind: BotMenuCustomButtonKind = BotMenuCustomButtonKind.URL
+    url: str
+    enabled: bool = True
+    order: int = 0
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def _normalize_id(cls, value: object) -> str:
+        return ensure_text_length(
+            normalize_text(value),
+            field_name="bot_menu.custom_buttons.id",
+            min_length=1,
+            max_length=64,
+        )
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def _normalize_label(cls, value: object) -> str:
+        return ensure_text_length(
+            normalize_text(value),
+            field_name="bot_menu.custom_buttons.label",
+            min_length=1,
+            max_length=32,
+        )
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def _normalize_url(cls, value: object) -> str:
+        normalized = ensure_text_length(
+            normalize_text(value),
+            field_name="bot_menu.custom_buttons.url",
+            min_length=1,
+            max_length=2048,
+        )
+        if not is_valid_url(normalized):
+            raise ValueError("Field 'bot_menu.custom_buttons.url' must be a valid URL.")
+        return normalized
+
+    @field_validator("order", mode="before")
+    @classmethod
+    def _normalize_order(cls, value: object) -> int:
+        if isinstance(value, bool):
+            parsed = int(value)
+        elif isinstance(value, int):
+            parsed = value
+        elif isinstance(value, str):
+            try:
+                parsed = int(value)
+            except ValueError:
+                parsed = 0
+        else:
+            parsed = 0
+        return max(parsed, 0)
+
+
+class BotMenuSettingsDto(TrackableDto):
+    miniapp_only_enabled: bool = False
+    mini_app_url: str | None = None
+    custom_buttons: list[BotMenuCustomButtonDto] = Field(default_factory=list)
+
+    @field_validator("mini_app_url", mode="before")
+    @classmethod
+    def _normalize_mini_app_url(cls, value: object) -> str | None:
+        normalized = normalize_text(value)
+        if not normalized:
+            return None
+        if not is_valid_url(normalized):
+            raise ValueError("Field 'bot_menu.mini_app_url' must be a valid URL.")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_custom_buttons(self) -> "BotMenuSettingsDto":
+        if len(self.custom_buttons) > 5:
+            raise ValueError("Field 'bot_menu.custom_buttons' cannot contain more than 5 items.")
+
+        button_ids = [button.id for button in self.custom_buttons]
+        if len(button_ids) != len(set(button_ids)):
+            raise ValueError("Field 'bot_menu.custom_buttons' must contain unique button IDs.")
+
+        return self
+
+
 class SettingsDto(TrackableDto):
     id: Optional[int] = Field(default=None, frozen=True)
 
@@ -626,6 +713,7 @@ class SettingsDto(TrackableDto):
     partner: PartnerSettingsDto = PartnerSettingsDto()
     multi_subscription: MultiSubscriptionSettingsDto = MultiSubscriptionSettingsDto()
     branding: BrandingSettingsDto = BrandingSettingsDto()
+    bot_menu: BotMenuSettingsDto = BotMenuSettingsDto()
 
     @property
     def channel_has_username(self) -> bool:
