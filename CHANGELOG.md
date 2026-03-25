@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.9] - 2026-03-25
+
+### Changed
+
+- background payment webhook tasks now treat missing transaction/user rows after backup restore as stale queue artifacts, mark the webhook inbox record with a short diagnostic, and exit without crashing the worker
+- admin `Bot Menu` handlers now request `AppConfig` through Dishka injection in the same way as the rest of the dialog callback handlers
+
+### Fixed
+
+- stale payment cancel/success jobs left in Redis after restore no longer spam task errors like `Transaction ... not found` once the restored database no longer contains those rows
+- toggling Mini App-first mode and editing the stored Mini App URL in the admin `Bot Menu` no longer fail on `missing 1 required positional argument: 'config'`
+
 ## [1.2.8] - 2026-03-25
 
 ### Changed

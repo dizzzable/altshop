@@ -10,6 +10,19 @@ from src.services.payment_webhook_event import PaymentWebhookEventService
 from src.services.transaction import TransactionService
 
 
+def _is_stale_payment_lookup_error(exc: LookupError) -> bool:
+    normalized = " ".join(str(exc).split()).lower()
+    if not normalized:
+        return False
+    return "transaction" in normalized and (
+        "not found" in normalized or "missing user context" in normalized
+    )
+
+
+def _build_stale_payment_diagnostic(exc: LookupError) -> str:
+    return f"stale_after_restore: {str(exc)[:256]}"
+
+
 @broker.task()
 @inject(patch_module=True)
 async def handle_payment_transaction_task(
@@ -49,6 +62,31 @@ async def handle_payment_transaction_task(
             gateway_type=gateway_enum.value,
             payment_id=payment_uuid,
         )
+    except LookupError as exc:
+        if not _is_stale_payment_lookup_error(exc):
+            await payment_webhook_event_service.mark_failed(
+                gateway_type=gateway_enum.value,
+                payment_id=payment_uuid,
+                error_message=str(exc),
+            )
+            raise
+
+        logger.warning(
+            (
+                "Skipping stale payment task after restore "
+                "for gateway='{}' payment_id='{}' status='{}': {}"
+            ),
+            gateway_enum.value,
+            payment_uuid,
+            payment_status_enum.value,
+            exc,
+        )
+        await payment_webhook_event_service.mark_failed(
+            gateway_type=gateway_enum.value,
+            payment_id=payment_uuid,
+            error_message=_build_stale_payment_diagnostic(exc),
+        )
+        return
     except Exception as exc:
         await payment_webhook_event_service.mark_failed(
             gateway_type=gateway_enum.value,

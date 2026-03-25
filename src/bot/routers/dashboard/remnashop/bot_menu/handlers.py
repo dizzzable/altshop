@@ -72,7 +72,7 @@ async def on_bot_menu_mode_toggle(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
-    config: AppConfig,
+    config: FromDishka[AppConfig],
     settings_service: FromDishka[SettingsService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
@@ -115,7 +115,7 @@ async def on_mini_app_url_input(
     message: Message,
     widget: MessageInput,
     dialog_manager: DialogManager,
-    config: AppConfig,
+    config: FromDishka[AppConfig],
     settings_service: FromDishka[SettingsService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
