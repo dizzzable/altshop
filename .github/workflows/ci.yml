@@ -20,7 +20,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "20.19.0"
           cache: "npm"
           cache-dependency-path: web-app/package-lock.json
 
@@ -60,6 +60,9 @@ jobs:
       - name: Run backend checks
         run: make backend-check
 
+      - name: Verify operator docs
+        run: make docs-verify
+
   backend-dependency-audit:
     runs-on: ubuntu-latest
 
@@ -83,6 +86,77 @@ jobs:
           uv run --with pip-audit pip-audit
           --ignore-vuln CVE-2024-23342
           --ignore-vuln CVE-2026-4539
+
+  docker-contract:
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_PROJECT_NAME: altshop-smoke
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create temporary TLS assets
+        run: |
+          mkdir -p .tmp/nginx
+          openssl req -x509 -nodes -newkey rsa:2048 \
+            -keyout .tmp/nginx/privkey.key \
+            -out .tmp/nginx/fullchain.pem \
+            -subj "/CN=altshop.local" \
+            -days 1
+
+      - name: Write Docker smoke env file
+        run: >
+          python scripts/write_docker_smoke_env.py
+          --output .env
+          --fullchain-path .tmp/nginx/fullchain.pem
+          --privkey-path .tmp/nginx/privkey.key
+
+      - name: Validate compose contracts
+        run: |
+          docker compose -f docker-compose.yml config >/dev/null
+          docker compose -f docker-compose.prod.yml config >/dev/null
+
+      - name: Build Docker images for smoke
+        run: |
+          docker build -t ghcr.io/dizzzable/altshop-backend:ci-smoke .
+          docker build -t ghcr.io/dizzzable/altshop-nginx:ci-smoke -f nginx/Dockerfile .
+
+      - name: Start production compose smoke
+        run: docker compose -f docker-compose.prod.yml up -d altshop
+
+      - name: Wait for internal readiness
+        run: |
+          for attempt in $(seq 1 60); do
+            status_code="$(curl -sS -o readiness.json -w '%{http_code}' http://127.0.0.1:5000/api/v1/internal/readiness || true)"
+            if [ "$status_code" = "200" ]; then
+              cat readiness.json
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Readiness endpoint did not become healthy in time" >&2
+          exit 1
+
+      - name: Verify internal metrics and nginx payload
+        run: |
+          curl -fsS http://127.0.0.1:5000/api/v1/internal/metrics | grep 'backend_readiness_status'
+          docker compose -f docker-compose.prod.yml exec -T altshop-nginx test -f /opt/altshop/webapp/index.html
+
+      - name: Dump Docker state on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.prod.yml ps
+          docker compose -f docker-compose.prod.yml logs --tail=200 altshop altshop-nginx altshop-db altshop-redis
+
+      - name: Stop production compose smoke
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v
 
   secret-scan:
     runs-on: ubuntu-latest

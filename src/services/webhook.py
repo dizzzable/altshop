@@ -12,7 +12,11 @@ from .base import BaseService
 
 
 class WebhookService(BaseService):
-    async def setup(self, allowed_updates: list[str]) -> WebhookInfo:
+    async def setup(self, allowed_updates: list[str]) -> WebhookInfo | None:
+        if not self.config.bot.setup_webhook:
+            logger.debug("Bot webhook setup is disabled")
+            return None
+
         safe_webhook_url = self.config.bot.safe_webhook_url(domain=self.config.domain)
 
         webhook = SetWebhook(
@@ -42,6 +46,10 @@ class WebhookService(BaseService):
         return await self.bot.get_webhook_info()
 
     async def delete(self) -> None:
+        if not self.config.bot.setup_webhook:
+            logger.debug("Bot webhook deletion skipped because setup is disabled")
+            return
+
         if not self.config.bot.reset_webhook:
             logger.debug("Bot webhook reset is disabled")
             return

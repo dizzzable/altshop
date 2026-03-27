@@ -268,6 +268,11 @@ nginx/privkey.key
 docker compose up --build
 ```
 
+Supported helper entrypoints:
+
+- `make run-local` -> source-build stack via `docker-compose.yml`
+- `make run-prod` -> GHCR pull/update flow via `docker-compose.prod.yml`
+
 ## 🧩 Runtime Stack
 
 The default Docker stack contains 7 services:
@@ -286,8 +291,8 @@ Public surface:
 - `/assets/` for frontend assets
 - `/api/v1/*` for the backend API
 - `/api/v1/health/livez` for a public liveness probe
-- `/telegram` for Telegram webhook traffic
-- `/remnawave` for Remnawave webhook traffic
+- `/api/v1/telegram` for Telegram webhook traffic
+- `/api/v1/remnawave` for Remnawave webhook traffic
 - `/api/v1/payments/*` for payment webhooks and payment redirect helpers
 
 Operator-only backend endpoints:
@@ -306,7 +311,8 @@ altshop/
 |-- docs/                canonical and historical documentation
 |-- scripts/             maintenance and audit helpers
 |-- tests/               backend and service test suite in this workspace
-|-- docker-compose.yml   default deployment contract
+|-- docker-compose.yml   source-build local/manual stack
+|-- docker-compose.prod.yml GHCR-backed production stack
 `-- Dockerfile           backend container image
 ```
 
@@ -329,6 +335,7 @@ Public mirror checks:
 uv sync --locked --group dev
 uv run python -m ruff check src
 uv run python -m mypy src
+uv run python scripts/verify_operator_docs.py
 ```
 
 Frontend:

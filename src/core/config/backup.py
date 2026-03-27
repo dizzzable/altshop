@@ -1,44 +1,45 @@
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from .base import BaseConfig
 
 
 class BackupConfig(BaseConfig, env_prefix="BACKUP_"):
-    """Конфигурация системы бэкапов."""
+    """Configuration for automated backups and Telegram delivery."""
 
-    # Автоматические бэкапы
-    auto_enabled: bool = Field(default=False, description="Включить автоматические бэкапы")
-    interval_hours: int = Field(default=24, description="Интервал между бэкапами в часах")
-    time: str = Field(default="03:00", description="Время запуска автоматического бэкапа (HH:MM)")
-    max_keep: int = Field(default=7, description="Максимальное количество хранимых бэкапов")
+    auto_enabled: bool = Field(default=False, description="Enable automatic backups")
+    interval_hours: int = Field(default=24, description="Hours between automatic backups")
+    time: str = Field(default="03:00", description="Automatic backup time in HH:MM format")
+    max_keep: int = Field(default=7, description="Maximum number of backups to keep")
 
-    # Сжатие и содержимое
-    compression: bool = Field(default=True, description="Включить сжатие бэкапов")
-    include_logs: bool = Field(default=False, description="Включать логи в бэкап")
+    compression: bool = Field(default=True, description="Enable backup compression")
+    include_logs: bool = Field(default=False, description="Include logs in backup archives")
 
-    # Расположение
     location: Path = Field(
-        default=Path("/app/data/backups"), description="Директория для хранения бэкапов"
+        default=Path("/app/data/backups"), description="Directory used to store backups"
     )
 
-    # Отправка в Telegram
-    send_enabled: bool = Field(default=False, description="Отправлять бэкапы в Telegram")
-    send_chat_id: Optional[str] = Field(
-        default=None, description="ID чата/канала для отправки бэкапов"
+    send_enabled: bool = Field(default=False, description="Send backups to Telegram")
+    send_chat_id: str | None = Field(
+        default=None, description="Telegram chat or channel ID used for backup delivery"
     )
-    send_topic_id: Optional[int] = Field(
-        default=None, description="ID топика в супергруппе (для форумов)"
+    send_topic_id: int | None = Field(
+        default=None, description="Telegram forum topic ID used for backup delivery"
     )
+
+    @field_validator("send_chat_id", "send_topic_id", mode="before")
+    @classmethod
+    def normalize_blank_optional_values(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     def is_send_enabled(self) -> bool:
-        """Проверяет, включена ли отправка бэкапов в Telegram."""
         return self.send_enabled and self.send_chat_id is not None
 
     def get_backup_dir(self) -> Path:
-        """Возвращает путь к директории бэкапов."""
         path = self.location.expanduser().resolve()
         path.mkdir(parents=True, exist_ok=True)
         return path

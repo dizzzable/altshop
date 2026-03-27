@@ -4,7 +4,7 @@ import json as json_lib
 import shutil
 import tarfile
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -65,6 +65,12 @@ from src.infrastructure.database.models.sql import (
 )
 from src.infrastructure.redis import RedisRepository
 
+from .backup_restore_diagnostics import (
+    RestoreArchiveDiagnostics,
+    analyze_restore_archive,
+    extract_current_subscription_refs,
+    log_restore_archive_diagnostics,
+)
 from .base import BaseService
 
 _aiofiles_open = cast(Callable[..., Any], aiofiles.open)
@@ -126,27 +132,6 @@ class DeferredRestoreUpdate:
     values: Dict[str, Any]
     phase: str = "default"
     apply_as_scalar_update: bool = False
-
-
-@dataclass
-class RestoreArchiveDiagnostics:
-    archive_issue_messages: list[str] = field(default_factory=list)
-    current_subscription_refs: list[tuple[int, int]] = field(default_factory=list)
-    missing_archive_subscription_refs: list[tuple[int, int]] = field(default_factory=list)
-    panel_sync_candidate_ids: list[int] = field(default_factory=list)
-    remnawave_users_recovered: int = 0
-    remnawave_subscriptions_recovered: int = 0
-    unrecovered_user_refs: list[tuple[int, int]] = field(default_factory=list)
-    panel_sync_errors: list[tuple[int, str]] = field(default_factory=list)
-
-    @property
-    def has_partial_recovery(self) -> bool:
-        return bool(
-            self.archive_issue_messages
-            or self.unrecovered_user_refs
-            or self.panel_sync_errors
-            or self.remnawave_subscriptions_recovered
-        )
 
 
 class BackupService(BaseService):
@@ -820,7 +805,7 @@ class BackupService(BaseService):
             if isinstance(row, dict) and row.get("id") is not None
         }
         user_rows = backup_data.get(User.__tablename__) or []
-        current_refs = self._extract_current_subscription_refs(user_rows)
+        current_refs = extract_current_subscription_refs(user_rows)
         missing_subscription_refs = [
             (telegram_id, subscription_id)
             for telegram_id, subscription_id in current_refs
@@ -848,63 +833,6 @@ class BackupService(BaseService):
             "degraded": bool(issues),
             "issues": issues,
         }
-
-    def _extract_current_subscription_refs(
-        self,
-        user_rows: List[Dict[str, Any]],
-    ) -> list[tuple[int, int]]:
-        refs: list[tuple[int, int]] = []
-        for row in user_rows:
-            if not isinstance(row, dict):
-                continue
-            telegram_id = row.get("telegram_id")
-            subscription_id = row.get("current_subscription_id")
-            if telegram_id is None or subscription_id is None:
-                continue
-            try:
-                refs.append((int(telegram_id), int(subscription_id)))
-            except (TypeError, ValueError):
-                continue
-        return refs
-
-    def _analyze_restore_archive(
-        self,
-        backup_data: Dict[str, List[Dict[str, Any]]],
-    ) -> RestoreArchiveDiagnostics:
-        diagnostics = RestoreArchiveDiagnostics()
-        plan_rows = backup_data.get(Plan.__tablename__) or []
-        duration_rows = backup_data.get(PlanDuration.__tablename__) or []
-        price_rows = backup_data.get(PlanPrice.__tablename__) or []
-        if not plan_rows and (duration_rows or price_rows):
-            diagnostics.archive_issue_messages.append(
-                "Archive is missing plan rows and requires legacy plan recovery"
-            )
-
-        user_rows = backup_data.get(User.__tablename__) or []
-        current_refs = self._extract_current_subscription_refs(user_rows)
-        diagnostics.current_subscription_refs = current_refs
-        subscription_ids = {
-            int(row["id"])
-            for row in (backup_data.get(Subscription.__tablename__) or [])
-            if isinstance(row, dict) and row.get("id") is not None
-        }
-        diagnostics.missing_archive_subscription_refs = [
-            (telegram_id, subscription_id)
-            for telegram_id, subscription_id in current_refs
-            if subscription_id not in subscription_ids
-        ]
-        diagnostics.panel_sync_candidate_ids = sorted(
-            {
-                telegram_id
-                for telegram_id, _subscription_id in diagnostics.missing_archive_subscription_refs
-            }
-        )
-        if diagnostics.missing_archive_subscription_refs:
-            diagnostics.archive_issue_messages.append(
-                "Archive is missing subscription rows referenced by users.current_subscription_id"
-            )
-
-        return diagnostics
 
     def _collect_plan_snapshots(  # noqa: C901
         self,
@@ -950,21 +878,6 @@ class BackupService(BaseService):
             snapshots_by_id.setdefault(plan_id, snapshot)
 
         return snapshots_by_id
-
-    def _log_restore_archive_diagnostics(self, diagnostics: RestoreArchiveDiagnostics) -> None:
-        if not diagnostics.archive_issue_messages:
-            return
-
-        logger.warning(
-            (
-                "Legacy archive diagnostics: issues={}, "
-                "users_with_missing_subscriptions={}, "
-                "missing_subscription_refs={}"
-            ),
-            diagnostics.archive_issue_messages,
-            len(diagnostics.panel_sync_candidate_ids),
-            len(diagnostics.missing_archive_subscription_refs),
-        )
 
     @staticmethod
     def _normalize_squad_values(values: list[UUID]) -> list[str]:
@@ -2045,8 +1958,8 @@ class BackupService(BaseService):
 
         metadata = dump_data.get("metadata", {})
         raw_backup_data = dump_data.get("data", {})
-        diagnostics = self._analyze_restore_archive(raw_backup_data)
-        self._log_restore_archive_diagnostics(diagnostics)
+        diagnostics = analyze_restore_archive(raw_backup_data)
+        log_restore_archive_diagnostics(diagnostics)
         backup_data, recovered_legacy_plans = self._recover_legacy_missing_plans(raw_backup_data)
 
         if not backup_data:

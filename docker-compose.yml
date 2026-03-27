@@ -141,7 +141,7 @@ services:
 
   # Web App build service - собирает React приложение при запуске
   webapp-build:
-    image: node:20-alpine
+    image: node:20.19-alpine
     container_name: altshop-webapp-build
     hostname: altshop-webapp-build
     restart: "no"

@@ -1,6 +1,6 @@
 # AltShop Documentation Index
 
-Last audited against the live repository: `2026-03-26`
+Last audited against the live repository: `2026-03-27`
 
 This index is the entry point for the current AltShop documentation set. It tracks which files are canonical, which ones are historical, and which code paths must be checked before changing a document.
 
@@ -60,17 +60,16 @@ These files are useful, but they are not the primary public contract.
 | --- | --- |
 | [BACKEND_OPERATOR_GUIDE.md](BACKEND_OPERATOR_GUIDE.md) | Operator-oriented backend notes |
 | [OPENAPI_GENERATION_SETUP.md](OPENAPI_GENERATION_SETUP.md) | OpenAPI and TypeScript client generation |
-| [PRODUCTION_DEPLOYMENT_GUIDE.md](PRODUCTION_DEPLOYMENT_GUIDE.md) | Extra deployment walkthrough |
 | [QUICK_START_API.md](QUICK_START_API.md) | Short API onboarding path |
 | [SERVICE_INTEGRATION_GUIDE.md](SERVICE_INTEGRATION_GUIDE.md) | Integration notes for external services |
 | [SERVICE_INTEGRATION_STATUS.md](SERVICE_INTEGRATION_STATUS.md) | Snapshot of integration coverage |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Failure modes and recovery notes |
-| [WEB_APP_NGINX_SETUP.md](WEB_APP_NGINX_SETUP.md) | Extra web-app Nginx notes |
-| [WEB_APP_SETUP.md](WEB_APP_SETUP.md) | Additional web-app setup notes |
 
 ## Historical docs
 
 Files under `docs/archive/` and dated audit or handoff notes in `docs/` are preserved for implementation history. Do not treat them as the current runtime contract unless they are explicitly refreshed against code.
+
+Legacy one-off docs `PRODUCTION_DEPLOYMENT_GUIDE.md`, `WEB_APP_SETUP.md`, and `WEB_APP_NGINX_SETUP.md` were removed on `2026-03-27` after their surviving runtime guidance was folded into `README.md`, `05-api.md`, `08-configuration.md`, `09-deployment.md`, and `BACKEND_OPERATOR_GUIDE.md`.
 
 ## Working rules
 

@@ -37,9 +37,14 @@
 
 Существующий `docker-compose.yml` остается build-based fallback для локальной сборки и ручного деплоя из исходников.
 
+Repository helpers map directly to those supported entrypoints:
+
+- `make run-local` -> `docker-compose.yml`
+- `make run-prod` -> `docker-compose.prod.yml`
+
 | Service | Role | Image/build | Depends on |
 | --- | --- | --- | --- |
-| `webapp-build` | one-shot сборка React/Vite frontend в `web-app/dist` | `node:20-alpine` | none |
+| `webapp-build` | one-shot сборка React/Vite frontend в `web-app/dist` | `node:20.19-alpine` | none |
 | `altshop-nginx` | HTTPS termination, раздача `/webapp/`, proxy к backend | `nginx:1.28` | `webapp-build` completed successfully |
 | `altshop-db` | PostgreSQL 17 | `postgres:17` | none |
 | `altshop-redis` | Valkey 9 | `valkey/valkey:9-alpine` | none |
@@ -63,6 +68,12 @@ Compose пробрасывает backend только на loopback:
 - внешний HTTPS трафик должен заходить через `altshop-nginx`
 
 ## Nginx routing contract
+
+Canonical operator-facing route notes:
+
+- exact `/webapp/` requests are proxied to `GET /api/v1/auth/webapp-shell` so branding and Telegram link previews can shape the shell response;
+- canonical webhook URLs are `/api/v1/telegram`, `/api/v1/remnawave`, and `/api/v1/payments/{gateway_type}`;
+- raw nginx locations `/telegram`, `/remnawave`, and `/payments` are legacy pass-throughs and should not be treated as the backend contract.
 
 `nginx/nginx.conf` обслуживает:
 

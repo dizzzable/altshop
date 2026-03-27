@@ -1,4 +1,6 @@
-from collections.abc import AsyncGenerator
+import inspect
+from collections.abc import AsyncGenerator, Awaitable
+from typing import cast
 
 from dishka import Provider, Scope, provide
 from loguru import logger
@@ -6,6 +8,13 @@ from redis.asyncio import ConnectionPool, Redis
 
 from src.core.config import AppConfig
 from src.infrastructure.redis import RedisRepository
+
+
+async def _await_redis_ping(client: Redis) -> bool:
+    response = client.ping()
+    if inspect.isawaitable(response):
+        return await cast(Awaitable[bool], response)
+    return response
 
 
 class RedisProvider(Provider):
@@ -18,7 +27,7 @@ class RedisProvider(Provider):
         client = Redis(connection_pool=connection_pool)
 
         try:
-            await client.ping()
+            await _await_redis_ping(client)
             logger.debug("Successfully connected to Redis")
         except Exception as exception:
             logger.error(f"Failed to connect to Redis: {exception}")

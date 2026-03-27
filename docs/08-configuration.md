@@ -27,6 +27,11 @@
 | `WEB_APP_JWT_REFRESH_ENABLED` | Есть в `WebAppConfig`, но текущие auth routes не отключают `/api/v1/auth/refresh` по этому флагу. |
 | `WEB_APP_API_SECRET_TOKEN` | Валидируется конфигом, но активного runtime consumer в текущем коде нет. |
 
+2026-03-27 runtime correction:
+
+- `BOT_SETUP_WEBHOOK` is now a live `BotConfig` field and controls `WebhookService.setup()` on startup plus webhook cleanup eligibility on shutdown.
+- `BOT_FETCH_ME_ON_STARTUP` is also live and gates the startup `bot.get_me()` call in `src/lifespan.py`.
+
 ## AppConfig (`APP_*`)
 
 | Variable | Required | Code default | Example/template | Runtime notes |
@@ -43,6 +48,11 @@
 
 ## BotConfig (`BOT_*`)
 
+Authoritative startup-toggle correction for this section:
+
+- `BOT_SETUP_WEBHOOK` is a live `BotConfig` field with code default `true`; it drives `WebhookService.setup()` on startup and allows webhook deletion on shutdown together with `BOT_RESET_WEBHOOK`.
+- `BOT_FETCH_ME_ON_STARTUP` is a live `BotConfig` field with code default `true`; it gates the startup `bot.get_me()` probe in `src/lifespan.py`.
+
 | Variable | Required | Code default | Example/template | Runtime notes |
 | --- | --- | --- | --- | --- |
 | `BOT_TOKEN` | yes | none | `change_me` | Telegram Bot API token. |
@@ -57,6 +67,11 @@
 | `BOT_SETUP_WEBHOOK` | example-only | n/a | `false` | Есть только в `.env.example`; в текущем коде не читается. |
 
 ## WebAppConfig (`WEB_APP_*`)
+
+Update on 2026-03-27 for bot startup toggles:
+
+- `BOT_SETUP_WEBHOOK` is now wired into the runtime and controls webhook setup/delete during startup and shutdown.
+- `BOT_FETCH_ME_ON_STARTUP` is now available for smoke checks that must skip the Telegram `get_me()` call while still booting the containerized app.
 
 | Variable | Required | Code default | Example/template | Runtime notes |
 | --- | --- | --- | --- | --- |

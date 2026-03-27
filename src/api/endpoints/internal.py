@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import secrets
 from datetime import datetime, timezone
 from time import perf_counter
-from typing import Awaitable, Callable, Literal
+from typing import Awaitable, Callable, Literal, cast
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import inject
@@ -95,8 +96,15 @@ async def _check_database_readiness(engine: AsyncEngine) -> tuple[str, str | Non
     return "up", None
 
 
+async def _await_redis_ping(redis_client: Redis) -> bool:
+    response = redis_client.ping()
+    if inspect.isawaitable(response):
+        return await cast(Awaitable[bool], response)
+    return response
+
+
 async def _check_redis_readiness(redis_client: Redis) -> tuple[str, str | None]:
-    response = await redis_client.ping()
+    response = await _await_redis_ping(redis_client)
     if response is not True:
         raise RuntimeError(f"unexpected ping response: {response!r}")
     return "up", None

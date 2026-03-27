@@ -8,15 +8,11 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from pydantic import ValidationError
 from remnawave.enums.users import TrafficLimitStrategy
 from remnawave.models import (
     DeleteUserHwidDeviceResponseDto,
     DeleteUserResponseDto,
     GetAllInternalSquadsResponseDto,
-    GetAllUsersResponseDto,
-    GetUserHwidDevicesResponseDto,
-    TelegramUserResponseDto,
     UserResponseDto,
 )
 from remnawave.models.hwid import HwidDeviceDto
@@ -141,14 +137,6 @@ def build_service() -> tuple[RemnawaveService, SimpleNamespace]:
     return service, remnawave
 
 
-def build_validation_error() -> ValidationError:
-    try:
-        GetAllInternalSquadsResponseDto.model_validate({"bad": "payload"})
-    except ValidationError as exc:
-        return exc
-    raise AssertionError("expected validation error")
-
-
 def test_get_stats_safe_returns_none_on_http_error() -> None:
     service, remnawave = build_service()
     remnawave.system.get_stats.side_effect = httpx.ConnectError("boom")
@@ -158,22 +146,6 @@ def test_get_stats_safe_returns_none_on_http_error() -> None:
     assert result is None
     assert (
         'remnawave_degraded_states_total{reason="http_error",stage="get_stats"} 1'
-        in render_metrics_text()
-    )
-
-
-def test_get_external_squads_safe_uses_raw_fallback_on_validation_error() -> None:
-    service, remnawave = build_service()
-    fallback_result = [{"uuid": uuid4(), "name": "Europe"}]
-    remnawave.external_squads.get_external_squads.side_effect = build_validation_error()
-    service._get_external_squads_raw = AsyncMock(return_value=fallback_result)  # type: ignore[method-assign]
-
-    result = run_async(service.get_external_squads_safe())
-
-    assert result == fallback_result
-    service._get_external_squads_raw.assert_awaited_once()  # type: ignore[attr-defined]
-    assert (
-        'remnawave_degraded_states_total{reason="sdk_validation",stage="external_squads"} 1'
         in render_metrics_text()
     )
 
@@ -197,23 +169,6 @@ def test_get_internal_squads_returns_validated_response() -> None:
     result = run_async(service.get_internal_squads())
 
     assert result.internal_squads[0].name == "Default"
-
-
-def test_get_all_users_paginates_until_short_page() -> None:
-    service, remnawave = build_service()
-    first_page = GetAllUsersResponseDto.model_construct(
-        users=[build_user_response(telegram_id=101), build_user_response(telegram_id=102)],
-        total=3,
-    )
-    second_page = GetAllUsersResponseDto.model_construct(
-        users=[build_user_response(telegram_id=103)],
-        total=3,
-    )
-    remnawave.users.get_all_users.side_effect = [first_page, second_page]
-
-    result = run_async(service.get_all_users(page_size=2))
-
-    assert [user.telegram_id for user in result] == [101, 102, 103]
 
 
 def test_import_user_sets_active_internal_squads_before_create() -> None:
@@ -314,18 +269,6 @@ def test_set_user_enabled_routes_to_expected_sdk_controller() -> None:
     remnawave.users.disable_user.assert_awaited_once_with(uuid=str(target_uuid))
 
 
-def test_get_users_by_telegram_id_returns_root_profiles() -> None:
-    service, remnawave = build_service()
-    panel_user = build_user_response(telegram_id=900)
-    remnawave.users.get_users_by_telegram_id.return_value = TelegramUserResponseDto.model_construct(
-        root=[panel_user]
-    )
-
-    result = run_async(service.get_users_by_telegram_id(900))
-
-    assert result == [panel_user]
-
-
 def test_delete_user_by_uuid_returns_deleted_flag() -> None:
     service, remnawave = build_service()
     target_uuid = uuid4()
@@ -337,20 +280,6 @@ def test_delete_user_by_uuid_returns_deleted_flag() -> None:
 
     assert result is True
     remnawave.users.delete_user.assert_awaited_once_with(uuid=str(target_uuid))
-
-
-def test_get_devices_by_subscription_uuid_returns_panel_devices() -> None:
-    service, remnawave = build_service()
-    target_uuid = uuid4()
-    device = build_device(user_uuid=target_uuid)
-    remnawave.hwid.get_hwid_user.return_value = GetUserHwidDevicesResponseDto.model_construct(
-        total=1,
-        devices=[device],
-    )
-
-    result = run_async(service.get_devices_by_subscription_uuid(target_uuid))
-
-    assert result == [device]
 
 
 def test_delete_device_by_subscription_uuid_returns_remaining_count() -> None:

@@ -5,12 +5,10 @@ from uuid import UUID
 
 from aiogram import Bot
 from fluentogram import TranslatorHub
-from httpx import AsyncClient, HTTPError, Timeout
+from httpx import HTTPError
 from loguru import logger
-from pydantic import ValidationError
 from redis.asyncio import Redis
 from remnawave import RemnawaveSDK
-from remnawave.exceptions import NotFoundError
 from remnawave.models import (
     CreateUserRequestDto,
     DeleteUserHwidDeviceResponseDto,
@@ -19,13 +17,9 @@ from remnawave.models import (
     GetAllInboundsResponseDto,
     GetAllInternalSquadsResponseDto,
     GetAllNodesResponseDto,
-    GetAllUsersResponseDto,
-    GetExternalSquadsResponseDto,
     GetStatsResponseDto,
-    GetUserHwidDevicesResponseDto,
     HWIDDeleteRequest,
     HwidUserDeviceDto,
-    TelegramUserResponseDto,
     UpdateUserRequestDto,
     UserResponseDto,
 )
@@ -79,6 +73,8 @@ from src.services.subscription import SubscriptionService
 from src.services.user import UserService
 
 from .base import BaseService
+from .remnawave_external_squads import RemnawaveExternalSquadLookup
+from .remnawave_lookups import RemnawaveUserDeviceLookup
 
 
 @dataclass(slots=True)
@@ -95,6 +91,8 @@ class RemnawaveService(BaseService):
     subscription_service: SubscriptionService
     plan_service: PlanService
     settings_service: SettingsService
+    external_squad_lookup: RemnawaveExternalSquadLookup
+    user_device_lookup: RemnawaveUserDeviceLookup
 
     def __init__(
         self,
@@ -116,6 +114,11 @@ class RemnawaveService(BaseService):
         self.subscription_service = subscription_service
         self.plan_service = plan_service
         self.settings_service = settings_service
+        self.external_squad_lookup = RemnawaveExternalSquadLookup(
+            config=config,
+            remnawave=remnawave,
+        )
+        self.user_device_lookup = RemnawaveUserDeviceLookup(remnawave=remnawave)
 
     async def try_connection(self) -> None:
         response = await self.remnawave.system.get_stats()
@@ -196,99 +199,7 @@ class RemnawaveService(BaseService):
         return DeviceType.OTHER
 
     async def get_external_squads_safe(self) -> list[dict[str, Any]]:
-        """Get external squads in a way that survives SDK DTO validation issues.
-
-        Why:
-        - Remnawave Panel may return `subscriptionSettings` without some optional fields
-        - `remnawave==2.3.2` SDK marks several `subscriptionSettings.*` fields as required
-          and raises `ValidationError` on `/external-squads` response parsing.
-
-        This helper tries the SDK first (best-effort typed DTO), then falls back
-        to a raw HTTP request and extracts only `uuid` and `name`.
-        """
-
-        try:
-            response = await self.remnawave.external_squads.get_external_squads()
-            if isinstance(response, GetExternalSquadsResponseDto):
-                return [{"uuid": s.uuid, "name": s.name} for s in response.external_squads]
-        except ValidationError as exc:
-            emit_counter(
-                "remnawave_degraded_states_total",
-                stage="external_squads",
-                reason="sdk_validation",
-            )
-            logger.warning(
-                "Remnawave SDK validation error for /external-squads, falling back to raw HTTP: "
-                f"{exc}"
-            )
-        except Exception as exc:
-            emit_counter(
-                "remnawave_degraded_states_total",
-                stage="external_squads",
-                reason="sdk_error",
-            )
-            logger.warning(
-                f"Failed to fetch /external-squads via SDK, falling back to raw HTTP: {exc}"
-            )
-
-        return await self._get_external_squads_raw()
-
-    async def _get_external_squads_raw(self) -> list[dict[str, Any]]:
-        config = self.config
-
-        headers: dict[str, str] = {
-            "Authorization": f"Bearer {config.remnawave.token.get_secret_value()}",
-            "X-Api-Key": config.remnawave.caddy_token.get_secret_value(),
-        }
-
-        if not config.remnawave.is_external:
-            headers["x-forwarded-proto"] = "https"
-            headers["x-forwarded-for"] = "127.0.0.1"
-
-        async with AsyncClient(
-            base_url=f"{config.remnawave.url.get_secret_value()}/api",
-            headers=headers,
-            cookies=config.remnawave.cookies,
-            verify=True,
-            timeout=Timeout(connect=15.0, read=25.0, write=10.0, pool=5.0),
-        ) as client:
-            response = await client.get("/external-squads")
-            response.raise_for_status()
-            data = response.json()
-
-        return self._parse_external_squads_payload(data)
-
-    @staticmethod
-    def _parse_external_squads_payload(data: Any) -> list[dict[str, Any]]:
-        if not isinstance(data, dict):
-            return []
-
-        response = data.get("response")
-        if response is None:
-            response = data
-
-        if not isinstance(response, dict):
-            return []
-
-        squads = response.get("externalSquads") or response.get("external_squads")
-        if not isinstance(squads, list):
-            return []
-
-        parsed: list[dict[str, Any]] = []
-        for item in squads:
-            if not isinstance(item, dict):
-                continue
-            raw_uuid = item.get("uuid")
-            name = item.get("name")
-            if not raw_uuid or not name:
-                continue
-            try:
-                squad_uuid = UUID(str(raw_uuid))
-            except Exception:
-                continue
-            parsed.append({"uuid": squad_uuid, "name": str(name)})
-
-        return parsed
+        return await self.external_squad_lookup.get_external_squads_safe()
 
     async def create_user(
         self,
@@ -488,11 +399,11 @@ class RemnawaveService(BaseService):
             else:
                 # In multi-subscription mode panel may still have users
                 # even without current_subscription.
-                users_result = await self.remnawave.users.get_users_by_telegram_id(
-                    telegram_id=str(user.telegram_id)
+                users_result = await self.user_device_lookup.get_users_by_telegram_id(
+                    user.telegram_id
                 )
 
-                if not isinstance(users_result, TelegramUserResponseDto) or not users_result:
+                if not users_result:
                     logger.warning(f"No RemnaUser found in panel for '{user.telegram_id}'")
                     return False
 
@@ -525,21 +436,7 @@ class RemnawaveService(BaseService):
         return result.is_deleted
 
     async def get_devices_by_subscription_uuid(self, user_remna_id: UUID) -> list[HwidDeviceDto]:
-        logger.info(f"Fetching devices for Remna subscription '{user_remna_id}'")
-
-        result = await self.remnawave.hwid.get_hwid_user(uuid=str(user_remna_id))
-
-        if not isinstance(result, GetUserHwidDevicesResponseDto):
-            raise ValueError("Unexpected response fetching devices")
-
-        if result.total:
-            logger.info(
-                f"Found '{result.total}' device(s) for Remna subscription '{user_remna_id}'"
-            )
-            return result.devices
-
-        logger.info(f"No devices found for Remna subscription '{user_remna_id}'")
-        return []
+        return await self.user_device_lookup.get_devices_by_subscription_uuid(user_remna_id)
 
     async def get_devices_user(self, user: UserDto) -> list[HwidDeviceDto]:
         logger.info(f"Fetching devices for RemnaUser '{user.telegram_id}'")
@@ -583,49 +480,13 @@ class RemnawaveService(BaseService):
         )
 
     async def get_user(self, uuid: UUID) -> Optional[UserResponseDto]:
-        logger.info(f"Fetching RemnaUser '{uuid}'")
-        try:
-            remna_user = await self.remnawave.users.get_user_by_uuid(str(uuid))
-        except NotFoundError:
-            logger.warning(f"RemnaUser '{uuid}' not found (NotFoundError)")
-            return None
-
-        if not isinstance(remna_user, UserResponseDto):
-            logger.warning(f"RemnaUser '{uuid}' not found")
-            return None
-
-        logger.info(f"RemnaUser '{remna_user.telegram_id}' fetched successfully")
-        return remna_user
+        return await self.user_device_lookup.get_user(uuid)
 
     async def get_users_by_telegram_id(self, telegram_id: int) -> list[UserResponseDto]:
-        logger.info(f"Fetching RemnaUsers by telegram_id '{telegram_id}'")
-        users_result = await self.remnawave.users.get_users_by_telegram_id(
-            telegram_id=str(telegram_id)
-        )
-
-        if not isinstance(users_result, TelegramUserResponseDto):
-            raise ValueError("Unexpected response fetching users by telegram_id")
-
-        users = list(users_result.root)
-        logger.info(
-            f"Fetched '{len(users)}' RemnaUser(s) by telegram_id '{telegram_id}' successfully"
-        )
-        return users
+        return await self.user_device_lookup.get_users_by_telegram_id(telegram_id)
 
     async def get_all_users(self, page_size: int = 50) -> list[UserResponseDto]:
-        all_users: list[UserResponseDto] = []
-        start = 0
-
-        while True:
-            response = await self.remnawave.users.get_all_users(start=start, size=page_size)
-            if not isinstance(response, GetAllUsersResponseDto) or not response.users:
-                return all_users
-
-            all_users.extend(response.users)
-            start += len(response.users)
-
-            if len(response.users) < page_size:
-                return all_users
+        return await self.user_device_lookup.get_all_users(page_size=page_size)
 
     async def get_subscription_url(self, uuid: UUID) -> Optional[str]:
         remna_user = await self.get_user(uuid)

@@ -14,7 +14,7 @@ from src.api.endpoints import (
     web_auth_router,
 )
 from src.core.config import AppConfig
-from src.lifespan import lifespan
+from src.lifespan import AppLifecycleCoordinator, lifespan
 
 
 def configure_http_middleware(app: FastAPI, config: AppConfig) -> None:
@@ -50,5 +50,10 @@ def create_app(config: AppConfig, dispatcher: Dispatcher) -> FastAPI:
     app.state.telegram_webhook_endpoint = telegram_webhook_endpoint
     app.state.dispatcher = dispatcher
     app.state.config = config
+    app.state.lifecycle_coordinator = AppLifecycleCoordinator(
+        config=config,
+        dispatcher=dispatcher,
+        telegram_webhook_endpoint=telegram_webhook_endpoint,
+    )
 
     return app

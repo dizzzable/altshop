@@ -18,6 +18,8 @@ class BotConfig(BaseConfig, env_prefix="BOT_"):
     reset_webhook: bool = False
     drop_pending_updates: bool = False
     setup_commands: bool = True
+    setup_webhook: bool = True
+    fetch_me_on_startup: bool = True
     use_banners: bool = True
 
     @property

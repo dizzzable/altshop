@@ -11,6 +11,8 @@ session reports, parity notes, or generated handoff documents.
 
 - Web auth: `/api/v1/auth/*`
 - User dashboard API: `/api/v1/*`
+- Telegram webhook: `/api/v1/telegram`
+- Remnawave webhook: `/api/v1/remnawave`
 - Legacy `/auth/*` backend router is removed
 - Docker runtime is built from `Dockerfile`
 
@@ -41,17 +43,19 @@ session reports, parity notes, or generated handoff documents.
 Use these commands on this workstation:
 
 ```powershell
-.\.venv\Scripts\ruff.exe check src tests scripts
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m mypy src
-.\.venv\Scripts\python.exe scripts\backend_audit_report.py
+uv sync --locked --group dev
+uv run python -m ruff check src tests scripts
+uv run python -m pytest -q
+uv run python -m mypy src
+uv run python scripts/verify_operator_docs.py
+uv run python scripts/backend_audit_report.py
 ```
 
 Notes:
 
-- `uv` is not required locally
-- `pytest.exe` and `mypy.exe` can fail in this PowerShell with `Failed to canonicalize script path`
-- prefer `.\.venv\Scripts\python.exe -m ...` for stable execution
+- `uv` is the canonical Python toolchain locally and in CI
+- `make backend-check` and `make docs-verify` wrap the same `uv`-based checks for CI or Git Bash automation
+- `uv run python scripts/verify_operator_docs.py` is the direct PowerShell-friendly docs contract check
 
 ## Canonical Deploy Sequence
 
@@ -64,6 +68,8 @@ docker compose -f docker-compose.prod.yml exec altshop-nginx test -f /opt/altsho
 Notes:
 
 - `docker-compose.prod.yml` is the canonical VPS deploy contract and pulls release images from GHCR.
+- `make run-local` is the source-build helper and maps to `docker-compose.yml`.
+- `make run-prod` is the GHCR-backed helper and maps to `docker-compose.prod.yml`.
 - `APP_DOMAIN` from `.env` is rendered into `server_name` inside `altshop-nginx` at container startup.
 - `scripts/bootstrap-prod-vps.sh` is the one-time migration path for older manually deployed VPS hosts that do not have `docker-compose.prod.yml` yet.
 - Certificates are expected on the host at `/opt/altshop/nginx/remnabot_fullchain.pem` and `/opt/altshop/nginx/remnabot_privkey.key` unless overridden via `NGINX_SSL_FULLCHAIN_PATH` and `NGINX_SSL_PRIVKEY_PATH`.
@@ -116,4 +122,4 @@ When access mode changes in bot admin, verify:
 - [optimization-plan-2026-03-06.md](optimization-plan-2026-03-06.md)
 - [API_CONTRACT.md](API_CONTRACT.md)
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-- [PRODUCTION_DEPLOYMENT_GUIDE.md](PRODUCTION_DEPLOYMENT_GUIDE.md)
+- [09-deployment.md](09-deployment.md)

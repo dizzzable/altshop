@@ -6,7 +6,7 @@ Last audited against the live repository: `2026-03-26`
 
 - Decorator-defined routes live under the base prefix `/api/v1`
 - The current backend defines `64` decorator routes in `src/api/endpoints/`
-- There is one separate programmatic route registered directly on the FastAPI app: `POST /telegram`
+- There is one separate programmatic route registered directly on the FastAPI app: `POST /api/v1/telegram`
 - Browser auth uses secure cookies plus `X-CSRF-Token` on unsafe methods when auth cookies are present
 
 ## Auth labels used below
@@ -36,7 +36,7 @@ Last audited against the live repository: `2026-03-26`
 
 | Method | Path | Auth | Request | Response | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/telegram` | telegram secret | Telegram `Update` body | empty JSON `200` | registered through `TelegramWebhookEndpoint.register(...)`, not through a decorator router |
+| `POST` | `/api/v1/telegram` | telegram secret | Telegram `Update` body | empty JSON `200` | registered through `TelegramWebhookEndpoint.register(...)` with `config.bot.webhook_path`, not through a decorator router |
 
 ## Internal
 

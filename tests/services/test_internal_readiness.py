@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -89,3 +90,19 @@ def test_build_readiness_response_returns_not_ready_when_core_dependency_fails(
     assert response.status == "not_ready"
     assert response.checks["postgresql"].status == "down"
     assert "db unavailable" in (response.checks["postgresql"].detail or "")
+
+
+def test_check_redis_readiness_accepts_non_awaitable_ping_response() -> None:
+    redis_client = SimpleNamespace(ping=lambda: True)
+
+    response = run_async(internal_module._check_redis_readiness(redis_client))
+
+    assert response == ("up", None)
+
+
+def test_check_redis_readiness_accepts_awaitable_ping_response() -> None:
+    redis_client = SimpleNamespace(ping=AsyncMock(return_value=True))
+
+    response = run_async(internal_module._check_redis_readiness(redis_client))
+
+    assert response == ("up", None)

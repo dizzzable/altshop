@@ -78,7 +78,7 @@ async def users_getter(
 
     return {
         "users_total": str(response.users.total_users),
-        # Remnawave SDK >= 2.3.2: status_counts is a dict-like mapping
+        # The SDK exposes status_counts as a dict-like mapping.
         "users_active": str(response.users.status_counts.get("ACTIVE", 0)),
         "users_disabled": str(response.users.status_counts.get("DISABLED", 0)),
         "users_limited": str(response.users.status_counts.get("LIMITED", 0)),

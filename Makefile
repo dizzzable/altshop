@@ -27,6 +27,10 @@ backend-check: backend-lint backend-test backend-typecheck
 .PHONY: backend-audit
 backend-audit: backend-check backend-legacy-report
 
+.PHONY: docs-verify
+docs-verify:
+	uv run python scripts/verify_operator_docs.py
+
 .PHONY: backend-legacy-report
 backend-legacy-report:
 	uv run python scripts/backend_audit_report.py
@@ -58,13 +62,13 @@ downgrade:
 
 .PHONY: run-local
 run-local:
-	@docker compose -f docker-compose.local.yml up --build
-	@docker compose logs -f
+	@docker compose -f docker-compose.yml up --build
 	
 .PHONY: run-prod
 run-prod:
-	@docker compose -f docker-compose.prod.external.yml up --build
-	@docker compose logs -f
+	@docker compose -f docker-compose.prod.yml pull
+	@docker compose -f docker-compose.prod.yml up -d
+	@docker compose -f docker-compose.prod.yml logs -f
 
 # .PHONY: run-dev
 # run-dev:

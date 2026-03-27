@@ -1,8 +1,10 @@
+import base64
 import re
 from pathlib import Path
-from typing import Any, Self
+from typing import Annotated, Any, Self
 
 from pydantic import Field, SecretStr, ValidationInfo, field_validator
+from pydantic_settings import NoDecode
 
 from src.core.constants import API_V1, ASSETS_DIR, DOMAIN_REGEX, PAYMENTS_WEBHOOK_PATH
 from src.core.enums import Locale, PaymentGatewayType
@@ -31,8 +33,10 @@ class AppConfig(BaseConfig, env_prefix="APP_"):
     crypt_key: SecretStr
     assets_dir: Path = ASSETS_DIR
     origins: StringList = StringList("")
-    allowed_hosts: list[str] = Field(default_factory=list)
-    trusted_proxy_ips: list[str] = Field(default_factory=lambda: ["127.0.0.1", "::1"])
+    allowed_hosts: Annotated[list[str], NoDecode] = Field(default_factory=list)
+    trusted_proxy_ips: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["127.0.0.1", "::1"]
+    )
 
     bot: BotConfig = Field(default_factory=BotConfig)
     remnawave: RemnawaveConfig = Field(default_factory=RemnawaveConfig)
@@ -93,8 +97,15 @@ class AppConfig(BaseConfig, env_prefix="APP_"):
     def validate_crypt_key(cls, field: SecretStr, info: ValidationInfo) -> SecretStr:
         validate_not_change_me(field, info)
 
-        if not re.match(r"^[A-Za-z0-9+/=]{44}$", field.get_secret_value()):
-            raise ValueError("APP_CRYPT_KEY must be a valid 44-character Base64 string")
+        value = field.get_secret_value()
+
+        try:
+            decoded = base64.urlsafe_b64decode(value.encode())
+        except Exception as exc:
+            raise ValueError("APP_CRYPT_KEY must be a valid url-safe Base64 Fernet key") from exc
+
+        if len(decoded) != 32:
+            raise ValueError("APP_CRYPT_KEY must decode to exactly 32 bytes")
 
         return field
 
