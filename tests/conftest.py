@@ -18,6 +18,6 @@ os.environ.setdefault("REMNAWAVE_WEBHOOK_SECRET", "test-webhook-secret")
 os.environ.setdefault("DATABASE_PASSWORD", "test-password")
 os.environ.setdefault("REDIS_PASSWORD", "test-password")
 
-os.environ.setdefault("WEB_APP_JWT_SECRET", "0123456789abcdef0123456789abcdef")
-os.environ.setdefault("WEB_APP_API_SECRET_TOKEN", "0123456789abcdef")
+os.environ.setdefault("WEB_APP_JWT_SECRET", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+os.environ.setdefault("WEB_APP_API_SECRET_TOKEN", "aaaaaaaaaaaaaaaa")
 os.environ.setdefault("WEB_APP_CORS_ORIGINS", "")

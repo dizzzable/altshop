@@ -146,7 +146,7 @@ uv run python -m src
 
 # Test an endpoint
 curl -X GET http://localhost:5000/api/v1/user/me \
-  -H "Authorization: Bearer YOUR_TOKEN"
+  --oauth2-bearer YOUR_TOKEN
 ```
 
 ### Frontend

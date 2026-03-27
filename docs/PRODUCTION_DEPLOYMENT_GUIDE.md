@@ -198,7 +198,7 @@ curl -X POST https://remnabot.2get.pro/api/v1/auth/login \
 
 # Test user endpoint
 curl https://remnabot.2get.pro/api/v1/user/me \
-  -H "Authorization: Bearer YOUR_TOKEN"
+  --oauth2-bearer YOUR_TOKEN
 ```
 
 ---
@@ -357,7 +357,7 @@ for endpoint in "${ENDPOINTS[@]}"; do
   echo "Testing $endpoint"
   curl -s -o /dev/null -w "%{http_code}" \
     https://remnabot.2get.pro$endpoint \
-    -H "Authorization: Bearer YOUR_TOKEN"
+    --oauth2-bearer YOUR_TOKEN
   echo ""
 done
 ```

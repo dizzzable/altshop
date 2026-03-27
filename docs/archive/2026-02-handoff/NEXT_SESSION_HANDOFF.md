@@ -322,11 +322,11 @@ curl -X POST http://localhost:5000/api/v1/auth/login \
 
 # Test subscriptions (with token)
 curl -X GET http://localhost:5000/api/v1/subscription/list \
-  -H "Authorization: Bearer YOUR_TOKEN"
+  --oauth2-bearer YOUR_TOKEN
 
 # Test devices
 curl -X GET "http://localhost:5000/api/v1/devices?subscription_id=1" \
-  -H "Authorization: Bearer YOUR_TOKEN"
+  --oauth2-bearer YOUR_TOKEN
 ```
 
 ### Frontend Testing

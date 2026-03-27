@@ -122,4 +122,4 @@ module = ["src.services.backup", "src.services.partner", "src.infrastructure.tas
 disable_error_code = ["call-overload", "unused-ignore"]
 
 [tool.pytest.ini_options]
-addopts = "--basetemp=.pytest_cache/pytest-tmp"
+addopts = "--basetemp=.pytest-tmp"
