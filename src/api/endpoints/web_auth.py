@@ -1,20 +1,12 @@
 from __future__ import annotations
 
-import hashlib
-import hmac
-import json
-import time
-from typing import Any, Literal, Optional, cast
-from urllib.parse import parse_qsl
-from uuid import uuid4
+from typing import Any, Literal, cast
 
-from aiogram.types import User as AiogramUser
 from dishka import FromDishka
 from dishka.integrations.fastapi import inject
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from loguru import logger
-from pydantic import BaseModel
 from redis.asyncio import Redis
 
 from src.api.contracts.web_auth import (
@@ -31,12 +23,6 @@ from src.api.contracts.web_auth import (
     TelegramLinkRequestPayload,
     VerifyEmailConfirmRequest,
     WebAccountBootstrapRequest,
-)
-from src.api.dependencies.web_access import (
-    assert_web_general_access,
-    assert_web_registration_access,
-    normalize_web_referral_code,
-    validate_web_invite_code,
 )
 from src.api.dependencies.web_auth import (
     get_current_user,
@@ -60,24 +46,21 @@ from src.api.presenters.web_auth import (
     _render_webapp_entry_html,
     _resolve_web_request_locale,
 )
-from src.api.utils.request_ip import resolve_client_ip
+from src.api.services import web_auth_flows
+from src.api.utils.web_auth_rate_limit import enforce_rate_limit, request_ip
 from src.api.utils.web_auth_transport import (
     REFRESH_TOKEN_COOKIE_NAME,
+    build_account_session_response,
     build_session_response,
     clear_auth_cookies,
     ensure_csrf_if_cookie_auth,
     parse_token_subject_and_version,
-    set_auth_cookies,
+    set_account_session,
 )
 from src.bot.keyboards import get_user_keyboard
 from src.core.config import AppConfig
-from src.core.constants import REFERRAL_PREFIX
-from src.core.enums import ReferralInviteSource, SystemNotificationType
-from src.core.security.jwt_handler import (
-    create_access_token,
-    create_refresh_token,
-    verify_refresh_token,
-)
+from src.core.enums import SystemNotificationType
+from src.core.security.jwt_handler import verify_refresh_token
 from src.core.utils.bot_menu import resolve_bot_menu_url
 from src.core.utils.branding import normalize_text, resolve_project_name
 from src.core.utils.message_payload import MessagePayload
@@ -96,16 +79,7 @@ from src.services.web_analytics_event import WebAnalyticsEventService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 _DISHKA_DEFAULT = cast(Any, None)
-
-
-class TelegramAuthData(BaseModel):
-    id: int
-    first_name: str
-    last_name: Optional[str] = None
-    username: Optional[str] = None
-    photo_url: Optional[str] = None
-    auth_date: int
-    hash: str
+REGISTRATION_GENERIC_ERROR_DETAIL = web_auth_flows.REGISTRATION_GENERIC_ERROR_DETAIL
 
 
 WEB_AUTH_MESSAGES: dict[str, dict[Literal["ru", "en"], str]] = {
@@ -130,172 +104,6 @@ WEB_AUTH_MESSAGES: dict[str, dict[Literal["ru", "en"], str]] = {
     },
 }
 
-
-def verify_telegram_hash(data: dict, bot_token: str) -> bool:
-    check_data = {k: v for k, v in data.items() if k != "hash"}
-    data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(check_data.items()))
-    secret_key = hashlib.sha256(bot_token.encode()).digest()
-    calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(calculated_hash, data["hash"])
-
-
-def verify_telegram_webapp_init_data(init_data: str, bot_token: str) -> bool:
-    parsed_pairs = dict(parse_qsl(init_data, keep_blank_values=True))
-    provided_hash = parsed_pairs.pop("hash", "")
-    if not provided_hash:
-        return False
-    data_check_string = "\n".join(f"{key}={value}" for key, value in sorted(parsed_pairs.items()))
-    secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
-    calculated_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-    return hmac.compare_digest(calculated_hash, provided_hash)
-
-
-def _parse_telegram_auth_request(auth_request: TelegramAuthRequest) -> TelegramAuthData:
-    if auth_request.initData:
-        init_data_pairs = dict(parse_qsl(auth_request.initData, keep_blank_values=True))
-        user_raw = init_data_pairs.get("user")
-        auth_date_raw = init_data_pairs.get("auth_date")
-        hash_raw = init_data_pairs.get("hash")
-        if not user_raw or not auth_date_raw or not hash_raw:
-            raise HTTPException(status_code=400, detail="Invalid initData payload")
-        try:
-            user_obj = json.loads(user_raw)
-            return TelegramAuthData(
-                id=int(user_obj["id"]),
-                first_name=str(user_obj.get("first_name") or ""),
-                last_name=user_obj.get("last_name"),
-                username=user_obj.get("username"),
-                photo_url=user_obj.get("photo_url"),
-                auth_date=int(auth_date_raw),
-                hash=str(hash_raw),
-            )
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise HTTPException(status_code=400, detail="Malformed initData payload") from exc
-
-    if (
-        auth_request.id is None
-        or auth_request.first_name is None
-        or auth_request.auth_date is None
-        or auth_request.hash is None
-    ):
-        raise HTTPException(status_code=400, detail="Missing Telegram auth fields")
-
-    return TelegramAuthData(
-        id=auth_request.id,
-        first_name=auth_request.first_name,
-        last_name=auth_request.last_name,
-        username=auth_request.username,
-        photo_url=auth_request.photo_url,
-        auth_date=auth_request.auth_date,
-        hash=auth_request.hash,
-    )
-
-
-def _extract_referral_code_from_telegram_request(
-    auth_request: TelegramAuthRequest,
-) -> Optional[str]:
-    if auth_request.initData:
-        init_data_pairs = dict(parse_qsl(auth_request.initData, keep_blank_values=True))
-        if referral_from_start_param := normalize_web_referral_code(
-            init_data_pairs.get("start_param"),
-            require_prefix=True,
-        ):
-            return referral_from_start_param
-    return normalize_web_referral_code(auth_request.referralCode)
-
-
-def _extract_telegram_launch_context(
-    auth_request: TelegramAuthRequest,
-) -> dict[str, str | bool | None]:
-    if not auth_request.initData:
-        return {
-            "source": "widget",
-            "start_param": None,
-            "has_query_id": False,
-            "chat_type": None,
-        }
-
-    init_data_pairs = dict(parse_qsl(auth_request.initData, keep_blank_values=True))
-    return {
-        "source": "webapp",
-        "start_param": init_data_pairs.get("start_param"),
-        "has_query_id": bool(init_data_pairs.get("query_id")),
-        "chat_type": init_data_pairs.get("chat_type"),
-    }
-
-
-async def _track_web_analytics_event(
-    *,
-    web_analytics_event_service: Optional[WebAnalyticsEventService],
-    event_name: str,
-    source_path: str,
-    session_id: str,
-    device_mode: str,
-    is_in_telegram: bool,
-    has_init_data: bool,
-    has_query_id: bool,
-    user_telegram_id: Optional[int] = None,
-    start_param: Optional[str] = None,
-    chat_type: Optional[str] = None,
-    meta: Optional[dict[str, object]] = None,
-) -> None:
-    if web_analytics_event_service is None:
-        return
-
-    try:
-        await web_analytics_event_service.create_event(
-            event_name=event_name,
-            source_path=source_path,
-            session_id=session_id,
-            user_telegram_id=user_telegram_id,
-            device_mode=device_mode,
-            is_in_telegram=is_in_telegram,
-            has_init_data=has_init_data,
-            start_param=start_param,
-            has_query_id=has_query_id,
-            chat_type=chat_type,
-            meta=meta or {},
-        )
-    except Exception as exc:
-        logger.warning("Failed to persist auth analytics event '{}': {}", event_name, exc)
-
-
-async def _apply_referral_for_new_user(
-    *,
-    user: UserDto,
-    referral_code: Optional[str],
-    referral_service: ReferralService,
-    partner_service: PartnerService,
-) -> None:
-    if not referral_code:
-        return
-    try:
-        normalized_code = (
-            referral_code
-            if referral_code.startswith(REFERRAL_PREFIX)
-            else f"{REFERRAL_PREFIX}{referral_code}"
-        )
-        partner_referrer = await referral_service.get_partner_referrer_by_code(
-            normalized_code,
-            user_telegram_id=user.telegram_id,
-        )
-        await referral_service.handle_referral(
-            user=user,
-            code=normalized_code,
-            source=ReferralInviteSource.WEB,
-        )
-        if partner_referrer:
-            await partner_service.handle_new_user_referral(
-                user=user,
-                referrer_code=partner_referrer.referral_code,
-            )
-    except Exception:
-        logger.exception(
-            f"Failed to apply referral for new web user '{user.telegram_id}' "
-            f"with code '{referral_code}'"
-        )
-
-
 def _build_user_i18n_kwargs(user: UserDto) -> dict[str, object]:
     return {
         "user_id": str(user.telegram_id),
@@ -304,33 +112,9 @@ def _build_user_i18n_kwargs(user: UserDto) -> dict[str, object]:
     }
 
 
-async def _notify_web_user_registered(
-    *,
-    notification_service: Optional[NotificationService],
-    user: UserDto,
-    web_username: str,
-    auth_source: str,
-) -> None:
-    if notification_service is None:
-        return
-
-    await notification_service.system_notify(
-        payload=MessagePayload.not_deleted(
-            i18n_key="ntf-event-web-user-registered",
-            i18n_kwargs={
-                **_build_user_i18n_kwargs(user),
-                "web_username": web_username,
-                "auth_source": auth_source,
-            },
-            reply_markup=get_user_keyboard(user.telegram_id),
-        ),
-        ntf_type=SystemNotificationType.WEB_USER_REGISTERED,
-    )
-
-
 async def _notify_web_account_linked(
     *,
-    notification_service: Optional[NotificationService],
+    notification_service: NotificationService | None,
     linked_user: UserDto,
     web_username: str,
     old_user_id: int,
@@ -353,31 +137,6 @@ async def _notify_web_account_linked(
         ntf_type=SystemNotificationType.WEB_ACCOUNT_LINKED,
     )
 
-async def _enforce_rate_limit(config: AppConfig, redis_client: Redis, key: str) -> None:
-    if not config.web_app.rate_limit_enabled:
-        return
-    limit = max(config.web_app.rate_limit_max_requests, 1)
-    window = config.web_app.rate_limit_window
-    try:
-        current = await redis_client.incr(key)
-        if current == 1:
-            await redis_client.expire(key, window)
-    except Exception as exc:
-        logger.warning(f"Rate-limit fallback disabled for key '{key}': {exc}")
-        return
-    if current > limit:
-        raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
-
-
-def _request_ip(request: Request) -> str:
-    app = request.scope.get("app")
-    app_state = getattr(app, "state", None)
-    config = getattr(app_state, "config", None)
-    if config is None:
-        client_host = request.client.host if request.client else ""
-        return client_host or "unknown"
-    return resolve_client_ip(request, config)
-
 def _resolve_web_auth_message(key: str, locale: Literal["ru", "en"]) -> str:
     values = WEB_AUTH_MESSAGES.get(key, {})
     return values.get(locale) or values.get("ru") or ""
@@ -387,6 +146,7 @@ def _resolve_web_auth_message(key: str, locale: Literal["ru", "en"]) -> str:
 @inject
 async def register(
     register_data: RegisterRequest,
+    request: Request,
     response: Response,
     web_account_service: FromDishka[WebAccountService],
     referral_service: FromDishka[ReferralService],
@@ -396,81 +156,21 @@ async def register(
     settings_service: FromDishka[SettingsService],
     telegram_link_service: FromDishka[TelegramLinkService],
     config: FromDishka[AppConfig],
+    redis_client: FromDishka[Redis],
 ) -> SessionResponse:
-    settings = await settings_service.get()
-    mode = settings.access_mode
-    requires_telegram_id = bool(settings.rules_required or settings.channel_required)
-
-    if settings.rules_required and not register_data.accept_rules:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You must accept the rules to register",
-        )
-
-    if settings.channel_required and not register_data.accept_channel_subscription:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="You must confirm channel subscription to register",
-        )
-
-    if requires_telegram_id and register_data.telegram_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Telegram ID is required when access conditions are enabled",
-        )
-
-    is_valid_invite = await validate_web_invite_code(
-        raw_code=register_data.referral_code,
+    result = await web_auth_flows.register_with_password(
+        register_data=register_data,
+        client_ip=request_ip(request),
+        config=config,
+        redis_client=redis_client,
+        web_account_service=web_account_service,
         referral_service=referral_service,
-        new_user_telegram_id=register_data.telegram_id or -1,
-    )
-    assert_web_registration_access(mode=mode, existing_user=None, is_valid_invite=is_valid_invite)
-
-    try:
-        result = await web_account_service.register(
-            username=register_data.username,
-            password=register_data.password,
-            telegram_id=None,
-            name=register_data.name,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    rules_accepted = bool((not settings.rules_required) or register_data.accept_rules)
-    if result.user.is_rules_accepted != rules_accepted:
-        result.user.is_rules_accepted = rules_accepted
-        updated_user = await user_service.update(result.user)
-        if updated_user:
-            result.user = updated_user
-
-    if result.is_new_user:
-        await _apply_referral_for_new_user(
-            user=result.user,
-            referral_code=normalize_web_referral_code(register_data.referral_code),
-            referral_service=referral_service,
-            partner_service=partner_service,
-        )
-    await _notify_web_user_registered(
+        partner_service=partner_service,
         notification_service=notification_service,
-        user=result.user,
-        web_username=result.web_account.username,
-        auth_source="WEB_PASSWORD",
+        user_service=user_service,
+        settings_service=settings_service,
+        telegram_link_service=telegram_link_service,
     )
-
-    if requires_telegram_id and register_data.telegram_id is not None:
-        try:
-            await telegram_link_service.request_code(
-                web_account=result.web_account,
-                telegram_id=register_data.telegram_id,
-                ttl_seconds=config.web_app.telegram_link_code_ttl_seconds,
-                attempts=config.web_app.auth_challenge_attempts,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to auto-request Telegram link code after registration for tg_id='{}': {}",
-                register_data.telegram_id,
-                exc,
-            )
 
     return build_session_response(
         access_token=result.access_token,
@@ -541,19 +241,14 @@ async def login(
     config: FromDishka[AppConfig],
     redis_client: FromDishka[Redis],
 ) -> SessionResponse:
-    await _enforce_rate_limit(
-        config, redis_client, f"auth:login:{login_data.username.lower()}:{_request_ip(request)}"
+    result = await web_auth_flows.login_with_password(
+        login_data=login_data,
+        client_ip=request_ip(request),
+        config=config,
+        redis_client=redis_client,
+        web_account_service=web_account_service,
+        settings_service=settings_service,
     )
-
-    try:
-        result = await web_account_service.login(
-            username=login_data.username, password=login_data.password
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=401, detail=str(exc)) from exc
-
-    mode = await settings_service.get_access_mode()
-    assert_web_general_access(result.user, mode)
     return build_session_response(
         access_token=result.access_token,
         refresh_token=result.refresh_token,
@@ -571,28 +266,11 @@ async def bootstrap_web_account(
     current_user: UserDto = Depends(get_current_user),
     web_account_service: FromDishka[WebAccountService] = _DISHKA_DEFAULT,
 ) -> SessionResponse:
-    if current_user.telegram_id <= 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Telegram account is required for web bootstrap",
-        )
-
-    try:
-        result = await web_account_service.bootstrap_credentials_for_telegram_user(
-            telegram_id=current_user.telegram_id,
-            username=payload.username,
-            password=payload.password,
-            name=current_user.name or current_user.username,
-        )
-    except ValueError as exc:
-        error_message = str(exc)
-        error_status = (
-            status.HTTP_409_CONFLICT
-            if error_message == "Web credentials already configured"
-            else status.HTTP_400_BAD_REQUEST
-        )
-        raise HTTPException(status_code=error_status, detail=error_message) from exc
-
+    result = await web_auth_flows.bootstrap_web_account_credentials(
+        payload=payload,
+        current_user=current_user,
+        web_account_service=web_account_service,
+    )
     return build_session_response(
         access_token=result.access_token,
         refresh_token=result.refresh_token,
@@ -606,6 +284,7 @@ async def bootstrap_web_account(
 @inject
 async def telegram_auth(
     auth_request: TelegramAuthRequest,
+    request: Request,
     response: Response,
     user_service: FromDishka[UserService],
     config: FromDishka[AppConfig],
@@ -614,198 +293,33 @@ async def telegram_auth(
     notification_service: FromDishka[NotificationService],
     settings_service: FromDishka[SettingsService],
     web_account_service: FromDishka[WebAccountService],
+    redis_client: FromDishka[Redis],
     web_analytics_event_service: FromDishka[WebAnalyticsEventService] = _DISHKA_DEFAULT,
 ) -> SessionResponse:
-    auth_data: Optional[TelegramAuthData] = None
-    launch_context = {
-        "source": "widget",
-        "start_param": None,
-        "has_query_id": False,
-        "chat_type": None,
-    }
-    analytics_session_id = str(uuid4())
-    analytics_device_mode = "telegram-mobile" if auth_request.initData else "web"
-    launch_source = "widget"
-    launch_start_param: Optional[str] = None
-    launch_has_query_id = False
-    launch_chat_type: Optional[str] = None
-
-    try:
-        auth_data = _parse_telegram_auth_request(auth_request)
-        launch_context = _extract_telegram_launch_context(auth_request)
-
-        raw_source = launch_context["source"]
-        if isinstance(raw_source, str) and raw_source:
-            launch_source = raw_source
-
-        raw_start_param = launch_context["start_param"]
-        launch_start_param = (
-            raw_start_param if isinstance(raw_start_param, str) and raw_start_param else None
-        )
-
-        launch_has_query_id = bool(launch_context["has_query_id"])
-
-        raw_chat_type = launch_context["chat_type"]
-        launch_chat_type = (
-            raw_chat_type if isinstance(raw_chat_type, str) and raw_chat_type else None
-        )
-
-        telegram_auth_source = (
-            "WEB_TELEGRAM_WEBAPP" if auth_request.initData else "WEB_TELEGRAM_WIDGET"
-        )
-
-        await _track_web_analytics_event(
-            web_analytics_event_service=web_analytics_event_service,
-            event_name="telegram_auth_attempt",
-            source_path="/api/v1/auth/telegram",
-            session_id=analytics_session_id,
-            user_telegram_id=auth_data.id,
-            device_mode=analytics_device_mode,
-            is_in_telegram=bool(auth_request.initData),
-            has_init_data=bool(auth_request.initData),
-            start_param=launch_start_param,
-            has_query_id=launch_has_query_id,
-            chat_type=launch_chat_type,
-            meta={"source": launch_source},
-        )
-
-        logger.info(
-            "Telegram auth attempt: user_id={}, source={}, has_query_id={}, "
-            "start_param={}, chat_type={}",
-            auth_data.id,
-            launch_source,
-            launch_has_query_id,
-            launch_start_param or "-",
-            launch_chat_type or "-",
-        )
-
-        bot_secret = config.bot.token.get_secret_value()
-        is_valid_signature = (
-            verify_telegram_webapp_init_data(auth_request.initData, bot_secret)
-            if auth_request.initData
-            else verify_telegram_hash(auth_data.model_dump(), bot_secret)
-        )
-        if not is_valid_signature:
-            raise HTTPException(status_code=401, detail="Invalid Telegram signature")
-
-        if int(time.time()) - auth_data.auth_date > 86400:
-            raise HTTPException(status_code=401, detail="Authorization data expired")
-
-        user = await user_service.get(telegram_id=auth_data.id)
-        mode = await settings_service.get_access_mode()
-        referral_code = _extract_referral_code_from_telegram_request(auth_request)
-        is_new_user = False
-
-        if not user:
-            is_valid_invite = await validate_web_invite_code(
-                raw_code=referral_code,
-                referral_service=referral_service,
-                new_user_telegram_id=auth_data.id,
-            )
-            assert_web_registration_access(
-                mode=mode, existing_user=None, is_valid_invite=is_valid_invite
-            )
-
-            aiogram_user = AiogramUser(
-                id=auth_data.id,
-                is_bot=False,
-                first_name=auth_data.first_name,
-                last_name=auth_data.last_name,
-                username=auth_data.username,
-                language_code="en",
-            )
-            user = await user_service.create(aiogram_user)
-            is_new_user = True
-        else:
-            assert_web_general_access(user, mode)
-
-        if is_new_user:
-            await _apply_referral_for_new_user(
-                user=user,
-                referral_code=referral_code,
-                referral_service=referral_service,
-                partner_service=partner_service,
-            )
-
-        await _track_web_analytics_event(
-            web_analytics_event_service=web_analytics_event_service,
-            event_name="telegram_auth_success",
-            source_path="/api/v1/auth/telegram",
-            session_id=analytics_session_id,
-            user_telegram_id=user.telegram_id,
-            device_mode=analytics_device_mode,
-            is_in_telegram=bool(auth_request.initData),
-            has_init_data=bool(auth_request.initData),
-            start_param=launch_start_param,
-            has_query_id=launch_has_query_id,
-            chat_type=launch_chat_type,
-            meta={
-                "source": launch_source,
-                "auth_source": telegram_auth_source,
-                "is_new_user": is_new_user,
-            },
-        )
-
-        web_auth_result = await web_account_service.get_or_create_for_telegram_user(
-            user=user,
-            preferred_username=auth_data.username or user.username,
-        )
-
-        if is_new_user:
-            await _notify_web_user_registered(
-                notification_service=notification_service,
-                user=user,
-                web_username=web_auth_result.web_account.username,
-                auth_source="WEB_TELEGRAM",
-            )
-
-        return build_session_response(
-            access_token=web_auth_result.access_token,
-            refresh_token=web_auth_result.refresh_token,
-            response=response,
-            is_new_user=is_new_user,
-            auth_source=telegram_auth_source,
-        )
-    except HTTPException as exc:
-        await _track_web_analytics_event(
-            web_analytics_event_service=web_analytics_event_service,
-            event_name="telegram_auth_failed",
-            source_path="/api/v1/auth/telegram",
-            session_id=analytics_session_id,
-            user_telegram_id=auth_data.id if auth_data else None,
-            device_mode=analytics_device_mode,
-            is_in_telegram=bool(auth_request.initData),
-            has_init_data=bool(auth_request.initData),
-            start_param=launch_start_param,
-            has_query_id=launch_has_query_id,
-            chat_type=launch_chat_type,
-            meta={
-                "source": launch_source,
-                "status_code": exc.status_code,
-                "reason": str(exc.detail),
-            },
-        )
-        raise
-    except Exception as exc:
-        await _track_web_analytics_event(
-            web_analytics_event_service=web_analytics_event_service,
-            event_name="telegram_auth_failed",
-            source_path="/api/v1/auth/telegram",
-            session_id=analytics_session_id,
-            user_telegram_id=auth_data.id if auth_data else None,
-            device_mode=analytics_device_mode,
-            is_in_telegram=bool(auth_request.initData),
-            has_init_data=bool(auth_request.initData),
-            start_param=launch_start_param,
-            has_query_id=launch_has_query_id,
-            chat_type=launch_chat_type,
-            meta={
-                "source": launch_source,
-                "reason": str(exc),
-                "exception_type": type(exc).__name__,
-            },
-        )
-        raise
+    telegram_auth_source = (
+        "WEB_TELEGRAM_WEBAPP" if auth_request.initData else "WEB_TELEGRAM_WIDGET"
+    )
+    result = await web_auth_flows.authenticate_with_telegram(
+        auth_request=auth_request,
+        client_ip=request_ip(request),
+        telegram_auth_source=telegram_auth_source,
+        user_service=user_service,
+        config=config,
+        referral_service=referral_service,
+        partner_service=partner_service,
+        notification_service=notification_service,
+        settings_service=settings_service,
+        web_account_service=web_account_service,
+        redis_client=redis_client,
+        web_analytics_event_service=web_analytics_event_service,
+    )
+    return build_session_response(
+        access_token=result.access_token,
+        refresh_token=result.refresh_token,
+        response=response,
+        is_new_user=result.is_new_user,
+        auth_source=telegram_auth_source,
+    )
 
 
 @router.post("/refresh", response_model=SessionResponse)
@@ -834,17 +348,8 @@ async def refresh_token(
     if not web_account or web_account.token_version != token_version:
         raise HTTPException(status_code=401, detail="Refresh token is outdated")
 
-    return build_session_response(
-        access_token=create_access_token(
-            user_id=web_account.user_telegram_id,
-            username=web_account.username,
-            token_version=web_account.token_version,
-        ),
-        refresh_token=create_refresh_token(
-            user_id=web_account.user_telegram_id,
-            username=web_account.username,
-            token_version=web_account.token_version,
-        ),
+    return build_account_session_response(
+        web_account=web_account,
         response=response,
     )
 
@@ -925,8 +430,10 @@ async def request_telegram_link_code(
     config: FromDishka[AppConfig] = _DISHKA_DEFAULT,
     redis_client: FromDishka[Redis] = _DISHKA_DEFAULT,
 ) -> TelegramLinkRequestResponse:
-    await _enforce_rate_limit(
-        config, redis_client, f"auth:tg_link:request:{web_account.id}:{_request_ip(request)}"
+    await enforce_rate_limit(
+        config,
+        redis_client,
+        f"auth:tg_link:request:{web_account.id}:{request_ip(request)}",
     )
     locale = _resolve_web_request_locale(request, config=config, current_user=current_user)
 
@@ -974,8 +481,10 @@ async def confirm_telegram_link_code(
     redis_client: FromDishka[Redis] = _DISHKA_DEFAULT,
     config: FromDishka[AppConfig] = _DISHKA_DEFAULT,
 ) -> TelegramLinkConfirmResponse:
-    await _enforce_rate_limit(
-        config, redis_client, f"auth:tg_link:confirm:{web_account.id}:{_request_ip(request)}"
+    await enforce_rate_limit(
+        config,
+        redis_client,
+        f"auth:tg_link:confirm:{web_account.id}:{request_ip(request)}",
     )
     locale = _resolve_web_request_locale(request, config=config, current_user=current_user)
 
@@ -1012,21 +521,7 @@ async def confirm_telegram_link_code(
         placeholders={"project_name": branding.project_name},
     )
 
-    access_token = create_access_token(
-        user_id=result.web_account.user_telegram_id,
-        username=result.web_account.username,
-        token_version=result.web_account.token_version,
-    )
-    refresh_token = create_refresh_token(
-        user_id=result.web_account.user_telegram_id,
-        username=result.web_account.username,
-        token_version=result.web_account.token_version,
-    )
-    set_auth_cookies(
-        response,
-        access_token=access_token,
-        refresh_token=refresh_token,
-    )
+    set_account_session(response, result.web_account)
 
     return TelegramLinkConfirmResponse(
         message=message,
@@ -1066,8 +561,10 @@ async def request_email_verification(
     redis_client: FromDishka[Redis] = _DISHKA_DEFAULT,
 ) -> MessageResponse:
     locale = _resolve_web_request_locale(request, config=config, current_user=current_user)
-    await _enforce_rate_limit(
-        config, redis_client, f"auth:email_verify:request:{web_account.id}:{_request_ip(request)}"
+    await enforce_rate_limit(
+        config,
+        redis_client,
+        f"auth:email_verify:request:{web_account.id}:{request_ip(request)}",
     )
     try:
         await email_recovery_service.request_email_verification(web_account=web_account)
@@ -1109,8 +606,10 @@ async def forgot_password(
 ) -> MessageResponse:
     locale = _resolve_web_request_locale(request, config=config)
     identity = (payload.username or payload.email or "unknown").strip().lower()
-    await _enforce_rate_limit(
-        config, redis_client, f"auth:password_forgot:{identity}:{_request_ip(request)}"
+    await enforce_rate_limit(
+        config,
+        redis_client,
+        f"auth:password_forgot:{identity}:{request_ip(request)}",
     )
     await email_recovery_service.forgot_password(username=payload.username, email=payload.email)
     return MessageResponse(message=_resolve_web_auth_message("password_forgot_sent", locale))
@@ -1127,8 +626,10 @@ async def forgot_password_telegram(
 ) -> MessageResponse:
     locale = _resolve_web_request_locale(request, config=config)
     identity = payload.username.strip().lower()
-    await _enforce_rate_limit(
-        config, redis_client, f"auth:password_forgot_tg:{identity}:{_request_ip(request)}"
+    await enforce_rate_limit(
+        config,
+        redis_client,
+        f"auth:password_forgot_tg:{identity}:{request_ip(request)}",
     )
     await email_recovery_service.request_telegram_password_reset(username=payload.username)
     return MessageResponse(message=_resolve_web_auth_message("password_forgot_sent", locale))
@@ -1214,20 +715,6 @@ async def change_password(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    access_token = create_access_token(
-        user_id=updated_web_account.user_telegram_id,
-        username=updated_web_account.username,
-        token_version=updated_web_account.token_version,
-    )
-    refresh_token = create_refresh_token(
-        user_id=updated_web_account.user_telegram_id,
-        username=updated_web_account.username,
-        token_version=updated_web_account.token_version,
-    )
-    set_auth_cookies(
-        response,
-        access_token=access_token,
-        refresh_token=refresh_token,
-    )
+    set_account_session(response, updated_web_account)
 
     return MessageResponse(message=_resolve_web_auth_message("password_updated", locale))

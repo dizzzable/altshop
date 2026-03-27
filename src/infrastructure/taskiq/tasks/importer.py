@@ -2,9 +2,8 @@ from uuid import UUID
 
 from dishka.integrations.taskiq import FromDishka, inject
 from loguru import logger
-from remnawave import RemnawaveSDK
 from remnawave.exceptions import BadRequestError
-from remnawave.models import CreateUserRequestDto, GetAllUsersResponseDto, UserResponseDto
+from remnawave.models import UserResponseDto
 
 from src.core.constants import IMPORTED_TAG
 from src.core.enums import SubscriptionStatus
@@ -121,7 +120,7 @@ async def _assign_plan_for_user(
 async def import_exported_users_task(
     imported_users: list[dict],
     active_internal_squads: list[UUID],
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
 ) -> tuple[int, int]:
     logger.info(f"Starting import of '{len(imported_users)}' users")
 
@@ -131,9 +130,10 @@ async def import_exported_users_task(
     for user in imported_users:
         try:
             username = user["username"]
-            created_user = CreateUserRequestDto.model_validate(user)
-            created_user.active_internal_squads = active_internal_squads
-            await remnawave.users.create_user(created_user)
+            await remnawave_service.import_user(
+                payload=user,
+                active_internal_squads=active_internal_squads,
+            )
             success_count += 1
         except BadRequestError as error:
             logger.warning(f"User '{username}' already exists, skipping. Error: {error}")
@@ -150,11 +150,10 @@ async def import_exported_users_task(
 @broker.task
 @inject(patch_module=True)
 async def sync_all_users_from_panel_task(
-    remnawave: FromDishka[RemnawaveSDK],
     remnawave_service: FromDishka[RemnawaveService],
     user_service: FromDishka[UserService],
 ) -> dict[str, int | list[int]]:
-    all_remna_users = await _fetch_all_panel_users(remnawave)
+    all_remna_users = await remnawave_service.get_all_users()
     bot_users = await user_service.get_all()
 
     logger.info(f"Total users in panel: '{len(all_remna_users)}'")
@@ -185,26 +184,6 @@ async def sync_all_users_from_panel_task(
 
     logger.info(f"Sync users summary: '{result}'")
     return result
-
-
-async def _fetch_all_panel_users(
-    remnawave: RemnawaveSDK,
-    page_size: int = 50,
-) -> list[UserResponseDto]:
-    all_remna_users: list[UserResponseDto] = []
-    start = 0
-
-    while True:
-        response = await remnawave.users.get_all_users(start=start, size=page_size)
-        if not isinstance(response, GetAllUsersResponseDto) or not response.users:
-            return all_remna_users
-
-        all_remna_users.extend(response.users)
-        start += len(response.users)
-        if len(response.users) < page_size:
-            return all_remna_users
-
-
 def _group_profiles_by_telegram_id(
     remna_users: list[UserResponseDto],
 ) -> tuple[dict[int, list[UserResponseDto]], int]:

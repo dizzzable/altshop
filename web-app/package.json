@@ -12,6 +12,7 @@
     "type-check": "tsc --noEmit",
     "check:encoding": "node scripts/check-mojibake.mjs",
     "check:i18n": "node scripts/check-dictionary-parity.mjs",
+    "generate:execution-intelligence": "python ../scripts/generate_execution_intelligence_snapshot.py",
     "generate:api": "openapi-ts -i http://localhost:5000/openapi.json -o src/generated --client axios",
     "generate:api:download": "curl http://localhost:5000/openapi.json -o openapi.json && npm run generate:api"
   },
@@ -63,5 +64,8 @@
     "react-doctor": "^0.0.29",
     "typescript": "^5.7.0",
     "vite": "^7.3.1"
+  },
+  "overrides": {
+    "picomatch": "^4.0.4"
   }
 }

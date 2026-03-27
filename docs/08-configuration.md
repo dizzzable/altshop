@@ -32,6 +32,7 @@
 | Variable | Required | Code default | Example/template | Runtime notes |
 | --- | --- | --- | --- | --- |
 | `APP_DOMAIN` | yes | none | `change_me` | Публичный домен без схемы; используется для webhook URLs и fallback web URLs. |
+| `APP_ALLOWED_HOSTS` | no | `APP_DOMAIN,localhost,127.0.0.1,::1` | `vpn.example.com,api.vpn.example.com` | Явный allowlist для `Host` header через `TrustedHostMiddleware`. Если нужен доступ по нескольким DNS-именам, перечислите их здесь. |
 | `APP_HOST` | no | `0.0.0.0` | `0.0.0.0` | Bind host для uvicorn. |
 | `APP_PORT` | no | `5000` | `5000` | Bind port для uvicorn/compose runtime. |
 | `APP_LOCALES` | no | `en` | `ru,en` | Список поддерживаемых локалей. Значение template расходится с code default. |
@@ -74,6 +75,10 @@
 | `WEB_APP_PASSWORD_RESET_TTL_SECONDS` | no | `1800` | `1800` | TTL password reset challenges. |
 | `WEB_APP_AUTH_CHALLENGE_ATTEMPTS` | no | `5` | `5` | Количество попыток на challenge. |
 | `WEB_APP_LINK_PROMPT_SNOOZE_DAYS` | no | `3` | `3` | Сколько дней не показывать prompt после `telegram-link/remind-later`. |
+| `WEB_APP_REGISTER_RATE_LIMIT_IP_MAX_REQUESTS` | no | `10` | `10` | Порог для `POST /api/v1/auth/register` на один client IP в пределах `WEB_APP_RATE_LIMIT_WINDOW`; снижайте при явном бот-спаме, повышайте если много пользователей за общим NAT. |
+| `WEB_APP_REGISTER_RATE_LIMIT_IDENTITY_MAX_REQUESTS` | no | `5` | `5` | Порог для `POST /api/v1/auth/register` на один username или переданный `telegram_id`; ограничивает перебор логинов и повторные Telegram link-code триггеры. |
+| `WEB_APP_TELEGRAM_AUTH_RATE_LIMIT_IP_MAX_REQUESTS` | no | `30` | `30` | Порог для `POST /api/v1/auth/telegram` на один client IP; держится выше, чем register, чтобы не резать легитимные shared-network логины. |
+| `WEB_APP_TELEGRAM_AUTH_RATE_LIMIT_IDENTITY_MAX_REQUESTS` | no | `10` | `10` | Порог для `POST /api/v1/auth/telegram` на один Telegram identity; помогает сдерживать replay и повторные невалидные auth attempts по одному `id`. |
 
 ## EmailConfig (`EMAIL_*`)
 
@@ -148,7 +153,8 @@
 
 ## Практические замечания
 
-- Для browser/web-app auth сейчас критичны `WEB_APP_JWT_SECRET`, `APP_CRYPT_KEY`, `APP_DOMAIN`, `APP_TRUSTED_PROXY_IPS`, `APP_ORIGINS`.
+- Для browser/web-app auth сейчас критичны `WEB_APP_JWT_SECRET`, `APP_CRYPT_KEY`, `APP_DOMAIN`, `APP_ALLOWED_HOSTS`, `APP_TRUSTED_PROXY_IPS`, `APP_ORIGINS`.
+- Если backend должен отвечать на несколько DNS-имен, перечисляйте их в `APP_ALLOWED_HOSTS`; одного `APP_DOMAIN` недостаточно для дополнительных host aliases.
 - Если API стоит за Nginx или иным reverse proxy, список `APP_TRUSTED_PROXY_IPS` должен включать адреса этого proxy, иначе `resolve_client_ip()` будет игнорировать forwarded headers.
 - Если используется frontend на отдельном origin, добавляйте его в `APP_ORIGINS`, а не только в `WEB_APP_CORS_ORIGINS`.
 - Если нужен email verify/reset flow, одного `EMAIL_ENABLED=true` недостаточно: должны быть заполнены `EMAIL_HOST` и `EMAIL_FROM_ADDRESS`, а при необходимости и SMTP credentials.

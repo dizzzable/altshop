@@ -1870,9 +1870,7 @@ async def on_confirm_delete_subscription(
     # Удаляем пользователя из Remnawave
     if subscription.user_remna_id:
         try:
-            await remnawave_service.remnawave.users.delete_user(
-                uuid=str(subscription.user_remna_id)
-            )
+            await remnawave_service.delete_user_by_uuid(subscription.user_remna_id)
             logger.info(f"{log(user)} Deleted RemnaUser '{subscription.user_remna_id}' from panel")
         except Exception as e:
             logger.error(f"{log(user)} Failed to delete RemnaUser from panel: {e}")

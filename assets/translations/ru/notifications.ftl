@@ -359,6 +359,12 @@ ntf-connect-device-url =
 ntf-subscription-not-found = <i>❌ Подписка не найдена.</i>
 
 ntf-user-not-found = <i>❌ Пользователь не найден.</i>
+ntf-user-search-ambiguous = <i>⚠️ Найдено несколько пользователей. Отправьте точный Telegram ID, пересланное сообщение или точный web login.</i>
+ntf-user-referrer-assigned = <i>✅ Реферер обновлен: { $name } (<code>{ $user_id }</code>).</i>
+ntf-user-referrer-self = <i>❌ Пользователь не может быть реферером сам себе.</i>
+ntf-user-referrer-cycle = <i>❌ Нельзя назначить этого реферера: возникнет цикл в реферальной цепочке.</i>
+ntf-user-referrer-duplicate = <i>⚠️ Этот реферер уже назначен.</i>
+ntf-user-referrer-history-locked = <i>🚫 Нельзя переназначить реферера после квалификации реферала или появления истории наград.</i>
 ntf-user-transactions-empty = <i>❌ Список транзакций пуст.</i>
 ntf-user-subscription-empty = <i>❌ Подписки пользователя не найдены.</i>
 ntf-user-plans-empty = <i>❌ Нет доступных планов для выдачи.</i>
@@ -531,6 +537,12 @@ ntf-partner-deactivated = <i>✅ Партнерка деактивирована
 ntf-partner-deleted = <i>✅ Партнерка удалена.</i>
 ntf-partner-already-exists = <i>❌ У пользователя уже есть партнерка.</i>
 ntf-partner-not-found = <i>❌ Партнерка не найдена.</i>
+ntf-user-partner-source-assigned = <i>✅ Источник партнерки обновлен: { $name } (<code>{ $user_id }</code>).</i>
+ntf-user-partner-source-self = <i>❌ Пользователь не может быть источником партнерки сам себе.</i>
+ntf-user-partner-source-not-partner = <i>❌ У выбранного пользователя нет активной партнерки.</i>
+ntf-user-partner-source-cycle = <i>❌ Нельзя назначить этот источник партнерки: возникнет цикл в партнерской цепочке.</i>
+ntf-user-partner-source-duplicate = <i>⚠️ Этот источник партнерки уже назначен.</i>
+ntf-user-partner-source-history-locked = <i>🚫 Нельзя переназначить источник партнерки после появления истории партнерских начислений.</i>
 ntf-partner-disabled = <i>❌ Партнерская программа отключена.</i>
 
 ntf-partner-balance-insufficient = <i>❌ Недостаточный баланс для снятия указанной суммы.</i>

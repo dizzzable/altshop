@@ -14,6 +14,7 @@ from loguru import logger
 from src.__version__ import __version__
 from src.api.endpoints import TelegramWebhookEndpoint
 from src.core.enums import SystemNotificationType
+from src.core.observability import emit_counter
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.taskiq.tasks.notifications import (
     send_error_notification_task,
@@ -110,6 +111,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         await remnawave_service.try_connection()
     except Exception as exception:
+        emit_counter(
+            "remnawave_degraded_states_total",
+            stage="startup",
+            reason="connection_failed",
+        )
         logger.exception(f"Remnawave connection failed: {exception}")
         error_type_name = type(exception).__name__
         error_message = Text(str(exception)[:512])

@@ -55,6 +55,7 @@ export function MobileBottomBar({
   const activePageIndex = manualPageIndex ?? (matchedPageIndex >= 0 ? matchedPageIndex : 0)
   const currentPageItems = mobilePages[activePageIndex] || mobilePages[0]
   const showPageToggleButton = canTogglePages && !extraNavigationEnabled
+  const showSegmentedPageSwitch = canTogglePages && extraNavigationEnabled
 
   useEffect(() => {
     return () => {
@@ -119,7 +120,7 @@ export function MobileBottomBar({
     swipeStateRef.current.pointerId = event.pointerId
     swipeStateRef.current.startX = event.clientX
     swipeStateRef.current.startY = event.clientY
-    swipeStateRef.current.startTs = Date.now()
+    swipeStateRef.current.startTs = event.timeStamp
     swipeStateRef.current.tracking = true
     try {
       event.currentTarget.setPointerCapture(event.pointerId)
@@ -144,7 +145,7 @@ export function MobileBottomBar({
 
     const deltaX = event.clientX - swipeState.startX
     const deltaY = event.clientY - swipeState.startY
-    const gestureDuration = Date.now() - swipeState.startTs
+    const gestureDuration = event.timeStamp - swipeState.startTs
     releaseSwipePointerCapture(event.currentTarget, trackedPointerId)
     clearSwipeTracking()
 
@@ -196,6 +197,39 @@ export function MobileBottomBar({
             event.stopPropagation()
           }}
         >
+          {showSegmentedPageSwitch && (
+            <div
+              className="grid grid-cols-2 gap-1 border-b border-white/10 p-1"
+              role="tablist"
+              aria-label={t('layout.mobileNav.pageSwitch')}
+            >
+              {mobilePages.map((_, pageIndex) => {
+                const isActive = activePageIndex === pageIndex
+                const label = pageIndex === 0
+                  ? t('layout.mobileNav.pagePrimary')
+                  : t('layout.mobileNav.pageSecondary')
+
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setPageWithTransition(pageIndex)}
+                    className={cn(
+                      'rounded-xl px-3 py-2 text-xs font-medium transition-all duration-200',
+                      isActive
+                        ? 'bg-primary/14 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]'
+                        : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200'
+                    )}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           <div
             className={cn(
               'gap-1 p-1',

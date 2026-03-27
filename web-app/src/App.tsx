@@ -16,6 +16,7 @@ const loadForgotPasswordPage = () => import('./pages/auth/ForgotPasswordPage')
 const loadResetPasswordPage = () => import('./pages/auth/ResetPasswordPage')
 const loadLandingPage = () => import('./pages/landing/LandingPage')
 const loadMiniAppLandingPage = () => import('./pages/landing/MiniAppLandingPage')
+const loadExecutionIntelligencePage = () => import('./pages/reports/ExecutionIntelligencePage')
 const loadDashboardPage = () => import('./pages/dashboard/DashboardPage')
 const loadSubscriptionPage = () => import('./pages/dashboard/SubscriptionPage')
 const loadPurchasePage = () => import('./pages/dashboard/PurchasePage')
@@ -42,6 +43,9 @@ const ResetPasswordPage = lazy(() =>
 const LandingPage = lazy(() => loadLandingPage().then((module) => ({ default: module.LandingPage })))
 const MiniAppLandingPage = lazy(() =>
   loadMiniAppLandingPage().then((module) => ({ default: module.MiniAppLandingPage }))
+)
+const ExecutionIntelligencePage = lazy(() =>
+  loadExecutionIntelligencePage().then((module) => ({ default: module.ExecutionIntelligencePage }))
 )
 const DashboardPage = lazy(() =>
   loadDashboardPage().then((module) => ({ default: module.DashboardPage }))
@@ -139,6 +143,7 @@ function App() {
                 <Route path="/" element={<LandingPage />} />
                 <Route path="/entry" element={<LandingPage />} />
                 <Route path="/miniapp" element={<MiniAppLandingPage />} />
+                <Route path="/execution-intelligence" element={<ExecutionIntelligencePage />} />
                 <Route path="/payment-return" element={<PaymentReturnPage />} />
 
                 {/* Public routes */}

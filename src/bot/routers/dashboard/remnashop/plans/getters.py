@@ -4,9 +4,7 @@ from typing import Any, Optional
 from aiogram_dialog import DialogManager
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
-from remnawave import RemnawaveSDK
 from remnawave.enums.users import TrafficLimitStrategy
-from remnawave.models import GetAllInternalSquadsResponseDto
 
 from src.core.enums import ArchivedPlanRenewMode, Currency, PlanAvailability, PlanType
 from src.core.utils.adapter import DialogDataAdapter
@@ -304,7 +302,6 @@ async def allowed_users_getter(dialog_manager: DialogManager, **kwargs: Any) -> 
 @inject
 async def squads_getter(
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
     remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -314,10 +311,7 @@ async def squads_getter(
     if not plan:
         raise ValueError("PlanDto not found in dialog data")
 
-    internal_response = await remnawave.internal_squads.get_internal_squads()
-    if not isinstance(internal_response, GetAllInternalSquadsResponseDto):
-        raise ValueError("Wrong response from Remnawave internal squads")
-
+    internal_response = await remnawave_service.get_internal_squads()
     internal_dict = {s.uuid: s.name for s in internal_response.internal_squads}
     internal_squads_names = ", ".join(
         internal_dict.get(squad, str(squad)) for squad in plan.internal_squads
@@ -336,7 +330,7 @@ async def squads_getter(
 @inject
 async def internal_squads_getter(
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     adapter = DialogDataAdapter(dialog_manager)
@@ -345,11 +339,7 @@ async def internal_squads_getter(
     if not plan:
         raise ValueError("PlanDto not found in dialog data")
 
-    response = await remnawave.internal_squads.get_internal_squads()
-
-    if not isinstance(response, GetAllInternalSquadsResponseDto):
-        raise ValueError("Wrong response from Remnawave")
-
+    response = await remnawave_service.get_internal_squads()
     existing_squad_uuids = {squad.uuid for squad in response.internal_squads}
 
     if plan.internal_squads:

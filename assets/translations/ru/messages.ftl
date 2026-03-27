@@ -1989,6 +1989,28 @@ msg-user-partner =
     <i>Выдайте партнерку, чтобы пользователь мог приглашать рефералов и получать % с их оплат.</i>
     }
 
+msg-user-partner-source-assignment =
+    <b>🧭 Назначить источник партнерки</b>
+
+    <b>Целевой пользователь</b>: { $target_user_name } (<code>{ $target_user_id }</code>)
+
+    { $has_partner_source ->
+    [1]
+    <blockquote>
+    • <b>Текущий источник</b>: { $partner_source_user_name } { $has_partner_source_username ->
+        [1] (@{ $partner_source_username })
+        *[0] { "" }
+        }
+    • <b>ID</b>: <code>{ $partner_source_user_id }</code>
+    </blockquote>
+    *[0]
+    <blockquote>
+    • Источник партнерки еще не назначен.
+    </blockquote>
+    }
+
+    Отправьте пересланное сообщение, Telegram ID, точный web login или уникальное имя источника.
+
 msg-user-partner-balance =
     <b>💰 Изменить баланс партнера</b>
 
@@ -2499,6 +2521,28 @@ msg-user-referrals =
     <b>👥 Приглашенные этим пользователем</b>
 
     Найдено записей: <b>{ $count }</b>.
+
+msg-user-referrer-assignment =
+    <b>🤝 Назначить реферера</b>
+
+    <b>Целевой пользователь</b>: { $target_user_name } (<code>{ $target_user_id }</code>)
+
+    { $has_referrer ->
+    [1]
+    <blockquote>
+    • <b>Текущий реферер</b>: { $referrer_user_name } { $has_referrer_username ->
+        [1] (@{ $referrer_username })
+        *[0] { "" }
+        }
+    • <b>ID</b>: <code>{ $referrer_user_id }</code>
+    </blockquote>
+    *[0]
+    <blockquote>
+    • Реферер еще не назначен.
+    </blockquote>
+    }
+
+    Отправьте пересланное сообщение, Telegram ID, точный web login или уникальное имя нового реферера.
 
 msg-branding-main =
     <b>🎨 Настройки брендинга</b>

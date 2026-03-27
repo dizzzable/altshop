@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { useI18n } from '@/components/common/I18nProvider'
-import { useDocumentVisibility } from '@/hooks/useDocumentVisibility'
+import { useAdaptivePollingInterval } from '@/hooks/useAdaptivePollingInterval'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -45,13 +45,22 @@ export function NotificationCenterDialog() {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState(1)
-  const isDocumentVisible = useDocumentVisibility()
+  const unreadRefetchInterval = useAdaptivePollingInterval(UNREAD_POLL_MS, {
+    enabled: true,
+    slowIntervalMs: 120_000,
+    saveDataIntervalMs: 300_000,
+  })
+  const listRefetchInterval = useAdaptivePollingInterval(UNREAD_POLL_MS, {
+    enabled: open,
+    slowIntervalMs: 120_000,
+    saveDataIntervalMs: 180_000,
+  })
 
   const unreadQuery = useQuery({
     queryKey: ['notifications', 'unread-count'],
     queryFn: () => api.notifications.unreadCount().then((response) => response.data),
     enabled: true,
-    refetchInterval: isDocumentVisible ? UNREAD_POLL_MS : false,
+    refetchInterval: unreadRefetchInterval,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     retryDelay: (attemptIndex) => Math.min(1_000 * (2 ** attemptIndex), 300_000),
@@ -61,7 +70,7 @@ export function NotificationCenterDialog() {
     queryKey: ['notifications', 'list', page, PAGE_SIZE],
     queryFn: () => api.notifications.list(page, PAGE_SIZE).then((response) => response.data),
     enabled: open,
-    refetchInterval: open && isDocumentVisible ? UNREAD_POLL_MS : false,
+    refetchInterval: listRefetchInterval,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: true,
     retryDelay: (attemptIndex) => Math.min(1_000 * (2 ** attemptIndex), 300_000),

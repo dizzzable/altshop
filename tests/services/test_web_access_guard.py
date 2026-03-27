@@ -5,6 +5,10 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+from fastapi import HTTPException
+from pydantic import SecretStr
+
 from src.core.enums import AccessMode, Locale
 from src.infrastructure.database.models.dto import SettingsDto, UserDto
 from src.services.access_policy import AccessModePolicyService
@@ -103,3 +107,39 @@ def test_restricted_mode_redirects_web_user_to_access_screen() -> None:
     assert status.can_mutate_product is False
     assert status.can_purchase is False
     assert status.should_redirect_to_access_screen is True
+
+
+def test_channel_verification_unavailable_blocks_web_user() -> None:
+    guard = build_guard(
+        SettingsDto(
+            channel_required=True,
+            channel_link=SecretStr(""),
+        )
+    )
+
+    status = run_async(guard.evaluate_user_access(user=build_user(telegram_id=5)))
+
+    assert status.channel_check_status == "unavailable"
+    assert status.access_level == "blocked"
+    assert status.can_view_product_screens is False
+    assert status.can_mutate_product is False
+    assert status.can_purchase is False
+    assert status.should_redirect_to_access_screen is True
+    assert status.unmet_requirements == ["CHANNEL_VERIFICATION_UNAVAILABLE"]
+
+
+def test_channel_verification_unavailable_returns_explicit_block_message() -> None:
+    guard = build_guard(
+        SettingsDto(
+            channel_required=True,
+            channel_link=SecretStr(""),
+        )
+    )
+    status = run_async(guard.evaluate_user_access(user=build_user(telegram_id=6)))
+
+    with pytest.raises(HTTPException) as exc_info:
+        guard.assert_can_use_product_features(status)
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["unmet_requirements"] == ["CHANNEL_VERIFICATION_UNAVAILABLE"]
+    assert "temporarily unavailable" in exc_info.value.detail["message"]

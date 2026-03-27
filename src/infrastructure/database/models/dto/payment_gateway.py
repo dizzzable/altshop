@@ -123,7 +123,10 @@ class StripeGatewaySettingsDto(GatewaySettingsDto):
 
 class MulenpayGatewaySettingsDto(GatewaySettingsDto):
     type: Literal[PaymentGatewayType.MULENPAY] = PaymentGatewayType.MULENPAY
+    shop_id: Optional[str] = None
     api_key: Optional[SecretStr] = None
+    secret_key: Optional[SecretStr] = None
+    webhook_secret: Optional[SecretStr] = None
 
 
 class CloudPaymentsGatewaySettingsDto(GatewaySettingsDto):

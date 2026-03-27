@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios'
+import axios, { AxiosError, AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { withAppBase } from '@/lib/app-path'
 import { getRuntimeWebLocale } from '@/lib/locale'
 import { sendWebTelemetryEvent } from '@/lib/telemetry'
@@ -214,6 +214,7 @@ function isPublicAuthSurface(pathname: string | null): boolean {
 }
 
 let refreshRequestPromise: Promise<AuthSessionResponse> | null = null
+let currentUserRequestPromise: Promise<AxiosResponse<User>> | null = null
 
 function getTelemetryDeviceMode(): 'telegram-mobile' | 'telegram-desktop' | 'web' {
   if (typeof window === 'undefined') {
@@ -283,6 +284,19 @@ async function refreshSession(): Promise<AuthSessionResponse> {
     })
 
   return refreshRequestPromise
+}
+
+function getCurrentUserProfile(): Promise<AxiosResponse<User>> {
+  if (currentUserRequestPromise) {
+    return currentUserRequestPromise
+  }
+
+  currentUserRequestPromise = apiClient.get<User>('/user/me')
+    .finally(() => {
+      currentUserRequestPromise = null
+    })
+
+  return currentUserRequestPromise
 }
 
 apiClient.interceptors.request.use(
@@ -398,7 +412,7 @@ export const api = {
   },
 
   user: {
-    me: () => apiClient.get<User>('/user/me'),
+    me: () => getCurrentUserProfile(),
     setSecurityEmail: (data: { email: string }) =>
       apiClient.patch<User>('/user/security/email', data),
     setPartnerBalanceCurrency: (data: { currency: string | null }) =>

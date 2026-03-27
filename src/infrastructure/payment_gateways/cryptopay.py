@@ -3,7 +3,10 @@
 Documentation: https://help.crypt.bot/crypto-pay-api
 """
 
+import hashlib
+import hmac
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
@@ -140,11 +143,18 @@ class CryptopayGateway(BasePaymentGateway):
         """
         try:
             body = await request.body()
+            signature = request.headers.get("crypto-pay-api-signature")
+            if not signature:
+                raise PermissionError("Missing crypto-pay-api-signature header")
+
             webhook_data = orjson.loads(body)
             logger.debug(f"CryptoBot webhook data: {webhook_data}")
 
             if not isinstance(webhook_data, dict):
                 raise ValueError("Invalid webhook payload format")
+
+            self._verify_webhook_signature(body, signature)
+            self._validate_request_date(webhook_data)
 
             update_type = webhook_data.get("update_type")
             payload_data = webhook_data.get("payload", {})
@@ -179,6 +189,42 @@ class CryptopayGateway(BasePaymentGateway):
         except (orjson.JSONDecodeError, ValueError) as exception:
             logger.error(f"Failed to parse or validate CryptoBot webhook payload: {exception}")
             raise ValueError("Invalid webhook payload") from exception
+
+    def _verify_webhook_signature(self, body: bytes, signature: str) -> None:
+        expected_signature = hmac.new(
+            self._get_webhook_secret(),
+            body,
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected_signature, signature):
+            raise PermissionError("Invalid Crypto Pay webhook signature")
+
+    def _get_webhook_secret(self) -> bytes:
+        configured_secret = self.gateway.settings.secret_key
+        if configured_secret:
+            secret_value = configured_secret.get_secret_value().strip()
+            if secret_value:
+                try:
+                    return bytes.fromhex(secret_value)
+                except ValueError:
+                    logger.warning("Crypto Pay secret_key is not hex; using raw bytes fallback")
+                    return secret_value.encode("utf-8")
+
+        api_key = self.gateway.settings.api_key
+        token = api_key.get_secret_value().strip() if api_key else ""
+        if not token:
+            raise ValueError("Crypto Pay api_key is required")
+        return hashlib.sha256(token.encode("utf-8")).digest()
+
+    @staticmethod
+    def _validate_request_date(webhook_data: dict[str, Any]) -> None:
+        request_date = webhook_data.get("request_date")
+        if request_date is None:
+            return
+        try:
+            datetime.fromisoformat(str(request_date).replace("Z", "+00:00"))
+        except ValueError as exception:
+            raise ValueError("Invalid request_date in webhook") from exception
 
     async def get_invoice_status(self, invoice_id: int) -> dict[str, Any]:
         """Get invoice status from CryptoBot API."""

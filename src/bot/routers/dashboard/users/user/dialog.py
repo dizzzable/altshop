@@ -42,10 +42,12 @@ from .getters import (
     partner_percent_getter,
     partner_reward_type_getter,
     partner_settings_getter,
+    partner_source_assignment_getter,
     points_getter,
     purchase_discount_getter,
     referral_invite_settings_getter,
     referrals_getter,
+    referrer_assignment_getter,
     role_getter,
     squads_getter,
     subscription_duration_getter,
@@ -93,6 +95,8 @@ from .handlers import (
     on_partner_percent_level_select,
     on_partner_reward_type_select,
     on_partner_settings,
+    on_partner_source_assignment,
+    on_partner_source_assignment_input,
     on_partner_toggle,
     on_partner_use_global_toggle,
     on_plan_select,
@@ -110,6 +114,8 @@ from .handlers import (
     on_referral_invite_use_global_toggle,
     on_referral_user_select,
     on_referrals,
+    on_referrer_assignment,
+    on_referrer_assignment_input,
     on_reset_traffic,
     on_reset_web_password,
     on_role_select,
@@ -154,6 +160,12 @@ user = Window(
             text=I18nFormat("btn-user-referrals"),
             id="referrals",
             on_click=on_referrals,
+        ),
+        Button(
+            text=I18nFormat("btn-user-assign-referrer"),
+            id="referrer_assignment",
+            on_click=on_referrer_assignment,
+            when=F["can_edit"],
         ),
     ),
     Row(
@@ -775,6 +787,31 @@ referrals = Window(
     getter=referrals_getter,
 )
 
+referrer_assignment = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat(
+        "msg-user-referrer-assignment",
+        target_user_name=F["target_user_name"],
+        target_user_id=F["target_user_id"],
+        has_referrer=F["has_referrer"],
+        referrer_user_id=F["referrer_user_id"],
+        referrer_user_name=F["referrer_user_name"],
+        has_referrer_username=F["has_referrer_username"],
+        referrer_username=F["referrer_username"],
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.MAIN,
+        ),
+    ),
+    MessageInput(func=on_referrer_assignment_input),
+    IgnoreUpdate(),
+    state=DashboardUser.REFERRER_ASSIGNMENT,
+    getter=referrer_assignment_getter,
+)
+
 message = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-user-message"),
@@ -980,6 +1017,13 @@ partner = Window(
         ),
     ),
     Row(
+        Button(
+            text=I18nFormat("btn-user-partner-source"),
+            id="partner_source_assignment",
+            on_click=on_partner_source_assignment,
+        ),
+    ),
+    Row(
         SwitchTo(
             text=I18nFormat("btn-back"),
             id="back",
@@ -993,6 +1037,31 @@ partner = Window(
 
 
 # Управление балансом партнера
+partner_source_assignment = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat(
+        "msg-user-partner-source-assignment",
+        target_user_name=F["target_user_name"],
+        target_user_id=F["target_user_id"],
+        has_partner_source=F["has_partner_source"],
+        partner_source_user_id=F["partner_source_user_id"],
+        partner_source_user_name=F["partner_source_user_name"],
+        has_partner_source_username=F["has_partner_source_username"],
+        partner_source_username=F["partner_source_username"],
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.PARTNER,
+        ),
+    ),
+    MessageInput(func=on_partner_source_assignment_input),
+    IgnoreUpdate(),
+    state=DashboardUser.PARTNER_SOURCE_ASSIGNMENT,
+    getter=partner_source_assignment_getter,
+)
+
 partner_balance = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-user-partner-balance"),
@@ -1434,6 +1503,7 @@ router = Dialog(
     transactions_list,
     transaction,
     referrals,
+    referrer_assignment,
     message,
     discount,
     purchase_discount,
@@ -1441,6 +1511,7 @@ router = Dialog(
     give_access,
     role,
     partner,
+    partner_source_assignment,
     partner_balance,
     partner_settings,
     partner_settings_accrual,

@@ -27,6 +27,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Audit frontend runtime dependencies
+        run: npm audit --omit=dev
+
       - name: Lint frontend
         run: npm run lint
 
@@ -35,3 +38,64 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+  backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install backend dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run backend checks
+        run: make backend-check
+
+  backend-dependency-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install backend dependencies
+        run: uv sync --locked --group dev
+
+      - name: Audit backend dependencies
+        run: >
+          uv run --with pip-audit pip-audit
+          --ignore-vuln CVE-2024-23342
+          --ignore-vuln CVE-2026-4539
+
+  secret-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install gitleaks
+        run: |
+          curl -fsSL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | tar -xz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+
+      - name: Scan repository for committed secrets
+        run: gitleaks dir . --redact --no-banner --verbose

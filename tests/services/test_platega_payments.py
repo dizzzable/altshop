@@ -168,7 +168,12 @@ def test_recover_stuck_platega_payments_reconciles_legacy_webhook_event() -> Non
     )
     payment_webhook_event_service = SimpleNamespace(
         get_platega_orphan_events=AsyncMock(return_value=[legacy_event]),
-        record_received=AsyncMock(return_value=SimpleNamespace(already_processed=False)),
+        record_received=AsyncMock(
+            return_value=SimpleNamespace(
+                already_processed=False,
+                already_in_flight=False,
+            )
+        ),
         mark_processing=AsyncMock(),
         mark_processed=AsyncMock(),
         mark_failed=AsyncMock(),

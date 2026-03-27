@@ -23,6 +23,9 @@ export const ruDictionary: Dictionary = {
     'layout.workspace': 'Рабочее пространство',
     'layout.mobileNav.next': 'Открыть дополнительные разделы',
     'layout.mobileNav.prev': 'Вернуться к основным разделам',
+    'layout.mobileNav.pageSwitch': 'Страницы навигации',
+    'layout.mobileNav.pagePrimary': 'Основное',
+    'layout.mobileNav.pageSecondary': 'Ещё',
     'layout.mobileNav.swipeHint': 'Свайпните влево или вправо, чтобы переключить страницу навигации',
     'layout.linkTgTitle': 'Привяжите Telegram-профиль',
     'layout.linkTgDesc':
@@ -84,6 +87,7 @@ export const ruDictionary: Dictionary = {
     'header.synced': 'Синхронизировано',
     'header.support': 'Поддержка',
     'header.logout': 'Выйти',
+    'header.profileMenu': 'Открыть меню профиля',
     'notifications.title': 'Уведомления',
     'notifications.description': 'История пользовательских уведомлений за последние 30 дней',
     'notifications.total': 'Всего: {total}',

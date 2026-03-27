@@ -3,10 +3,9 @@ from typing import Any
 from aiogram_dialog import DialogManager
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
-from remnawave import RemnawaveSDK
-from remnawave.models import GetAllInternalSquadsResponseDto
 
 from src.services.plan import PlanService
+from src.services.remnawave import RemnawaveService
 
 
 async def from_xui_getter(
@@ -31,14 +30,11 @@ async def from_xui_getter(
 @inject
 async def squads_getter(
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
-    response = await remnawave.internal_squads.get_internal_squads()
+    response = await remnawave_service.get_internal_squads()
     selected_squads = dialog_manager.dialog_data.get("selected_squads", [])
-
-    if not isinstance(response, GetAllInternalSquadsResponseDto):
-        raise ValueError("Wrong response from Remnawave")
 
     squads = [
         {

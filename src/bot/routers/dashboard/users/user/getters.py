@@ -4,8 +4,6 @@ from aiogram_dialog import DialogManager
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
-from remnawave import RemnawaveSDK
-from remnawave.models import GetAllInternalSquadsResponseDto
 
 from src.core.config import AppConfig
 from src.core.constants import DATETIME_FORMAT
@@ -429,7 +427,6 @@ async def squads_getter(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
-    remnawave: FromDishka[RemnawaveSDK],
     remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -449,10 +446,7 @@ async def squads_getter(
     if not subscription:
         raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
-    internal_response = await remnawave.internal_squads.get_internal_squads()
-    if not isinstance(internal_response, GetAllInternalSquadsResponseDto):
-        raise ValueError("Wrong response from Remnawave internal squads")
-
+    internal_response = await remnawave_service.get_internal_squads()
     internal_dict = {s.uuid: s.name for s in internal_response.internal_squads}
     internal_squads_names = ", ".join(
         internal_dict.get(squad, str(squad)) for squad in subscription.internal_squads
@@ -475,7 +469,7 @@ async def internal_squads_getter(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
@@ -494,11 +488,7 @@ async def internal_squads_getter(
     if not subscription:
         raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
-    response = await remnawave.internal_squads.get_internal_squads()
-
-    if not isinstance(response, GetAllInternalSquadsResponseDto):
-        raise ValueError("Wrong response from Remnawave")
-
+    response = await remnawave_service.get_internal_squads()
     squads = [
         {
             "uuid": squad.uuid,
@@ -690,6 +680,33 @@ async def referrals_getter(
         "has_referrals": bool(rows),
         "referrals": rows,
         "count": total,
+    }
+
+
+@inject
+async def referrer_assignment_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    referral_service: FromDishka[ReferralService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    referral = await referral_service.get_referral_by_referred(target_telegram_id)
+    referrer = referral.referrer if referral else None
+
+    return {
+        "target_user_name": target_user.name or str(target_user.telegram_id),
+        "target_user_id": target_user.telegram_id,
+        "has_referrer": referrer is not None,
+        "referrer_user_id": referrer.telegram_id if referrer else 0,
+        "referrer_user_name": referrer.name if referrer else "",
+        "has_referrer_username": bool(referrer and referrer.username),
+        "referrer_username": referrer.username if referrer and referrer.username else "",
     }
 
 
@@ -894,6 +911,34 @@ async def partner_getter(
             "level_3_percent": partner_settings.level3_percent,
             "created_at": "",
         }
+
+
+@inject
+async def partner_source_assignment_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    partner_service: FromDishka[PartnerService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    source_user = await partner_service.get_partner_attribution_source(target_telegram_id)
+
+    return {
+        "target_user_name": target_user.name or str(target_user.telegram_id),
+        "target_user_id": target_user.telegram_id,
+        "has_partner_source": source_user is not None,
+        "partner_source_user_id": source_user.telegram_id if source_user else 0,
+        "partner_source_user_name": source_user.name if source_user else "",
+        "has_partner_source_username": bool(source_user and source_user.username),
+        "partner_source_username": source_user.username
+        if source_user and source_user.username
+        else "",
+    }
 
 
 @inject

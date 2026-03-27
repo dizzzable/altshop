@@ -128,6 +128,7 @@ class DashboardUser(StatesGroup):
     GIVE_SUBSCRIPTION = State()
     SUBSCRIPTION_DURATION = State()
     REFERRALS = State()
+    REFERRER_ASSIGNMENT = State()
     # Лимит подписок пользователя
     MAX_SUBSCRIPTIONS = State()  # Настройка индивидуального лимита подписок
     # Партнерская программа
@@ -140,6 +141,7 @@ class DashboardUser(StatesGroup):
     PARTNER_SETTINGS_FIXED = State()  # Настройка фиксированных сумм
     PARTNER_WITHDRAWALS = State()  # Список заявок на вывод
     PARTNER_WITHDRAWAL = State()  # Детали заявки на вывод
+    PARTNER_SOURCE_ASSIGNMENT = State()
     REFERRAL_INVITE_SETTINGS = State()
     REFERRAL_INVITE_TTL = State()
     REFERRAL_INVITE_INITIAL_SLOTS = State()

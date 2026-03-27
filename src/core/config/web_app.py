@@ -37,6 +37,10 @@ class WebAppConfig(BaseConfig, env_prefix="WEB_APP_"):
     rate_limit_enabled: bool = True
     rate_limit_max_requests: int = 60  # requests per minute
     rate_limit_window: int = 60  # seconds
+    register_rate_limit_ip_max_requests: int = 10
+    register_rate_limit_identity_max_requests: int = 5
+    telegram_auth_rate_limit_ip_max_requests: int = 30
+    telegram_auth_rate_limit_identity_max_requests: int = 10
 
     @property
     def url_str(self) -> str:
@@ -100,6 +104,10 @@ class WebAppConfig(BaseConfig, env_prefix="WEB_APP_"):
         "link_prompt_snooze_days",
         "rate_limit_max_requests",
         "rate_limit_window",
+        "register_rate_limit_ip_max_requests",
+        "register_rate_limit_identity_max_requests",
+        "telegram_auth_rate_limit_ip_max_requests",
+        "telegram_auth_rate_limit_identity_max_requests",
     )
     @classmethod
     def validate_rate_limit(cls, field: int, info: ValidationInfo) -> int:

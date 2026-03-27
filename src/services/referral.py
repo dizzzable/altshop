@@ -77,6 +77,12 @@ class ReferralInviteStateSnapshot:
     refill_step_target: int | None
 
 
+class ReferralAssignmentError(ValueError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 class ReferralService(BaseService):
     uow: UnitOfWork
     user_service: UserService
@@ -174,6 +180,107 @@ class ReferralService(BaseService):
             offset=offset,
         )
         return ReferralDto.from_model_list(referrals), total
+
+    async def assign_referrer(
+        self,
+        *,
+        referred: UserDto,
+        referrer: UserDto,
+        invite_source: ReferralInviteSource = ReferralInviteSource.UNKNOWN,
+    ) -> ReferralDto:
+        if referrer.telegram_id == referred.telegram_id:
+            raise ReferralAssignmentError("SELF_REFERRAL")
+
+        async with self.uow:
+            if await self._would_create_referral_cycle(
+                referred_telegram_id=referred.telegram_id,
+                candidate_referrer_telegram_id=referrer.telegram_id,
+            ):
+                raise ReferralAssignmentError("REFERRAL_CYCLE")
+
+            parent_referral = await self.uow.repository.referrals.get_referral_by_referred(
+                referrer.telegram_id
+            )
+            parent_level = parent_referral.level if parent_referral else None
+            level = self._define_referral_level(parent_level)
+
+            existing_referral = await self.uow.repository.referrals.get_referral_by_referred(
+                referred.telegram_id
+            )
+            previous_referrer_telegram_id: int | None = None
+
+            if existing_referral:
+                if existing_referral.referrer_telegram_id == referrer.telegram_id and (
+                    existing_referral.level == level
+                ):
+                    raise ReferralAssignmentError("ALREADY_ASSIGNED")
+
+                assert existing_referral.id is not None, "Existing referral ID is required"
+                rewards = await self.uow.repository.referrals.get_rewards_by_referral(
+                    existing_referral.id
+                )
+                # Preserve historical qualification/reward accounting; do not rewire it silently.
+                if existing_referral.qualified_at is not None or rewards:
+                    raise ReferralAssignmentError("HAS_HISTORY")
+
+                previous_referrer_telegram_id = existing_referral.referrer_telegram_id
+                updated_referral = await self.uow.repository.referrals.update_referral(
+                    existing_referral.id,
+                    referrer_telegram_id=referrer.telegram_id,
+                    level=level,
+                    invite_source=invite_source,
+                )
+            else:
+                updated_referral = await self.uow.repository.referrals.create_referral(
+                    Referral(
+                        referrer_telegram_id=referrer.telegram_id,
+                        referred_telegram_id=referred.telegram_id,
+                        level=level,
+                        invite_source=invite_source,
+                    )
+                )
+
+        assert updated_referral is not None, "Referral assignment must return a referral"
+        cache_ids = {
+            referred.telegram_id,
+            referrer.telegram_id,
+        }
+        if previous_referrer_telegram_id is not None:
+            cache_ids.add(previous_referrer_telegram_id)
+        for telegram_id in cache_ids:
+            await self.user_service.clear_user_cache(telegram_id)
+
+        logger.info(
+            "Referral manually assigned '{}' -> '{}' level '{}'",
+            referrer.telegram_id,
+            referred.telegram_id,
+            level.name,
+        )
+        return ReferralDto.from_model(updated_referral)  # type: ignore[return-value]
+
+    async def _would_create_referral_cycle(
+        self,
+        *,
+        referred_telegram_id: int,
+        candidate_referrer_telegram_id: int,
+    ) -> bool:
+        current_telegram_id = candidate_referrer_telegram_id
+        visited: set[int] = set()
+
+        while True:
+            if current_telegram_id == referred_telegram_id:
+                return True
+            if current_telegram_id in visited:
+                return True
+
+            visited.add(current_telegram_id)
+            parent_referral = await self.uow.repository.referrals.get_referral_by_referred(
+                current_telegram_id
+            )
+            if not parent_referral:
+                return False
+
+            current_telegram_id = parent_referral.referrer_telegram_id
 
     async def get_referral_count(self, telegram_id: int) -> int:
         count = await self.uow.repository.referrals.count_referrals_by_referrer(telegram_id)
@@ -417,9 +524,8 @@ class ReferralService(BaseService):
         capacity: ReferralInviteCapacitySnapshot,
     ) -> ReferralInviteStateSnapshot:
         block_reason = self._resolve_invite_block_reason(invite, capacity)
-        requires_regeneration = (
-            block_reason == INVITE_BLOCK_REASON_EXPIRED
-            or (invite is None and block_reason != INVITE_BLOCK_REASON_EXHAUSTED)
+        requires_regeneration = block_reason == INVITE_BLOCK_REASON_EXPIRED or (
+            invite is None and block_reason != INVITE_BLOCK_REASON_EXHAUSTED
         )
 
         return ReferralInviteStateSnapshot(
@@ -644,8 +750,10 @@ class ReferralService(BaseService):
         settings: ReferralSettingsDto,
         transaction: TransactionDto,
     ) -> bool:
-        if transaction.plan and settings.has_plan_filter and not settings.is_plan_eligible(
-            transaction.plan.id
+        if (
+            transaction.plan
+            and settings.has_plan_filter
+            and not settings.is_plan_eligible(transaction.plan.id)
         ):
             logger.info(
                 f"Skipping referral reward for transaction '{transaction.id}' "

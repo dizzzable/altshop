@@ -1,6 +1,6 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { useDocumentVisibility } from '@/hooks/useDocumentVisibility'
+import { useAdaptivePollingInterval } from '@/hooks/useAdaptivePollingInterval'
 import type { Subscription } from '@/types'
 
 function normalizeSubscriptions(value: unknown): Subscription[] {
@@ -21,8 +21,11 @@ export function useSubscriptionsQuery(options?: {
 }): UseQueryResult<Subscription[], Error> {
   const enabled = options?.enabled ?? true
   const pollWhenVisible = options?.pollWhenVisible ?? false
-  const isDocumentVisible = useDocumentVisibility()
-  const refetchInterval = pollWhenVisible && enabled && isDocumentVisible ? 60_000 : false
+  const refetchInterval = useAdaptivePollingInterval(60_000, {
+    enabled: enabled && pollWhenVisible,
+    slowIntervalMs: 120_000,
+    saveDataIntervalMs: 300_000,
+  })
 
   return useQuery<unknown, Error, Subscription[]>({
     queryKey: ['subscriptions'],

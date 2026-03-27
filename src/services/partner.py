@@ -41,6 +41,12 @@ from .base import BaseService
 from .notification import NotificationService
 
 
+class PartnerAttributionAssignmentError(ValueError):
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 class PartnerService(BaseService):
     """Сервис для работы с партнерской программой."""
 
@@ -99,6 +105,24 @@ class PartnerService(BaseService):
         partner = await self.uow.repository.partners.get_partner_by_id(partner_id)
         return PartnerDto.from_model(partner) if partner else None
 
+    async def get_direct_partner_referral_by_user(
+        self,
+        telegram_id: int,
+    ) -> Optional[PartnerReferralDto]:
+        referral = await self.uow.repository.partners.get_partner_referral_by_user(telegram_id)
+        return PartnerReferralDto.from_model(referral) if referral else None
+
+    async def get_partner_attribution_source(self, telegram_id: int) -> Optional[UserDto]:
+        referral = await self.get_direct_partner_referral_by_user(telegram_id)
+        if not referral:
+            return None
+
+        partner = await self.get_partner(referral.partner_id)
+        if not partner:
+            return None
+
+        return await self.user_service.get(telegram_id=partner.user_telegram_id)
+
     async def get_partner_by_user(self, telegram_id: int) -> Optional[PartnerDto]:
         """Получить партнера по telegram_id пользователя."""
         partner = await self.uow.repository.partners.get_partner_by_user(telegram_id)
@@ -106,8 +130,7 @@ class PartnerService(BaseService):
 
     async def has_partner_attribution(self, telegram_id: int) -> bool:
         """Check whether a user is already attributed to a partner."""
-        referral = await self.uow.repository.partners.get_partner_referral_by_user(telegram_id)
-        return referral is not None
+        return await self.get_direct_partner_referral_by_user(telegram_id) is not None
 
     async def is_partner(self, telegram_id: int) -> bool:
         """Проверить, является ли пользователь партнером."""
@@ -332,6 +355,14 @@ class PartnerService(BaseService):
         parent_partner_id: Optional[int] = None,
     ) -> PartnerReferralDto:
         """Добавить реферала к партнеру."""
+        assert partner.id is not None, "Partner ID is required for referral assignment"
+        existing_referral = await self.uow.repository.partners.get_partner_referral(
+            partner.id,
+            referral_telegram_id,
+        )
+        if existing_referral:
+            return PartnerReferralDto.from_model(existing_referral)  # type: ignore[return-value]
+
         referral = await self.uow.repository.partners.create_partner_referral(
             PartnerReferral(
                 partner_id=partner.id,
@@ -351,7 +382,6 @@ class PartnerService(BaseService):
             update_data["level3_referrals_count"] = partner.level3_referrals_count + 1
 
         if update_data:
-            assert partner.id is not None, "Partner ID is required for update"
             await self.uow.repository.partners.update_partner(partner.id, **update_data)
 
         logger.info(
@@ -359,6 +389,170 @@ class PartnerService(BaseService):
             f"referral '{referral_telegram_id}' (level {level})"
         )
         return PartnerReferralDto.from_model(referral)  # type: ignore[return-value]
+
+    async def assign_partner_attribution(
+        self,
+        *,
+        user: UserDto,
+        source_user: UserDto,
+    ) -> list[PartnerReferralDto]:
+        if source_user.telegram_id == user.telegram_id:
+            raise PartnerAttributionAssignmentError("SELF_ATTRIBUTION")
+
+        async with self.uow:
+            chain = await self._build_active_partner_chain(source_user.telegram_id)
+            if not chain:
+                raise PartnerAttributionAssignmentError("SOURCE_NOT_ACTIVE_PARTNER")
+
+            if any(partner.user_telegram_id == user.telegram_id for partner in chain):
+                raise PartnerAttributionAssignmentError("ATTRIBUTION_CYCLE")
+
+            existing_referrals = await self.uow.repository.partners.get_partner_referrals_by_user(
+                user.telegram_id
+            )
+            current_signature = self._build_partner_referral_signature(existing_referrals)
+            intended_signature = self._build_chain_signature(chain)
+            if current_signature == intended_signature:
+                raise PartnerAttributionAssignmentError("ALREADY_ASSIGNED")
+
+            transaction_count = await self.uow.repository.partners.count_transactions_by_referral(
+                user.telegram_id
+            )
+            # Preserve existing partner earnings history instead of silently rewiring it.
+            if transaction_count > 0:
+                raise PartnerAttributionAssignmentError("HAS_HISTORY")
+
+            affected_partner_ids = self._collect_affected_partner_ids(
+                existing_referrals=existing_referrals,
+                chain=chain,
+            )
+
+            if existing_referrals:
+                await self.uow.repository.partners.delete_partner_referrals_by_user(
+                    user.telegram_id
+                )
+
+            created_referrals = await self._create_partner_attribution_rows(
+                referral_telegram_id=user.telegram_id,
+                chain=chain,
+            )
+
+            for partner_id in affected_partner_ids:
+                await self._recalculate_partner_counters(partner_id)
+
+        logger.info(
+            "Partner attribution manually assigned '{}' -> '{}' (levels={})",
+            source_user.telegram_id,
+            user.telegram_id,
+            len(created_referrals),
+        )
+        return created_referrals
+
+    def _build_partner_referral_signature(
+        self,
+        referrals: list[PartnerReferral],
+    ) -> set[tuple[int, int, int | None]]:
+        return {
+            (referral.partner_id, int(referral.level), referral.parent_partner_id)
+            for referral in referrals
+        }
+
+    def _build_chain_signature(
+        self,
+        chain: list[PartnerDto],
+    ) -> set[tuple[int, int, int | None]]:
+        signature: set[tuple[int, int, int | None]] = set()
+        for index, partner in enumerate(chain, start=1):
+            assert partner.id is not None, "Partner ID is required for attribution assignment"
+            parent_partner_id = chain[index - 2].id if index > 1 else None
+            signature.add((partner.id, index, parent_partner_id))
+        return signature
+
+    def _collect_affected_partner_ids(
+        self,
+        *,
+        existing_referrals: list[PartnerReferral],
+        chain: list[PartnerDto],
+    ) -> set[int]:
+        affected_partner_ids = {referral.partner_id for referral in existing_referrals}
+        for partner in chain:
+            assert partner.id is not None, "Partner ID is required for attribution assignment"
+            affected_partner_ids.add(partner.id)
+        return affected_partner_ids
+
+    async def _create_partner_attribution_rows(
+        self,
+        *,
+        referral_telegram_id: int,
+        chain: list[PartnerDto],
+    ) -> list[PartnerReferralDto]:
+        created_referrals: list[PartnerReferralDto] = []
+        for index, partner in enumerate(chain, start=1):
+            level = PartnerLevel(index)
+            parent_partner_id = chain[index - 2].id if index > 1 else None
+            created_referrals.append(
+                await self.add_partner_referral(
+                    partner=partner,
+                    referral_telegram_id=referral_telegram_id,
+                    level=level,
+                    parent_partner_id=parent_partner_id,
+                )
+            )
+        return created_referrals
+
+    async def _build_active_partner_chain(self, source_telegram_id: int) -> list[PartnerDto]:
+        direct_partner = await self.get_partner_by_user(source_telegram_id)
+        if not direct_partner or not direct_partner.is_active:
+            return []
+
+        chain = [direct_partner]
+        current_source_id = source_telegram_id
+        visited_source_ids = {source_telegram_id}
+        visited_partner_ids = {direct_partner.id} if direct_partner.id is not None else set()
+
+        for _ in range(2):
+            current_referral = await self.uow.repository.partners.get_partner_referral_by_user(
+                current_source_id
+            )
+            if not current_referral:
+                break
+
+            upstream_partner = await self.get_partner(current_referral.partner_id)
+            if not upstream_partner or not upstream_partner.is_active:
+                break
+
+            if upstream_partner.user_telegram_id in visited_source_ids or (
+                upstream_partner.id is not None and upstream_partner.id in visited_partner_ids
+            ):
+                raise PartnerAttributionAssignmentError("ATTRIBUTION_CYCLE")
+
+            chain.append(upstream_partner)
+            visited_source_ids.add(upstream_partner.user_telegram_id)
+            if upstream_partner.id is not None:
+                visited_partner_ids.add(upstream_partner.id)
+            current_source_id = upstream_partner.user_telegram_id
+
+        return chain
+
+    async def _recalculate_partner_counters(self, partner_id: int) -> None:
+        level1_count = await self.uow.repository.partners.count_referrals_by_partner(
+            partner_id,
+            PartnerLevel.LEVEL_1,
+        )
+        level2_count = await self.uow.repository.partners.count_referrals_by_partner(
+            partner_id,
+            PartnerLevel.LEVEL_2,
+        )
+        level3_count = await self.uow.repository.partners.count_referrals_by_partner(
+            partner_id,
+            PartnerLevel.LEVEL_3,
+        )
+        await self.uow.repository.partners.update_partner(
+            partner_id,
+            referrals_count=level1_count,
+            level2_referrals_count=level2_count,
+            level3_referrals_count=level3_count,
+        )
 
     async def handle_new_user_referral(self, user: UserDto, referrer_code: str) -> None:
         """
@@ -590,9 +784,7 @@ class PartnerService(BaseService):
             earned_amount=earning,
             source_transaction_id=None,
             description=(
-                "Earnings from referral payment via "
-                f"{gateway_name} "
-                f"(level {level.value})"
+                f"Earnings from referral payment via {gateway_name} (level {level.value})"
             ),
         )
         logger.info(

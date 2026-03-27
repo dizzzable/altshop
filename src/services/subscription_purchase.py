@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from http import HTTPStatus
-from uuid import UUID
 
-from httpx import HTTPStatusError
 from loguru import logger
 
-from src.api.utils.web_app_urls import build_web_payment_redirect_urls
 from src.core.config import AppConfig
 from src.core.crypto_assets import get_supported_payment_assets
 from src.core.enums import (
@@ -21,7 +17,6 @@ from src.core.enums import (
     PurchaseChannel,
     PurchaseType,
     SubscriptionStatus,
-    TransactionStatus,
 )
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.dto import (
@@ -32,7 +27,6 @@ from src.infrastructure.database.models.dto import (
     PlanSnapshotDto,
     PriceDetailsDto,
     SubscriptionDto,
-    TransactionDto,
     UserDto,
 )
 
@@ -48,6 +42,12 @@ from .purchase_gateway_policy import (
 )
 from .settings import SettingsService
 from .subscription import SubscriptionService
+from .subscription_purchase_flows import (
+    ExternalPurchaseFlow,
+    PartnerBalancePurchaseFlow,
+    PurchaseExecutionResult,
+    PurchaseFlowError,
+)
 from .subscription_purchase_policy import (
     SubscriptionActionPolicy,
     SubscriptionPurchaseOptionsResult,
@@ -142,6 +142,14 @@ class SubscriptionPurchaseService:
         self.payment_gateway_service = payment_gateway_service
         self.partner_service = partner_service
         self.market_quote_service = market_quote_service
+        self.partner_balance_purchase_flow = PartnerBalancePurchaseFlow(
+            payment_gateway_service=payment_gateway_service,
+            partner_service=partner_service,
+        )
+        self.external_purchase_flow = ExternalPurchaseFlow(
+            config=config,
+            payment_gateway_service=payment_gateway_service,
+        )
 
     async def execute(
         self,
@@ -183,11 +191,18 @@ class SubscriptionPurchaseService:
             effective_multiplier=effective_multiplier,
         )
         if request.payment_source == PaymentSource.PARTNER_BALANCE:
-            await self._assert_partner_balance_purchase_allowed(
-                request=request,
-                current_user=current_user,
-                gateway=gateway,
-            )
+            try:
+                await self.partner_balance_purchase_flow.assert_allowed(
+                    current_user=current_user,
+                    channel=request.channel,
+                    gateway=gateway,
+                    is_gateway_explicitly_selected=bool(request.gateway_type),
+                )
+            except PurchaseFlowError as exception:
+                raise SubscriptionPurchaseError(
+                    status_code=exception.status_code,
+                    detail=exception.detail,
+                ) from exception
 
         final_display_quote = await self._build_display_quote(
             current_user=current_user,
@@ -216,6 +231,18 @@ class SubscriptionPurchaseService:
             quote_source=final_display_quote.quote_source,
             quote_expires_at=final_display_quote.quote_expires_at,
             quote_provider_count=final_display_quote.quote_provider_count,
+        )
+
+    @staticmethod
+    def _build_purchase_result(
+        execution_result: PurchaseExecutionResult,
+    ) -> SubscriptionPurchaseResult:
+        return SubscriptionPurchaseResult(
+            transaction_id=execution_result.transaction_id,
+            payment_url=execution_result.payment_url,
+            url=execution_result.url,
+            status=execution_result.status,
+            message=execution_result.message,
         )
 
     async def _execute_without_access_assert(
@@ -259,27 +286,46 @@ class SubscriptionPurchaseService:
             effective_subscription_count=effective_subscription_count,
         )
 
-        if request.payment_source == PaymentSource.PARTNER_BALANCE:
-            return await self._handle_partner_balance_purchase(
-                request=request,
-                current_user=current_user,
-                gateway=gateway,
-                gateway_type=gateway_type,
-                final_price=final_price,
-                payment_asset=payment_asset,
-                plan_snapshot=plan_snapshot,
-                device_types=device_types,
-            )
+        try:
+            if request.payment_source == PaymentSource.PARTNER_BALANCE:
+                return self._build_purchase_result(
+                    await self.partner_balance_purchase_flow.handle(
+                        current_user=current_user,
+                        channel=request.channel,
+                        purchase_type=request.purchase_type,
+                        gateway=gateway,
+                        gateway_type=gateway_type,
+                        is_gateway_explicitly_selected=bool(request.gateway_type),
+                        final_price=final_price,
+                        payment_asset=payment_asset,
+                        plan_snapshot=plan_snapshot,
+                        renew_subscription_id=request.renew_subscription_id,
+                        renew_subscription_ids=list(request.renew_subscription_ids or ()) or None,
+                        device_types=device_types,
+                    )
+                )
 
-        return await self._handle_external_purchase(
-            request=request,
-            current_user=current_user,
-            gateway_type=gateway_type,
-            final_price=final_price,
-            payment_asset=payment_asset,
-            plan_snapshot=plan_snapshot,
-            device_types=device_types,
-        )
+            return self._build_purchase_result(
+                await self.external_purchase_flow.handle(
+                    current_user=current_user,
+                    gateway_type=gateway_type,
+                    final_price=final_price,
+                    payment_asset=payment_asset,
+                    plan_snapshot=plan_snapshot,
+                    purchase_type=request.purchase_type,
+                    channel=request.channel,
+                    renew_subscription_id=request.renew_subscription_id,
+                    renew_subscription_ids=list(request.renew_subscription_ids or ()) or None,
+                    device_types=device_types,
+                    success_redirect_url=request.success_redirect_url,
+                    fail_redirect_url=request.fail_redirect_url,
+                )
+            )
+        except PurchaseFlowError as exception:
+            raise SubscriptionPurchaseError(
+                status_code=exception.status_code,
+                detail=exception.detail,
+            ) from exception
 
     async def execute_renewal_alias(
         self,
@@ -1114,250 +1160,6 @@ class SubscriptionPurchaseService:
                 )
 
         return raw_device_types or None
-
-    async def _assert_partner_balance_purchase_allowed(
-        self,
-        *,
-        request: SubscriptionPurchaseRequest,
-        current_user: UserDto,
-        gateway: PaymentGatewayDto,
-    ) -> None:
-        if request.channel != PurchaseChannel.WEB:
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail={
-                    "code": "PARTNER_BALANCE_WEB_ONLY",
-                    "message": "Partner balance payments are allowed only in WEB channel",
-                },
-            )
-
-        if not request.gateway_type:
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail={
-                    "code": "PARTNER_BALANCE_GATEWAY_REQUIRED",
-                    "message": "gateway_type is required for partner balance payment",
-                },
-            )
-
-        if gateway.currency != Currency.RUB:
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail={
-                    "code": "PARTNER_BALANCE_RUB_ONLY",
-                    "message": "Partner balance payments are available only with RUB gateways",
-                },
-            )
-
-        partner = await self.partner_service.get_partner_by_user(current_user.telegram_id)
-        if not partner or not partner.is_active:
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.FORBIDDEN,
-                detail={
-                    "code": "PARTNER_BALANCE_PARTNER_INACTIVE",
-                    "message": "Partner balance payments are available only for active partners",
-                },
-            )
-
-    async def _mark_purchase_transaction_failed_if_present(
-        self,
-        *,
-        payment_id: UUID,
-    ) -> TransactionDto | None:
-        failed_transaction = await self.payment_gateway_service.transaction_service.get(payment_id)
-        if failed_transaction and not failed_transaction.is_completed:
-            failed_transaction.status = TransactionStatus.FAILED
-            await self.payment_gateway_service.transaction_service.update(failed_transaction)
-        return failed_transaction
-
-    async def _create_partner_balance_transaction(
-        self,
-        *,
-        payment_id: UUID,
-        request: SubscriptionPurchaseRequest,
-        current_user: UserDto,
-        gateway_type: PaymentGatewayType,
-        gateway: PaymentGatewayDto,
-        final_price: PriceDetailsDto,
-        payment_asset: CryptoAsset | None,
-        plan_snapshot: PlanSnapshotDto,
-        device_types: list[DeviceType] | None,
-    ) -> None:
-        transaction = TransactionDto(
-            payment_id=payment_id,
-            status=TransactionStatus.PENDING,
-            purchase_type=request.purchase_type,
-            channel=request.channel,
-            gateway_type=gateway_type,
-            pricing=final_price,
-            currency=gateway.currency,
-            payment_asset=payment_asset,
-            plan=plan_snapshot,
-            renew_subscription_id=request.renew_subscription_id,
-            renew_subscription_ids=list(request.renew_subscription_ids or ()),
-            device_types=device_types,
-        )
-        await self.payment_gateway_service.transaction_service.create(current_user, transaction)
-
-    async def _debit_partner_balance_or_fail(
-        self,
-        *,
-        current_user: UserDto,
-        payment_id: UUID,
-        amount_kopecks: int,
-    ) -> bool:
-        if amount_kopecks <= 0:
-            return False
-
-        balance_debited = await self.partner_service.debit_balance_for_subscription_purchase(
-            user_telegram_id=current_user.telegram_id,
-            amount_kopecks=amount_kopecks,
-        )
-        if balance_debited:
-            return True
-
-        await self._mark_purchase_transaction_failed_if_present(payment_id=payment_id)
-        raise SubscriptionPurchaseError(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail={
-                "code": "INSUFFICIENT_PARTNER_BALANCE",
-                "message": "Insufficient partner balance for this purchase",
-            },
-        )
-
-    async def _handle_partner_balance_purchase(
-        self,
-        *,
-        request: SubscriptionPurchaseRequest,
-        current_user: UserDto,
-        gateway: PaymentGatewayDto,
-        gateway_type: PaymentGatewayType,
-        final_price: PriceDetailsDto,
-        payment_asset: CryptoAsset | None,
-        plan_snapshot: PlanSnapshotDto,
-        device_types: list[DeviceType] | None,
-    ) -> SubscriptionPurchaseResult:
-        await self._assert_partner_balance_purchase_allowed(
-            request=request,
-            current_user=current_user,
-            gateway=gateway,
-        )
-
-        amount_kopecks = int(final_price.final_amount * Decimal(100))
-        balance_debited = False
-        payment_id = uuid.uuid4()
-
-        try:
-            await self._create_partner_balance_transaction(
-                payment_id=payment_id,
-                request=request,
-                current_user=current_user,
-                gateway_type=gateway_type,
-                gateway=gateway,
-                final_price=final_price,
-                payment_asset=payment_asset,
-                plan_snapshot=plan_snapshot,
-                device_types=device_types,
-            )
-
-            balance_debited = await self._debit_partner_balance_or_fail(
-                current_user=current_user,
-                payment_id=payment_id,
-                amount_kopecks=amount_kopecks,
-            )
-
-            await self.payment_gateway_service.handle_payment_succeeded(payment_id)
-            return SubscriptionPurchaseResult(
-                transaction_id=str(payment_id),
-                payment_url=None,
-                url=None,
-                status=TransactionStatus.COMPLETED.value,
-                message="Payment completed from partner balance",
-            )
-        except SubscriptionPurchaseError:
-            raise
-        except Exception as exception:
-            logger.exception(f"Partner balance payment failed for '{payment_id}': {exception}")
-            failed_transaction = await self._mark_purchase_transaction_failed_if_present(
-                payment_id=payment_id
-            )
-            if (
-                balance_debited
-                and amount_kopecks > 0
-                and (not failed_transaction or not failed_transaction.is_completed)
-            ):
-                await self.partner_service.credit_balance_for_failed_subscription_purchase(
-                    user_telegram_id=current_user.telegram_id,
-                    amount_kopecks=amount_kopecks,
-                )
-
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                detail="Failed to process partner balance payment",
-            ) from exception
-
-    async def _handle_external_purchase(
-        self,
-        *,
-        request: SubscriptionPurchaseRequest,
-        current_user: UserDto,
-        gateway_type: PaymentGatewayType,
-        final_price: PriceDetailsDto,
-        payment_asset: CryptoAsset | None,
-        plan_snapshot: PlanSnapshotDto,
-        device_types: list[DeviceType] | None,
-    ) -> SubscriptionPurchaseResult:
-        success_redirect_url: str | None = request.success_redirect_url
-        fail_redirect_url: str | None = request.fail_redirect_url
-        if request.channel == PurchaseChannel.WEB:
-            default_success_url, default_fail_url = build_web_payment_redirect_urls(self.config)
-            success_redirect_url = success_redirect_url or default_success_url
-            fail_redirect_url = fail_redirect_url or default_fail_url
-
-        try:
-            payment_result = await self.payment_gateway_service.create_payment(
-                user=current_user,
-                plan=plan_snapshot,
-                pricing=final_price,
-                purchase_type=request.purchase_type,
-                gateway_type=gateway_type,
-                payment_asset=payment_asset,
-                renew_subscription_id=request.renew_subscription_id,
-                renew_subscription_ids=list(request.renew_subscription_ids or ()) or None,
-                device_types=device_types,
-                channel=request.channel,
-                success_redirect_url=success_redirect_url,
-                fail_redirect_url=fail_redirect_url,
-            )
-        except HTTPStatusError as exception:
-            provider_status = exception.response.status_code if exception.response else None
-            logger.exception(
-                "Payment provider '{}' rejected create_payment request with status '{}': {}",
-                gateway_type.value,
-                provider_status,
-                exception,
-            )
-            provider_suffix = f" ({provider_status})" if provider_status is not None else ""
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.BAD_GATEWAY,
-                detail=(
-                    f"Payment provider '{gateway_type.value}' rejected the request{provider_suffix}"
-                ),
-            ) from exception
-        except Exception as exception:
-            logger.exception(f"Payment creation failed: {exception}")
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create payment: {str(exception)}",
-            ) from exception
-
-        return SubscriptionPurchaseResult(
-            transaction_id=str(payment_result.id),
-            payment_url=payment_result.url,
-            url=payment_result.url,
-            status="PENDING",
-            message="Payment initiated successfully",
-        )
 
     @staticmethod
     def _is_deleted_subscription(subscription: SubscriptionDto) -> bool:

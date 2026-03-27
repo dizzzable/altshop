@@ -27,6 +27,10 @@ All web app configuration is done through the `.env` file. Here are the availabl
 | `WEB_APP_RATE_LIMIT_ENABLED` | Enable rate limiting | `true` |
 | `WEB_APP_RATE_LIMIT_MAX_REQUESTS` | Max requests per minute | `60` |
 | `WEB_APP_RATE_LIMIT_WINDOW` | Rate limit window in seconds | `60` |
+| `WEB_APP_REGISTER_RATE_LIMIT_IP_MAX_REQUESTS` | Register attempts per IP inside the shared window | `10` |
+| `WEB_APP_REGISTER_RATE_LIMIT_IDENTITY_MAX_REQUESTS` | Register attempts per username or `telegram_id` inside the shared window | `5` |
+| `WEB_APP_TELEGRAM_AUTH_RATE_LIMIT_IP_MAX_REQUESTS` | Telegram auth attempts per IP inside the shared window | `30` |
+| `WEB_APP_TELEGRAM_AUTH_RATE_LIMIT_IDENTITY_MAX_REQUESTS` | Telegram auth attempts per Telegram identity inside the shared window | `10` |
 
 ## Quick Start
 
@@ -89,6 +93,13 @@ When the web app is enabled, the following endpoints become available:
 3. **Enable HTTPS** - Always use HTTPS for `WEB_APP_URL`
 4. **Configure CORS properly** - Only allow trusted domains
 5. **Enable rate limiting** - Protects against DDoS attacks
+
+### Auth Throttle Tuning
+
+- `WEB_APP_RATE_LIMIT_WINDOW` stays global for all Redis-backed auth throttles.
+- `WEB_APP_REGISTER_RATE_LIMIT_*` should remain stricter because `/api/v1/auth/register` can create shadow accounts and optionally trigger Telegram link-code delivery.
+- `WEB_APP_TELEGRAM_AUTH_RATE_LIMIT_*` can stay looser on IP because multiple real users may share one public address, but keep the identity limit tight to detect repeated replay/bruteforce attempts against one Telegram `id`.
+- Watch `web_auth_rate_limit_rejections_total` in `/api/v1/internal/metrics` and lower or raise the per-endpoint limits based on real rejection volume and false-positive reports.
 
 ## Troubleshooting
 

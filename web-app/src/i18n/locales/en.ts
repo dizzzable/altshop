@@ -23,6 +23,9 @@ export const enDictionary: Dictionary = {
     'layout.workspace': 'Workspace',
     'layout.mobileNav.next': 'Open more sections',
     'layout.mobileNav.prev': 'Back to main sections',
+    'layout.mobileNav.pageSwitch': 'Navigation pages',
+    'layout.mobileNav.pagePrimary': 'Main',
+    'layout.mobileNav.pageSecondary': 'More',
     'layout.mobileNav.swipeHint': 'Swipe left or right to switch navigation pages',
     'layout.linkTgTitle': 'Link Telegram Profile',
     'layout.linkTgDesc':
@@ -84,6 +87,7 @@ export const enDictionary: Dictionary = {
     'header.synced': 'Synced',
     'header.support': 'Support',
     'header.logout': 'Log out',
+    'header.profileMenu': 'Open profile menu',
     'notifications.title': 'Notifications',
     'notifications.description': 'User notification history for the last 30 days',
     'notifications.total': 'Total: {total}',

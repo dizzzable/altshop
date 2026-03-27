@@ -237,6 +237,12 @@ Optional production overrides:
 
 - `https://<APP_DOMAIN>/webapp/`
 - `https://<APP_DOMAIN>/api/v1/auth/branding`
+- `https://<APP_DOMAIN>/api/v1/health/livez`
+
+Private-only operator checks should stay on the backend bind, for example:
+
+- `http://127.0.0.1:5000/api/v1/internal/readiness`
+- `http://127.0.0.1:5000/api/v1/internal/metrics`
 
 ### 9. Complete first operator setup in the bot
 
@@ -279,9 +285,15 @@ Public surface:
 - `/webapp/` for the SPA
 - `/assets/` for frontend assets
 - `/api/v1/*` for the backend API
+- `/api/v1/health/livez` for a public liveness probe
 - `/telegram` for Telegram webhook traffic
 - `/remnawave` for Remnawave webhook traffic
-- `/payments/*` for payment webhooks
+- `/api/v1/payments/*` for payment webhooks and payment redirect helpers
+
+Operator-only backend endpoints:
+
+- `/api/v1/internal/readiness` on the private backend bind (`127.0.0.1:5000` in compose)
+- `/api/v1/internal/metrics` on the private backend bind (`127.0.0.1:5000` in compose)
 
 ## 🗂️ Public Repository Layout
 
@@ -293,17 +305,19 @@ altshop/
 |-- nginx/               Nginx config and TLS mount paths
 |-- docs/                canonical and historical documentation
 |-- scripts/             maintenance and audit helpers
+|-- tests/               backend and service test suite in this workspace
 |-- docker-compose.yml   default deployment contract
 `-- Dockerfile           backend container image
 ```
 
 ## 🔒 What Stays Local
 
-This public GitHub mirror intentionally excludes internal-only QA artifacts.
+The runtime stack does not need the local QA assets below, but this audited workspace does include them.
 
-- `tests/` stays local and is not required for runtime deployment
+- `tests/` is present here and contains the current backend and service test suite
+- `make backend-test` runs `pytest` when `tests/` exists and prints a mirror note when it does not
 - temporary `mypy-wave*.ini` files stay local and are not part of the product
-- GitHub Actions here only validates the public frontend surface
+- GitHub Actions here validate the frontend workflow and `make backend-check` for backend lint, pytest, and mypy
 - Ruff configuration lives in [`pyproject.toml`](./pyproject.toml)
 - there is no separate `ruff.ini` in this repository
 
@@ -327,7 +341,9 @@ npm run type-check
 npm run build
 ```
 
-If you work in the private internal workspace, you can additionally run the local backend `pytest` suite there.
+This audited workspace also supports running the backend `pytest` suite directly.
+
+In stripped mirrors where `tests/` is absent, `make backend-test` prints an informational note instead of running `pytest`. GitHub Actions still run the backend job there, but the backend test leg is informational until that suite is present.
 
 ## 📚 Documentation
 
@@ -335,6 +351,7 @@ Start here:
 
 - [`CHANGELOG.md`](./CHANGELOG.md)
 - [`docs/README.md`](./docs/README.md)
+- [`web-app/README.md`](./web-app/README.md)
 
 Canonical documents:
 

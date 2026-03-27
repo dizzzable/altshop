@@ -42,6 +42,7 @@ export function RegisterPage() {
     accept_rules: false,
     accept_channel_subscription: false,
   })
+  const errorId = error ? 'register-form-error' : undefined
 
   useEffect(() => {
     captureReferralCodeFromLocation()
@@ -217,6 +218,10 @@ export function RegisterPage() {
                 value={formData.telegram_id}
                 onChange={handleChange}
                 disabled={isLoading}
+                inputMode="numeric"
+                autoComplete="off"
+                aria-invalid={Boolean(error)}
+                aria-describedby={errorId}
               />
               <p className="text-xs text-muted-foreground">
                 {registrationAccess?.requires_telegram_id
@@ -323,6 +328,9 @@ export function RegisterPage() {
                 value={formData.username}
                 onChange={handleChange}
                 disabled={isLoading}
+                autoComplete="username"
+                aria-invalid={Boolean(error)}
+                aria-describedby={errorId}
               />
               <p className="text-xs text-muted-foreground">
                 {t('auth.register.usernameHint')}
@@ -340,6 +348,9 @@ export function RegisterPage() {
                 value={formData.password}
                 onChange={handleChange}
                 disabled={isLoading}
+                autoComplete="new-password"
+                aria-invalid={Boolean(error)}
+                aria-describedby={errorId}
               />
             </div>
 
@@ -354,11 +365,14 @@ export function RegisterPage() {
                 value={formData.confirm_password}
                 onChange={handleChange}
                 disabled={isLoading}
+                autoComplete="new-password"
+                aria-invalid={Boolean(error)}
+                aria-describedby={errorId}
               />
             </div>
 
             {error && (
-              <Alert variant="destructive">
+              <Alert id={errorId} variant="destructive">
                 <AlertDescription>
                   {error}
                   {error === t('auth.register.errorLinked') && (

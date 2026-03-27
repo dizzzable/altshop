@@ -7,6 +7,8 @@ from fastapi import HTTPException, Request, Response
 
 from src.api.presenters.web_auth import SessionResponse
 from src.core.observability import emit_counter
+from src.core.security.jwt_handler import create_access_token, create_refresh_token
+from src.infrastructure.database.models.dto import WebAccountDto
 
 ACCESS_TOKEN_COOKIE_NAME = "altshop_access_token"
 REFRESH_TOKEN_COOKIE_NAME = "altshop_refresh_token"
@@ -117,6 +119,48 @@ def build_session_response(
     )
 
 
+def create_account_session_tokens(web_account: WebAccountDto) -> tuple[str, str]:
+    access_token = create_access_token(
+        user_id=web_account.user_telegram_id,
+        username=web_account.username,
+        token_version=web_account.token_version,
+    )
+    refresh_token = create_refresh_token(
+        user_id=web_account.user_telegram_id,
+        username=web_account.username,
+        token_version=web_account.token_version,
+    )
+    return access_token, refresh_token
+
+
+def set_account_session(response: Response | None, web_account: WebAccountDto) -> str:
+    access_token, refresh_token = create_account_session_tokens(web_account)
+    return set_auth_cookies(
+        response,
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
+
+
+def build_account_session_response(
+    *,
+    web_account: WebAccountDto,
+    response: Response | None = None,
+    expires_in: int = 604800,
+    is_new_user: bool = False,
+    auth_source: str | None = None,
+) -> SessionResponse:
+    access_token, refresh_token = create_account_session_tokens(web_account)
+    return build_session_response(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        response=response,
+        expires_in=expires_in,
+        is_new_user=is_new_user,
+        auth_source=auth_source,
+    )
+
+
 def parse_token_subject_and_version(payload: dict[str, Any]) -> tuple[int, int]:
     raw_subject = payload.get("sub")
     raw_version = payload.get("ver", 0)
@@ -132,9 +176,12 @@ __all__ = [
     "CSRF_TOKEN_COOKIE_NAME",
     "REFRESH_TOKEN_COOKIE_NAME",
     "SAFE_HTTP_METHODS",
+    "build_account_session_response",
     "build_session_response",
     "clear_auth_cookies",
+    "create_account_session_tokens",
     "ensure_csrf_if_cookie_auth",
     "parse_token_subject_and_version",
+    "set_account_session",
     "set_auth_cookies",
 ]

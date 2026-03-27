@@ -83,7 +83,7 @@ Inner middleware:
 ### Telegram webhook path
 
 - фактический путь формируется как `API_V1 + BOT_WEBHOOK_PATH`
-- при текущих константах это `/api/v1/telegram`
+- при текущих константах это `/telegram`
 - endpoint регистрируется программно классом `TelegramWebhookEndpoint`
 
 `TelegramWebhookEndpoint._handle_request()`:

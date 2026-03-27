@@ -11,9 +11,6 @@ from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
 from loguru import logger
-from remnawave import RemnawaveSDK
-from remnawave.exceptions import NotFoundError
-from remnawave.models import TelegramUserResponseDto
 
 from src.bot.keyboards import get_contact_support_keyboard
 from src.bot.states import DashboardUser
@@ -32,8 +29,9 @@ from src.infrastructure.database.models.dto.user import ReferralInviteIndividual
 from src.infrastructure.taskiq.tasks.redirects import redirect_to_main_menu_task
 from src.services.email_recovery import EmailRecoveryService
 from src.services.notification import NotificationService
-from src.services.partner import PartnerService
+from src.services.partner import PartnerAttributionAssignmentError, PartnerService
 from src.services.plan import PlanService
+from src.services.referral import ReferralAssignmentError, ReferralService
 from src.services.remnawave import RemnawaveService
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
@@ -83,6 +81,31 @@ async def _get_target_user_subscription_context(
         raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
     return target_user, visible_subscriptions, subscription
+
+
+def _get_referral_assignment_error_payload(error: ReferralAssignmentError) -> MessagePayload:
+    key_by_code = {
+        "SELF_REFERRAL": "ntf-user-referrer-self",
+        "REFERRAL_CYCLE": "ntf-user-referrer-cycle",
+        "ALREADY_ASSIGNED": "ntf-user-referrer-duplicate",
+        "HAS_HISTORY": "ntf-user-referrer-history-locked",
+    }
+    return MessagePayload(i18n_key=key_by_code.get(error.code, "ntf-user-referrer-history-locked"))
+
+
+def _get_partner_assignment_error_payload(
+    error: PartnerAttributionAssignmentError,
+) -> MessagePayload:
+    key_by_code = {
+        "SELF_ATTRIBUTION": "ntf-user-partner-source-self",
+        "SOURCE_NOT_ACTIVE_PARTNER": "ntf-user-partner-source-not-partner",
+        "ATTRIBUTION_CYCLE": "ntf-user-partner-source-cycle",
+        "ALREADY_ASSIGNED": "ntf-user-partner-source-duplicate",
+        "HAS_HISTORY": "ntf-user-partner-source-history-locked",
+    }
+    return MessagePayload(
+        i18n_key=key_by_code.get(error.code, "ntf-user-partner-source-history-locked")
+    )
 
 
 @inject
@@ -279,7 +302,7 @@ async def on_active_toggle(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     target_user, _, subscription = await _get_target_user_subscription_context(
@@ -292,11 +315,10 @@ async def on_active_toggle(
         SubscriptionStatus.DISABLED if subscription.is_active else SubscriptionStatus.ACTIVE
     )
 
-    remnawave_toggle_status = (
-        remnawave.users.disable_user if subscription.is_active else remnawave.users.enable_user
+    await remnawave_service.set_user_enabled(
+        subscription.user_remna_id,
+        enabled=not subscription.is_active,
     )
-
-    await remnawave_toggle_status(uuid=str(subscription.user_remna_id))
     subscription.status = new_status
     await subscription_service.update(subscription)
     logger.info(
@@ -445,7 +467,7 @@ async def on_reset_traffic(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     target_user, _, subscription = await _get_target_user_subscription_context(
@@ -454,7 +476,7 @@ async def on_reset_traffic(
         subscription_service,
     )
 
-    await remnawave.users.reset_user_traffic(uuid=str(subscription.user_remna_id))
+    await remnawave_service.reset_user_traffic_by_uuid(subscription.user_remna_id)
     logger.info(
         f"{log(user)} Reset traffic for subscription '{subscription.id}' "
         f"for user '{target_user.telegram_id}'"
@@ -905,6 +927,72 @@ async def on_referrals(
     await dialog_manager.switch_to(state=DashboardUser.REFERRALS)
 
 
+async def on_referrer_assignment(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    await dialog_manager.switch_to(state=DashboardUser.REFERRER_ASSIGNMENT)
+
+
+@inject
+async def on_referrer_assignment_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    notification_service: FromDishka[NotificationService],
+    referral_service: FromDishka[ReferralService],
+    user_service: FromDishka[UserService],
+) -> None:
+    dialog_manager.show_mode = ShowMode.EDIT
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    found_users = await user_service.search_users(message)
+    if not found_users:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-user-not-found"),
+        )
+        return
+
+    if len(found_users) > 1:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-user-search-ambiguous"),
+        )
+        return
+
+    source_user = found_users[0]
+    try:
+        await referral_service.assign_referrer(referred=target_user, referrer=source_user)
+    except ReferralAssignmentError as error:
+        await notification_service.notify_user(
+            user=user,
+            payload=_get_referral_assignment_error_payload(error),
+        )
+        return
+
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(
+            i18n_key="ntf-user-referrer-assigned",
+            i18n_kwargs={
+                "name": source_user.name or str(source_user.telegram_id),
+                "user_id": str(source_user.telegram_id),
+            },
+        ),
+    )
+    logger.info(
+        f"{log(user)} Assigned referrer '{source_user.telegram_id}' to '{target_telegram_id}'"
+    )
+    await dialog_manager.switch_to(state=DashboardUser.MAIN)
+
+
 async def on_referral_user_select(
     callback: CallbackQuery,
     widget: Select[int],
@@ -1130,7 +1218,6 @@ async def on_sync(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
     remnawave_service: FromDishka[RemnawaveService],
     user_service: FromDishka[UserService],
     notification_service: FromDishka[NotificationService],
@@ -1143,12 +1230,7 @@ async def on_sync(
         raise ValueError(f"User '{target_telegram_id}' not found")
 
     try:
-        result = await remnawave.users.get_users_by_telegram_id(telegram_id=str(target_telegram_id))
-
-        if not isinstance(result, TelegramUserResponseDto):
-            raise ValueError("Unexpected response TelegramUserResponseDto")
-    except NotFoundError:
-        result = None
+        profiles = await remnawave_service.get_users_by_telegram_id(target_telegram_id)
     except Exception as exception:
         await notification_service.notify_user(
             user=user,
@@ -1159,14 +1241,13 @@ async def on_sync(
         )
         return
 
-    if not result:
+    if not profiles:
         await notification_service.notify_user(
             user=user,
             payload=MessagePayload(i18n_key="ntf-user-sync-failed"),
         )
         return
 
-    profiles = list(result)
     stats = await remnawave_service.sync_profiles_by_telegram_id(
         telegram_id=target_telegram_id,
         remna_users=profiles,
@@ -1434,6 +1515,72 @@ async def on_partner(
     notification_service: FromDishka[NotificationService],
 ) -> None:
     """Переход к управлению партнеркой пользователя."""
+    await dialog_manager.switch_to(state=DashboardUser.PARTNER)
+
+
+async def on_partner_source_assignment(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    await dialog_manager.switch_to(state=DashboardUser.PARTNER_SOURCE_ASSIGNMENT)
+
+
+@inject
+async def on_partner_source_assignment_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    notification_service: FromDishka[NotificationService],
+    partner_service: FromDishka[PartnerService],
+    user_service: FromDishka[UserService],
+) -> None:
+    dialog_manager.show_mode = ShowMode.EDIT
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    found_users = await user_service.search_users(message)
+    if not found_users:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-user-not-found"),
+        )
+        return
+
+    if len(found_users) > 1:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-user-search-ambiguous"),
+        )
+        return
+
+    source_user = found_users[0]
+    try:
+        await partner_service.assign_partner_attribution(user=target_user, source_user=source_user)
+    except PartnerAttributionAssignmentError as error:
+        await notification_service.notify_user(
+            user=user,
+            payload=_get_partner_assignment_error_payload(error),
+        )
+        return
+
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(
+            i18n_key="ntf-user-partner-source-assigned",
+            i18n_kwargs={
+                "name": source_user.name or str(source_user.telegram_id),
+                "user_id": str(source_user.telegram_id),
+            },
+        ),
+    )
+    logger.info(
+        f"{log(user)} Assigned partner source '{source_user.telegram_id}' to '{target_telegram_id}'"
+    )
     await dialog_manager.switch_to(state=DashboardUser.PARTNER)
 
 

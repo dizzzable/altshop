@@ -7,8 +7,8 @@
 ## Базовые правила
 
 - Base prefix для decorator-defined API: `/api/v1`
-- Route decorators в `src/api/endpoints`: `60`
-- Отдельно существует programmatic route: `POST /api/v1/telegram`
+- Route decorators в `src/api/endpoints`: `64`
+- Отдельно существует programmatic route: `POST /telegram`
 - Глобального envelope вида `{data,error}` нет
 - Основной web auth transport: secure cookies + CSRF
 
@@ -57,6 +57,11 @@
 - `409` telegram link merge conflict
 - `429` auth rate limit
 - `503` webhook enqueue / infrastructure failures
+
+Дополнительно по web auth:
+
+- `POST /api/v1/auth/register` и `POST /api/v1/auth/telegram` могут вернуть `429`, если сработал Redis-backed throttle по client IP или identity.
+- `POST /api/v1/auth/register` специально не различает "username уже занят" и "telegram_id уже привязан" во внешнем `400 detail`, чтобы не давать surface для account discovery.
 
 ## Analytics surface
 
@@ -878,7 +883,7 @@
 
 | Method | Path | Contract |
 | --- | --- | --- |
-| `POST` | `/api/v1/telegram` | Telegram webhook route, ожидает header `X-Telegram-Bot-Api-Secret-Token`, body `Update`, возвращает пустой `200` JSON response |
+| `POST` | `/telegram` | Telegram webhook route, ожидает header `X-Telegram-Bot-Api-Secret-Token`, body `Update`, возвращает пустой `200` JSON response |
 | `GET` | `/api/v1/payments/yoomoney/redirect` | HTML auto-submit form; принимает query `token` |
 | `POST` | `/api/v1/payments/{gateway_type}` | raw gateway webhook; response строится конкретным gateway adapter |
 | `POST` | `/api/v1/remnawave` | raw Remnawave webhook; валидация подписи через `REMNAWAVE_WEBHOOK_SECRET`; ответ `200` или `401` |

@@ -88,6 +88,18 @@ services:
       - ./web-app/dist:/opt/altshop/webapp
     networks:
       - remnawave-network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/api/v1/internal/readiness', timeout=5).read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   altshop-taskiq-worker:
     image: altshop
@@ -101,7 +113,7 @@ services:
       RESET_ASSETS: "${RESET_ASSETS:-false}"
     depends_on:
       altshop:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./logs:/opt/altshop/logs
       - ./assets:/opt/altshop/assets
@@ -120,7 +132,7 @@ services:
       RESET_ASSETS: "${RESET_ASSETS:-false}"
     depends_on:
       altshop:
-        condition: service_started
+        condition: service_healthy
     volumes:
       - ./logs:/opt/altshop/logs
       - ./assets:/opt/altshop/assets

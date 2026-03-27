@@ -7,9 +7,10 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
-    "aiogram~=3.22.0",
+    "aiogram~=3.26.0",
     "aiogram-dialog~=2.4.0",
     "alembic~=1.16.5",
+    "aiohttp>=3.13.3,<4",
     "asyncpg~=0.30.0",
     "dishka~=1.6.0",
     "fastapi>=0.120.2",
@@ -32,6 +33,7 @@ dependencies = [
     "sqlalchemy[mypy]>=2.0.0",
     "qrcode[pil]>=8.2",
     "python-jose[cryptography]>=3.4.0",
+    "pyasn1>=0.6.3,<1",
     "aiofiles>=24.1.0",
     "pillow>=11.0.0",
 ]
@@ -118,3 +120,6 @@ disable_error_code = ["union-attr", "arg-type", "assignment"]
 [[tool.mypy.overrides]]
 module = ["src.services.backup", "src.services.partner", "src.infrastructure.taskiq.tasks.*"]
 disable_error_code = ["call-overload", "unused-ignore"]
+
+[tool.pytest.ini_options]
+addopts = "--basetemp=.pytest_cache/pytest-tmp"

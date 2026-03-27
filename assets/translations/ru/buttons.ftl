@@ -144,6 +144,7 @@ btn-user-message = 📩 Сообщение
 btn-user-role = 👮‍♂️ Изменить роль
 btn-user-transactions = 🧾 Транзакции
 btn-user-referrals = 👥 Приглашенные
+btn-user-assign-referrer = 🤝 Назначить реферера
 btn-user-give-access = 🔑 Доступ к планам
 btn-user-current-subscription = 💳 Текущая подписка
 btn-user-subscriptions = 💳 { $count ->
@@ -201,6 +202,7 @@ btn-user-block = { $is_blocked ->
     }
 
 btn-user-partner = 👾 Партнерка
+btn-user-partner-source = 🧭 Назначить источник партнерки
 btn-user-partner-balance = 💰 Изменить баланс
 btn-user-partner-create = ✅ Выдать партнерку
 btn-user-partner-toggle = { $is_active ->

@@ -1,16 +1,24 @@
 from __future__ import annotations
 
+import asyncio
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
+from time import perf_counter
+from typing import Awaitable, Callable, Literal
 
 from dishka import FromDishka
 from dishka.integrations.fastapi import inject
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from redis.asyncio import Redis
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from src.__version__ import __version__ as local_version
 from src.core.config import AppConfig
+from src.core.observability import render_metrics_text, set_gauge
 from src.infrastructure.redis.repository import RedisRepository
 from src.services.notification import NotificationService
 from src.services.release_notification import (
@@ -21,6 +29,7 @@ from src.services.release_notification import (
     normalize_release_version,
     persist_update_check_audit,
 )
+from src.services.remnawave import RemnawaveService
 from src.services.settings import SettingsService
 from src.services.user import UserService
 
@@ -34,6 +43,19 @@ class ReleaseNotifyRequest(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     html_url: str = Field(min_length=1, max_length=1024)
     published_at: datetime
+
+
+class ReadinessCheck(BaseModel):
+    status: Literal["up", "down", "degraded"]
+    latency_ms: float = Field(ge=0)
+    detail: str | None = None
+
+
+class ReadinessResponse(BaseModel):
+    ready: bool
+    status: Literal["ready", "degraded", "not_ready"]
+    checked_at: datetime
+    checks: dict[str, ReadinessCheck]
 
 
 def _verify_release_notify_credentials(
@@ -65,6 +87,88 @@ def _verify_release_notify_credentials(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="invalid bearer token",
         )
+
+
+async def _check_database_readiness(engine: AsyncEngine) -> tuple[str, str | None]:
+    async with engine.connect() as connection:
+        await connection.execute(text("SELECT 1"))
+    return "up", None
+
+
+async def _check_redis_readiness(redis_client: Redis) -> tuple[str, str | None]:
+    response = await redis_client.ping()
+    if response is not True:
+        raise RuntimeError(f"unexpected ping response: {response!r}")
+    return "up", None
+
+
+async def _check_remnawave_posture(
+    remnawave_service: RemnawaveService,
+) -> tuple[str, str | None]:
+    stats = await remnawave_service.get_stats_safe()
+    if stats is None:
+        return "degraded", "panel stats unavailable"
+    return "up", None
+
+
+async def _run_readiness_probe(
+    name: str,
+    probe: Callable[[], Awaitable[tuple[str, str | None]]],
+) -> tuple[str, ReadinessCheck]:
+    started_at = perf_counter()
+
+    try:
+        status_name, detail = await probe()
+    except Exception as exception:
+        status_name = "down"
+        detail = f"{type(exception).__name__}: {exception}"
+
+    latency_ms = round((perf_counter() - started_at) * 1000, 2)
+    set_gauge(
+        "backend_dependency_status",
+        1 if status_name == "up" else 0,
+        dependency=name,
+    )
+    return (
+        name,
+        ReadinessCheck(status=status_name, latency_ms=latency_ms, detail=detail),
+    )
+
+
+async def _build_readiness_response(
+    *,
+    engine: AsyncEngine,
+    redis_client: Redis,
+    remnawave_service: RemnawaveService,
+) -> ReadinessResponse:
+    checks = dict(
+        await asyncio.gather(
+            _run_readiness_probe("postgresql", lambda: _check_database_readiness(engine)),
+            _run_readiness_probe("redis", lambda: _check_redis_readiness(redis_client)),
+            _run_readiness_probe(
+                "remnawave",
+                lambda: _check_remnawave_posture(remnawave_service),
+            ),
+        )
+    )
+
+    ready = all(checks[dependency].status == "up" for dependency in ("postgresql", "redis"))
+    all_dependencies_up = all(check.status == "up" for check in checks.values())
+    overall_status: Literal["ready", "degraded", "not_ready"]
+    if not ready:
+        overall_status = "not_ready"
+    elif all_dependencies_up:
+        overall_status = "ready"
+    else:
+        overall_status = "degraded"
+
+    set_gauge("backend_readiness_status", 1 if ready else 0)
+    return ReadinessResponse(
+        ready=ready,
+        status=overall_status,
+        checked_at=datetime.now(tz=timezone.utc),
+        checks=checks,
+    )
 
 
 async def _notify_release_impl(
@@ -105,6 +209,34 @@ async def _notify_release_impl(
     )
     log_update_check_audit(snapshot)
     return snapshot
+
+
+@router.get("/readiness", response_model=ReadinessResponse)
+@inject
+async def readiness(
+    engine: FromDishka[AsyncEngine],
+    redis_client: FromDishka[Redis],
+    remnawave_service: FromDishka[RemnawaveService],
+) -> JSONResponse:
+    payload = await _build_readiness_response(
+        engine=engine,
+        redis_client=redis_client,
+        remnawave_service=remnawave_service,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if payload.ready else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content=payload.model_dump(mode="json"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/metrics")
+async def metrics() -> PlainTextResponse:
+    return PlainTextResponse(
+        render_metrics_text(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.post("/release-notify", response_model=UpdateCheckAuditSnapshot)

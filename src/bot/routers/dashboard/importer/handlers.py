@@ -8,8 +8,6 @@ from aiogram_dialog.widgets.kbd import Button, Select
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 from loguru import logger
-from remnawave import RemnawaveSDK
-from remnawave.models import GetAllInternalSquadsResponseDto
 
 from src.bot.states import DashboardImporter
 from src.core.constants import USER_KEY
@@ -25,6 +23,7 @@ from src.infrastructure.taskiq.tasks.importer import (
 from src.services.importer import ImporterService
 from src.services.notification import NotificationService
 from src.services.plan import PlanService
+from src.services.remnawave import RemnawaveService
 
 
 @inject
@@ -103,15 +102,11 @@ async def on_squads(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
-    response = await remnawave.internal_squads.get_internal_squads()
-
-    if not isinstance(response, GetAllInternalSquadsResponseDto):
-        raise ValueError("Wrong response from Remnawave")
-
+    response = await remnawave_service.get_internal_squads()
     if not response.internal_squads:
         await notification_service.notify_user(
             user=user,

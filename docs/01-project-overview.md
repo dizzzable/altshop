@@ -1,138 +1,146 @@
 # AltShop Project Overview
 
-Проверено по коду: `2026-03-08`
+Last audited against the live repository: `2026-03-26`
 
-## Что Это
+## What this repository is
 
-AltShop это backend и web interface для продажи и обслуживания VPN-подписок через Telegram bot, FastAPI API и отдельный React/Vite frontend. Внутренней VPN-панелью выступает Remnawave.
+AltShop is a production-oriented stack for selling and servicing VPN subscriptions through three user-facing surfaces:
 
-Важно: в текущем runtime нет отдельной web admin panel. Основная операторская админка встроена в Telegram dashboard.
+- a Telegram bot built on `aiogram`
+- a FastAPI backend that exposes web auth, user API, webhooks, and internal endpoints
+- a separate React/Vite web application served under `/webapp/`
 
-## Текущий Стек
+There is no standalone web admin panel in the default runtime. Operator workflows live in the Telegram dashboard.
 
-- Backend: Python 3.12, FastAPI, aiogram 3, aiogram-dialog, SQLAlchemy 2, Alembic
-- Async и background: Valkey, Taskiq, asyncpg, httpx
-- Auth и security: `python-jose`, bcrypt, cookie-based web auth, CSRF token
-- Frontend: React 19, TypeScript 5.7, Vite 7, Tailwind CSS 4, TanStack Query, Zustand
-- Infra: Docker Compose, Nginx, PostgreSQL 17, Valkey 9
+## Current stack
 
-## Ключевые Числа
+- Backend runtime: Python 3.12, FastAPI, aiogram 3, aiogram-dialog
+- Persistence: PostgreSQL 17, SQLAlchemy 2, Alembic, asyncpg
+- Background work: Taskiq, Valkey, Redis-compatible queues and caches
+- Security: secure cookie-based web auth, CSRF header checks for unsafe methods, JWT access and refresh cookies
+- Frontend: React 19, TypeScript 5.7, Vite 7, Tailwind CSS 4, React Router 7, TanStack Query 5, Zustand 5
+- Edge and deployment: Docker Compose, Nginx, GHCR release images for production
 
-| Метрика | Значение |
-| --- | --- |
-| Compose services в `docker-compose.yml` | 7 |
-| HTTP route decorators в `src/api/endpoints` | 60 |
-| Programmatic route | 1 (`TelegramWebhookEndpoint`) |
-| Service modules в `src/services` | 42 |
-| Concrete payment gateways | 14 |
-| SQL-таблицы (`__tablename__`) | 23 |
-| Alembic migrations | 45 |
+## Key counts from the current codebase
 
-## Структура Публичного Репозитория
+| Metric | Value | Source |
+| --- | --- | --- |
+| Services in `docker-compose.yml` | 7 | `docker-compose.yml` |
+| Decorator-defined HTTP routes | 64 | `src/api/endpoints/` |
+| Programmatic HTTP routes | 1 | `src/api/endpoints/telegram.py` |
+| Service modules in `src/services/` | 46 | `src/services/*.py` |
+| Concrete payment gateway adapters | 14 | `src/infrastructure/payment_gateways/` |
+| SQL tables | 25 | `src/infrastructure/database/models/sql/` |
+| Alembic revisions | 50 | `src/infrastructure/database/migrations/versions/` |
+| Python test files under `tests/` | 34 | `tests/` |
+
+## Repository layout
 
 ```text
 altshop/
 |-- src/
 |   |-- api/                   FastAPI app, endpoints, contracts, presenters
 |   |-- bot/                   aiogram dispatcher, routers, middlewares, states
-|   |-- core/                  config, enums, security, storage keys, utils
+|   |-- core/                  config, enums, constants, security, utilities
 |   |-- infrastructure/        DI, database, Redis, Taskiq, payment gateways
-|   |-- services/              application services
-|   |-- __main__.py            локальный FastAPI и aiogram entrypoint
-|   `-- lifespan.py            startup и shutdown orchestration
-|-- assets/                    banners, translations, static assets
-|-- docs/                      каноническая и историческая документация
-|-- nginx/                     production Nginx config и SSL mount points
-|-- scripts/                   maintenance и audit helpers
-|-- web-app/                   React/Vite frontend
-|-- docker-compose.yml         основной deployment contract
-|-- docker-entrypoint.sh       миграции, инициализация assets, запуск uvicorn
-|-- Makefile                   проектные команды для dev и DB lifecycle
-`-- pyproject.toml             backend dependencies и tooling config
+|   |-- services/              application services grouped by domain
+|   |-- __main__.py            local backend entrypoint factory
+|   `-- lifespan.py            startup and shutdown orchestration
+|-- assets/                    translations, banners, runtime assets
+|-- docs/                      canonical docs plus historical audits and handoffs
+|-- nginx/                     Nginx config and container assets
+|-- scripts/                   audit, release, and deployment helpers
+|-- tests/                     backend and service test suite for this workspace
+|-- web-app/                   standalone React/Vite frontend
+|-- docker-compose.yml         build-based local and manual deployment stack
+|-- docker-compose.prod.yml    GHCR-based production stack
+|-- docker-entrypoint.sh       migrations, asset init, uvicorn startup
+|-- Makefile                   local workflow and database commands
+`-- pyproject.toml             backend package and tooling config
 ```
 
-Внутренняя QA-папка `tests/` не входит в публичный GitHub mirror и остается локально.
+## Runtime contract
 
-## Runtime Contract
+### Default build-based stack
 
-### Default Docker stack
+`docker-compose.yml` defines these seven services:
 
-Текущий `docker-compose.yml` описывает ровно 7 сервисов:
-
-| Service | Роль |
+| Service | Role |
 | --- | --- |
-| `webapp-build` | one-shot build `web-app/dist` перед запуском Nginx |
-| `altshop-nginx` | SSL termination, раздача `/webapp/`, proxy к backend |
+| `webapp-build` | one-shot frontend build into `web-app/dist` |
+| `altshop-nginx` | TLS termination, SPA hosting, reverse proxy |
 | `altshop-db` | PostgreSQL 17 |
 | `altshop-redis` | Valkey 9 |
-| `altshop` | основной backend process: FastAPI + aiogram + lifespan |
-| `altshop-taskiq-worker` | background worker |
+| `altshop` | FastAPI app plus aiogram dispatcher runtime |
+| `altshop-taskiq-worker` | background task worker |
 | `altshop-taskiq-scheduler` | scheduled jobs |
-
-`admin-backend` и другие отдельные admin services в default compose отсутствуют.
 
 ### Backend entrypoints
 
-- Локальный Python entrypoint: `src.__main__.application`
-- Container entrypoint: `docker-entrypoint.sh`
 - FastAPI app factory: `src/api/app.py:create_app`
-- Lifespan orchestration: `src/lifespan.py`
+- Local backend entrypoint: `src.__main__:application`
+- Container entrypoint: `docker-entrypoint.sh`
+- Startup and shutdown orchestration: `src/lifespan.py`
 
-### Web surface
+### Public HTTP surface
 
-- SPA раздается Nginx по `/webapp/`
-- Статика раздается по `/assets/`
-- API публикуется под `/api/v1`
-- Telegram webhook идет через `/telegram`
-- Remnawave webhook идет через `/remnawave`
-- Payment webhooks идут через `/payments/*`
+- `/webapp/` serves the React SPA
+- `/api/v1/*` serves the decorator-defined FastAPI routes
+- `/telegram` is the programmatic Telegram webhook route
+- `/remnawave` is the Remnawave webhook route
+- `/api/v1/payments/*` is the registered payment webhook and redirect surface
 
-## Основные HTTP Surfaces
+### Route groups
 
-### Programmatic route
-
-- `POST /api/v1/telegram`
-  регистрируется через `TelegramWebhookEndpoint.register(...)` и проверяет `X-Telegram-Bot-Api-Secret-Token`
-
-### Decorator-defined route groups
+The current FastAPI app includes these route families:
 
 - `POST /api/v1/analytics/web-events`
-- `GET /api/v1/auth/*`, `POST /api/v1/auth/*`
+- `POST /api/v1/internal/release-notify`
+- `GET|POST /api/v1/auth/*`
 - `GET|PATCH|POST /api/v1/user/*`
 - `GET|POST|PATCH|DELETE /api/v1/subscription/*`
 - `GET|POST|DELETE /api/v1/devices*`
 - `GET|POST /api/v1/referral/*`
 - `GET|POST /api/v1/partner/*`
-- `GET /api/v1/payments/yoomoney/redirect`
-- `POST /api/v1/payments/{gateway_type}`
+- `GET|POST /api/v1/payments/*`
 - `POST /api/v1/remnawave`
+- `POST /telegram`
 
-## Service Topology
+## Service topology
 
-В `src/services` находятся 42 service modules. Основные доменные зоны:
+`src/services/` is currently split into these main domains:
 
-- Auth и access: `web_account.py`, `web_access_guard.py`, `auth_challenge.py`, `telegram_link.py`, `access.py`
-- User и profile: `user.py`, `user_profile.py`, `user_activity_portal.py`, `notification.py`
-- Subscription lifecycle: `subscription*.py`, `purchase_access.py`, `purchase_gateway_policy.py`
-- Payments: `payment_gateway.py`, `payment_webhook_event.py`, `transaction.py`
-- Referral и partner: `referral*.py`, `partner*.py`
-- Ops и integrations: `backup.py`, `broadcast.py`, `command.py`, `importer.py`, `remnawave.py`, `settings.py`, `webhook.py`
+- Access and web auth: `access.py`, `access_policy.py`, `auth_challenge.py`, `telegram_link.py`, `web_access_guard.py`, `web_account.py`
+- User and activity: `user.py`, `user_profile.py`, `user_activity_portal.py`, `notification.py`, `user_notification_event.py`, `web_analytics_event.py`
+- Plans, purchases, and subscriptions: `plan.py`, `plan_catalog.py`, `pricing.py`, `purchase_access.py`, `purchase_gateway_policy.py`, `subscription*.py`
+- Payments and transactions: `payment_gateway.py`, `payment_webhook_event.py`, `transaction.py`, `market_quote.py`
+- Referral and partner flows: `referral*.py`, `partner*.py`, `promocode*.py`
+- Operations and integrations: `backup.py`, `broadcast.py`, `command.py`, `importer.py`, `release_notification.py`, `remnawave.py`, `settings.py`, `webhook.py`
 
-Подробная карта находится в [03-services.md](03-services.md).
+For a detailed module map, use [03-services.md](03-services.md).
 
-## Frontend Split
+## Frontend split
 
-`web-app/` это отдельный Vite project, который:
+`web-app/` is a separate Vite project that:
 
-- использует cookie-based auth против `/api/v1/auth/*`
-- работает с backend через `axios` и `withCredentials`
-- собирается отдельным сервисом `webapp-build`
-- монтируется в Nginx как статический SPA bundle
+- builds for the fixed production base path `/webapp/`
+- talks to the backend through `/api/v1` with `axios` and `withCredentials`
+- uses secure cookie auth with CSRF protection on unsafe methods
+- supports browser login, Telegram widget login, and Telegram Mini App auto-auth
 
-## Проверять Дальше
+Use [`web-app/README.md`](../web-app/README.md) for current frontend-specific notes.
 
-- Архитектура и потоки: [02-architecture.md](02-architecture.md)
+## Tests and CI
+
+- The repository currently includes the backend and service test suite under `tests/`.
+- `make backend-test` runs `pytest -q` when `tests/` is present and falls back to an informational message in stripped mirrors where it is absent.
+- GitHub Actions in this repository run the frontend lint, type-check, and build workflow plus `make backend-check` for backend lint, pytest, and mypy.
+- In stripped mirrors where `tests/` is absent, the backend CI job still runs, but the `make backend-test` portion becomes informational until that suite is available.
+
+## Continue with
+
+- Architecture and request flows: [02-architecture.md](02-architecture.md)
+- Database inventory: [04-database.md](04-database.md)
 - API inventory: [05-api.md](05-api.md)
-- Public contract: [API_CONTRACT.md](API_CONTRACT.md)
-- Env и config: [08-configuration.md](08-configuration.md)
-- Dev workflow: [10-development.md](10-development.md)
+- Env and deployment: [08-configuration.md](08-configuration.md), [09-deployment.md](09-deployment.md)
+- Local workflow: [10-development.md](10-development.md)

@@ -1954,6 +1954,28 @@ msg-user-partner =
     <i>Grant partner access so the user can invite referrals and earn % from their payments.</i>
     }
 
+msg-user-partner-source-assignment =
+    <b>🧭 Assign Partner Source</b>
+
+    <b>Target user</b>: { $target_user_name } (<code>{ $target_user_id }</code>)
+
+    { $has_partner_source ->
+    [1]
+    <blockquote>
+    • <b>Current source</b>: { $partner_source_user_name } { $has_partner_source_username ->
+        [1] (@{ $partner_source_username })
+        *[0] { "" }
+        }
+    • <b>ID</b>: <code>{ $partner_source_user_id }</code>
+    </blockquote>
+    *[0]
+    <blockquote>
+    • No partner source assigned yet.
+    </blockquote>
+    }
+
+    Send a forwarded message, Telegram ID, exact web login, or a unique name for the partner source.
+
 msg-user-partner-balance =
     <b>💰 Adjust Partner Balance</b>
 
@@ -2276,6 +2298,28 @@ msg-user-referrals =
     <b>👥 Users Invited By This User</b>
 
     Records found: <b>{ $count }</b>.
+
+msg-user-referrer-assignment =
+    <b>🤝 Assign Referrer</b>
+
+    <b>Target user</b>: { $target_user_name } (<code>{ $target_user_id }</code>)
+
+    { $has_referrer ->
+    [1]
+    <blockquote>
+    • <b>Current referrer</b>: { $referrer_user_name } { $has_referrer_username ->
+        [1] (@{ $referrer_username })
+        *[0] { "" }
+        }
+    • <b>ID</b>: <code>{ $referrer_user_id }</code>
+    </blockquote>
+    *[0]
+    <blockquote>
+    • No referrer assigned yet.
+    </blockquote>
+    }
+
+    Send a forwarded message, Telegram ID, exact web login, or a unique name for the new referrer.
 
 msg-branding-main =
     <b>🎨 Branding Settings</b>

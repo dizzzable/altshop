@@ -334,6 +334,12 @@ ntf-connect-device-url =
 ntf-subscription-not-found = <i>❌ Subscription not found.</i>
 
 ntf-user-not-found = <i>❌ User not found.</i>
+ntf-user-search-ambiguous = <i>⚠️ Multiple users matched. Send an exact Telegram ID, forwarded message, or exact web login.</i>
+ntf-user-referrer-assigned = <i>✅ Referrer updated: { $name } (<code>{ $user_id }</code>).</i>
+ntf-user-referrer-self = <i>❌ User cannot refer themselves.</i>
+ntf-user-referrer-cycle = <i>❌ Cannot assign this referrer because it would create a referral cycle.</i>
+ntf-user-referrer-duplicate = <i>⚠️ This referrer is already assigned.</i>
+ntf-user-referrer-history-locked = <i>🚫 Cannot reassign the referrer after referral qualification or reward history already exists.</i>
 ntf-user-transactions-empty = <i>❌ Transaction list is empty.</i>
 ntf-user-subscription-empty = <i>❌ No subscriptions found for this user.</i>
 ntf-user-plans-empty = <i>❌ No available plans to issue.</i>
@@ -503,6 +509,12 @@ ntf-partner-deactivated = <i>✅ Partner account deactivated.</i>
 ntf-partner-deleted = <i>✅ Partner account deleted.</i>
 ntf-partner-already-exists = <i>❌ User already has a partner account.</i>
 ntf-partner-not-found = <i>❌ Partner account not found.</i>
+ntf-user-partner-source-assigned = <i>✅ Partner attribution updated: { $name } (<code>{ $user_id }</code>).</i>
+ntf-user-partner-source-self = <i>❌ User cannot be their own partner source.</i>
+ntf-user-partner-source-not-partner = <i>❌ The selected user does not have an active partner account.</i>
+ntf-user-partner-source-cycle = <i>❌ Cannot assign this partner source because it would create a cycle in the partner chain.</i>
+ntf-user-partner-source-duplicate = <i>⚠️ This partner source is already assigned.</i>
+ntf-user-partner-source-history-locked = <i>🚫 Cannot reassign partner attribution after partner earnings history already exists.</i>
 ntf-partner-disabled = <i>❌ Partner program is disabled.</i>
 
 ntf-partner-balance-insufficient = <i>❌ Insufficient balance for withdrawal.</i>

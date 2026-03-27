@@ -6,7 +6,6 @@ from uuid import UUID
 from aiogram.utils.formatting import Text
 from dishka.integrations.taskiq import FromDishka, inject
 from loguru import logger
-from remnawave import RemnawaveSDK
 
 from src.bot.keyboards import get_user_keyboard
 from src.core.constants import EXPIRED_SUBSCRIPTION_CLEANUP_DAYS
@@ -1017,7 +1016,7 @@ async def update_status_current_subscription_task(
 @inject(patch_module=True)
 async def cleanup_expired_subscriptions_task(
     subscription_service: FromDishka[SubscriptionService],
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
 ) -> None:
     """
     Periodic task to delete users from Remnawave panel
@@ -1044,8 +1043,8 @@ async def cleanup_expired_subscriptions_task(
             # Delete user from Remnawave panel
             remna_user_uuid = subscription.user_remna_id
             if remna_user_uuid:
-                result = await remnawave.users.delete_user(uuid=str(remna_user_uuid))
-                if result and hasattr(result, "is_deleted") and result.is_deleted:
+                deleted = await remnawave_service.delete_user_by_uuid(remna_user_uuid)
+                if deleted:
                     logger.info(
                         f"Deleted RemnaUser '{remna_user_uuid}' from panel "
                         f"(subscription '{subscription.id}')"

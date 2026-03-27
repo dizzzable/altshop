@@ -144,6 +144,7 @@ btn-user-message = 📩 Message
 btn-user-role = 👮‍♂️ Change Role
 btn-user-transactions = 🧾 Transactions
 btn-user-referrals = 👥 Invited Users
+btn-user-assign-referrer = 🤝 Assign Referrer
 btn-user-give-access = 🔑 Plan Access
 btn-user-current-subscription = 💳 Current Subscription
 btn-user-subscriptions = 💳 { $count ->
@@ -201,6 +202,7 @@ btn-user-block = { $is_blocked ->
     }
 
 btn-user-partner = 👾 Partner
+btn-user-partner-source = 🧭 Assign Partner Source
 btn-user-partner-balance = 💰 Adjust Balance
 btn-user-partner-create = ✅ Grant Partner Access
 btn-user-partner-toggle = { $is_active ->

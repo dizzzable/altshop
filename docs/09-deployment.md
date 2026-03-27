@@ -74,6 +74,7 @@ Compose пробрасывает backend только на loopback:
 | `/webapp/index.html` | явная раздача index файла |
 | `/webapp/*` | статический SPA + fallback на `/webapp/index.html` |
 | `/assets/*` | static assets из frontend build |
+| `/api/v1/health/livez` | публичный liveness probe |
 | `/api/v1` | proxy в `altshop:5000` |
 | `/telegram` | proxy в `altshop:5000` |
 | `/remnawave` | proxy в `altshop:5000` |
@@ -85,6 +86,8 @@ Compose пробрасывает backend только на loopback:
 - sourcemaps под `/webapp` и `/assets` блокируются regex-маршрутом;
 - включены TLS, gzip и базовые security headers для SPA;
 - upstream backend разрешается через Docker DNS `127.0.0.11`.
+- `/api/v1/internal/readiness` и `/api/v1/internal/metrics` не публикуются через nginx и остаются backend-only проверками на `127.0.0.1:5000`.
+- канонический payment webhook URL строится из `src/core/config/app.py` как `/api/v1/payments/{gateway_type}`; отдельный `location /payments` в nginx является raw pass-through, а не описанием backend route prefix.
 
 ## Подготовка к production запуску на VPS
 
@@ -97,6 +100,7 @@ cp .env.example .env
 Обязательно проверьте вручную:
 
 - `APP_DOMAIN`
+- `APP_ALLOWED_HOSTS`
 - `APP_CRYPT_KEY`
 - `APP_ORIGINS`
 - `APP_TRUSTED_PROXY_IPS`
@@ -189,6 +193,10 @@ Smoke checks:
 - `curl -I https://<APP_DOMAIN>/` возвращает `302` на `/webapp/`
 - `curl -I https://<APP_DOMAIN>/webapp/` возвращает `200`
 - `curl -I https://<APP_DOMAIN>/api/v1/auth/access-status` возвращает `401` для неавторизованного запроса, что считается нормой
+- `curl -fsS https://<APP_DOMAIN>/api/v1/health/livez` возвращает `{"status":"ok"}`
+- `docker compose -f docker-compose.prod.yml exec altshop python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:5000/api/v1/internal/readiness', timeout=5).status)"` печатает `200`, пока PostgreSQL и Redis доступны; `remnawave` может быть `degraded` внутри JSON без провала readiness
+- `docker compose -f docker-compose.prod.yml exec altshop python -c "import urllib.request; print('payment_webhook_enqueue_failures_total' in urllib.request.urlopen('http://127.0.0.1:5000/api/v1/internal/metrics', timeout=5).read().decode())"` печатает `True`
+- `docker compose -f docker-compose.prod.yml ps` показывает `altshop` в `healthy`, а worker/scheduler стартуют после backend readiness probe
 - `altshop-nginx` находится в `healthy`
 - `altshop-db` и `altshop-redis` находятся в `healthy`
 - в логах `altshop` нет ошибок `alembic upgrade head`

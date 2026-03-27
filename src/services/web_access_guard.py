@@ -218,9 +218,6 @@ class WebAccessGuardService(BaseService):
         if not unmet_requirements:
             return "full"
 
-        if unmet_requirements == [CHANNEL_VERIFICATION_UNAVAILABLE]:
-            return "read_only"
-
         return "blocked"
 
     @staticmethod
@@ -239,9 +236,17 @@ class WebAccessGuardService(BaseService):
             if access_status.access_level == "read_only"
             else WEB_ACCESS_ERROR_CODE
         )
+        verification_unavailable = (
+            CHANNEL_VERIFICATION_UNAVAILABLE in access_status.unmet_requirements
+        )
         message = (
             "Product mutations are temporarily disabled while channel verification is unavailable"
             if access_status.access_level == "read_only"
+            else (
+                "Channel verification is temporarily unavailable. Access remains blocked "
+                "until verification recovers."
+            )
+            if verification_unavailable
             else "Complete access requirements in settings to continue"
         )
         if access_status.access_level == "read_only":

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, List, Optional
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 
 from src.core.enums import PartnerLevel, WithdrawalStatus
 from src.infrastructure.database.models.sql import (
@@ -90,6 +90,12 @@ class PartnerRepository(BaseRepository):
             PartnerTransaction.referral_telegram_id == telegram_id,
         )
 
+    async def count_transactions_by_referral(self, telegram_id: int) -> int:
+        return await self._count(
+            PartnerTransaction,
+            PartnerTransaction.referral_telegram_id == telegram_id,
+        )
+
     async def has_partner_received_payment_from_referral(
         self,
         partner_id: int,
@@ -174,6 +180,19 @@ class PartnerRepository(BaseRepository):
     async def create_partner_referral(self, referral: PartnerReferral) -> PartnerReferral:
         return await self.create_instance(referral)
 
+    async def get_partner_referral(
+        self,
+        partner_id: int,
+        referral_telegram_id: int,
+    ) -> Optional[PartnerReferral]:
+        return await self._get_one(
+            PartnerReferral,
+            and_(
+                PartnerReferral.partner_id == partner_id,
+                PartnerReferral.referral_telegram_id == referral_telegram_id,
+            ),
+        )
+
     async def get_referrals_by_partner(
         self,
         partner_id: int,
@@ -228,6 +247,20 @@ class PartnerRepository(BaseRepository):
     async def get_partner_referral_by_user(self, telegram_id: int) -> Optional[PartnerReferral]:
         """Получить запись о реферале по telegram_id пользователя."""
         return await self._get_one(
+            PartnerReferral,
+            PartnerReferral.referral_telegram_id == telegram_id,
+            PartnerReferral.level == PartnerLevel.LEVEL_1,
+        )
+
+    async def get_partner_referrals_by_user(self, telegram_id: int) -> List[PartnerReferral]:
+        return await self._get_many(
+            PartnerReferral,
+            PartnerReferral.referral_telegram_id == telegram_id,
+            order_by=[PartnerReferral.level.asc(), PartnerReferral.id.asc()],
+        )
+
+    async def delete_partner_referrals_by_user(self, telegram_id: int) -> int:
+        return await self._delete(
             PartnerReferral,
             PartnerReferral.referral_telegram_id == telegram_id,
         )

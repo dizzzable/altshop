@@ -1,8 +1,8 @@
 # AltShop Development
 
-Проверено по коду: `2026-03-08`
+Last audited against the live repository: `2026-03-26`
 
-## Источники Истины
+## Sources of truth
 
 - `pyproject.toml`
 - `Makefile`
@@ -10,51 +10,51 @@
 - `src/infrastructure/database/alembic.ini`
 - `web-app/package.json`
 - `web-app/vite.config.ts`
+- `.github/workflows/ci.yml`
 
-## Важное Ограничение Публичного Репозитория
+## Current repository reality
 
-GitHub-версия AltShop публикуется как публичный runtime и deployment mirror.
+- `tests/` is present in this workspace and is part of the current repository audit
+- `make backend-test` runs `pytest -q` when `tests/` exists
+- the same Make target falls back to an informational message in stripped mirrors where `tests/` is absent
+- GitHub Actions in this repository validate the frontend workflow plus `make backend-check`
 
-- внутренняя backend QA-папка `tests/` здесь не хранится
-- локальный приватный workspace может содержать дополнительные тесты и временные mypy-конфиги
-- публичные команды и документация ниже не требуют наличия `tests/`
-
-## Базовый Toolchain
+## Toolchain
 
 - Python: `>=3.12`
-- Backend package manager: `uv`
-- Frontend runtime и build: `Node.js` + `npm`
+- Backend package manager and runner: `uv`
+- Frontend runtime and package manager: `Node.js` and `npm`
 - Frontend dev server: `Vite 7`
-- Public backend checks: `ruff`, `mypy`
-- Private local QA: `pytest`
+- Backend static checks: `ruff`, `mypy`
+- Backend test runner: `pytest`
 
-## Рекомендуемый Локальный Setup
+## Recommended local setup
 
-### 1. Подготовить backend окружение
+### 1. Install backend dependencies
 
 ```bash
 uv sync --locked --group dev
 ```
 
-Если нужен shell activation:
+Optional shell activation on Windows:
 
 ```bash
 .venv\Scripts\activate
 ```
 
-Или на Unix:
+On Unix-like shells:
 
 ```bash
 source .venv/bin/activate
 ```
 
-### 2. Подготовить `.env`
+### 2. Copy the environment file
 
 ```bash
 cp .env.example .env
 ```
 
-Минимум, который обычно нужно заполнить вручную:
+Minimum values you usually need to fill manually:
 
 - `APP_DOMAIN`
 - `APP_CRYPT_KEY`
@@ -67,37 +67,37 @@ cp .env.example .env
 - `REMNAWAVE_TOKEN`
 - `REMNAWAVE_WEBHOOK_SECRET`
 
-### 3. Поднять PostgreSQL и Valkey
+### 3. Start PostgreSQL and Valkey
 
 ```bash
 docker compose up -d altshop-db altshop-redis
 ```
 
-Если используются внешние PostgreSQL или Redis, достаточно настроить `DATABASE_*` и `REDIS_*` в `.env`.
+If you use external PostgreSQL or Redis, configure the `DATABASE_*` and `REDIS_*` variables in `.env` instead.
 
-### 4. Применить миграции
+### 4. Apply database migrations
 
 ```bash
 uv run alembic -c src/infrastructure/database/alembic.ini upgrade head
 ```
 
-Или через `make`:
+Or via `make`:
 
 ```bash
 make migrate
 ```
 
-### 5. Запустить backend
+### 5. Run the backend
 
-Предпочтительный dev-вариант, совместимый с frontend proxy:
+Preferred dev command for frontend proxy compatibility:
 
 ```bash
 uv run uvicorn src.__main__:application --factory --reload --host 0.0.0.0 --port 5000
 ```
 
-`python -m src` тоже рабочий, но по умолчанию использует другой bind.
+`python -m src` is also valid, but the explicit `uvicorn` command is the clearest path for local web-app work.
 
-### 6. Запустить frontend
+### 6. Run the frontend
 
 ```bash
 cd web-app
@@ -105,24 +105,22 @@ npm ci
 npm run dev
 ```
 
-Что важно:
+Important frontend runtime facts:
 
-- Vite dev server слушает `3000`
-- proxy для `/api` направлен на `http://localhost:5000`
-- `base` для production build зафиксирован как `/webapp/`
+- Vite dev server listens on `3000`
+- the dev proxy forwards `/api` to `http://localhost:5000`
+- the production `base` remains `/webapp/`
 
-## Backend Checks
+## Backend commands
 
-### Публичные проверки
-
-Рабочие команды:
+### Static checks
 
 ```bash
-uv run python -m ruff check src
+uv run python -m ruff check src tests
 uv run python -m mypy src
 ```
 
-Через `make`:
+`make` wrappers:
 
 ```bash
 make backend-lint
@@ -130,77 +128,82 @@ make backend-typecheck
 make backend-check
 ```
 
-`make backend-lint` автоматически подхватит `tests/`, только если эта папка существует локально.
+`make backend-lint` dynamically includes `tests/` only when the directory exists.
 
-### Приватная локальная QA-suite
-
-Если вы работаете во внутреннем workspace и у вас есть локальная `tests/`, дополнительно доступны:
+### Tests
 
 ```bash
 make backend-test
 uv run python -m pytest -q
 ```
 
-В публичном GitHub mirror `make backend-test` не падает, а просто сообщает, что приватный test suite не опубликован.
+The Makefile behavior is conditional:
 
-## Frontend Workflow
+- if `tests/` exists, it runs `pytest -q`
+- if `tests/` is missing, it prints a mirror note instead of failing immediately
 
-Актуальные scripts из `web-app/package.json`:
+## Frontend commands
 
-| Script | Что делает |
+Current scripts from `web-app/package.json`:
+
+| Script | Purpose |
 | --- | --- |
-| `npm run dev` | локальный Vite dev server |
+| `npm run dev` | Vite dev server |
 | `npm run build` | production build |
-| `npm run postbuild` | post-processing путей после сборки |
-| `npm run preview` | preview собранного frontend |
+| `npm run postbuild` | post-process built asset paths |
+| `npm run preview` | preview the built frontend |
 | `npm run lint` | ESLint |
-| `npm run type-check` | `tsc --noEmit` |
-| `npm run check:encoding` | проверка mojibake |
-| `npm run check:i18n` | проверка parity словарей |
-| `npm run generate:api` | генерация TS client из `http://localhost:5000/openapi.json` |
-| `npm run generate:api:download` | скачать `openapi.json`, затем сгенерировать client |
+| `npm run type-check` | TypeScript type-check |
+| `npm run check:encoding` | encoding guard |
+| `npm run check:i18n` | i18n parity guard |
+| `npm run generate:api` | generate TS client from `http://localhost:5000/openapi.json` |
+| `npm run generate:api:download` | download `openapi.json`, then generate the client |
 
-Практический локальный цикл:
+Recommended local frontend loop:
 
-1. Запустить backend на `localhost:5000`.
-2. В `web-app/` запустить `npm run dev`.
-3. Для frontend-проверки использовать `npm run lint` и `npm run type-check`.
-4. Для production smoke использовать `npm run build`.
+1. Run the backend on `localhost:5000`
+2. In `web-app/`, run `npm run dev`
+3. Use `npm run lint` and `npm run type-check` while iterating
+4. Run `npm run build` before merging frontend changes
 
-## Full-Stack Smoke
+## Full-stack smoke workflow
 
-Минимальный сценарий без production Nginx:
+Minimal local workflow without production Nginx:
 
-1. `docker compose up -d altshop-db altshop-redis`
-2. `uv run alembic -c src/infrastructure/database/alembic.ini upgrade head`
-3. `uv run uvicorn src.__main__:application --factory --reload --host 0.0.0.0 --port 5000`
-4. `cd web-app && npm ci && npm run dev`
+```bash
+docker compose up -d altshop-db altshop-redis
+uv run alembic -c src/infrastructure/database/alembic.ini upgrade head
+uv run uvicorn src.__main__:application --factory --reload --host 0.0.0.0 --port 5000
+cd web-app && npm ci && npm run dev
+curl -fsS http://127.0.0.1:5000/api/v1/health/livez
+curl -fsS http://127.0.0.1:5000/api/v1/internal/readiness
+curl -fsS http://127.0.0.1:5000/api/v1/internal/metrics | grep subscription_runtime_refresh_failures_total
+```
 
-Если нужен production-like smoke по текущему compose:
+Production-like compose smoke:
 
 ```bash
 docker compose up --build webapp-build
 docker compose up -d --build
+docker compose ps
 ```
 
-## Полезные Замечания
+## CI scope
 
-- Для web auth и frontend не забудьте добавить `APP_ORIGINS`, хотя этой переменной нет в `.env.example`.
-- Для локального frontend dev backend удобнее держать на порту `5000`, потому что туда смотрит Vite proxy.
-- `WEB_APP_JWT_SECRET` нужен уже на этапе локального auth-flow.
-- `make setup-env` в текущем виде ориентирован на BSD или macOS shell и не является переносимым без адаптации.
+`.github/workflows/ci.yml` currently runs the frontend job plus a backend quality gate:
 
-## Release Workflow
+- `npm ci`
+- `npm run lint`
+- `npm run type-check`
+- `npm run build`
+- `uv sync --locked --group dev`
+- `make backend-check`
 
-Для будущих релизов используется semver-подход:
+In stripped mirrors where `tests/` is absent, `make backend-test` prints an informational note instead of running `pytest`, so the backend CI job still executes but its test leg is informational until that suite is present.
 
-1. обновите версии в `pyproject.toml` и `web-app/package.json`
-2. перенесите изменения из `## [Unreleased]` в новый раздел `CHANGELOG.md`
-3. создайте annotated tag вида `v1.0.1`
-4. отправьте `main` и tag в GitHub
+## Notes
 
-Публичный workflow `.github/workflows/release.yml` автоматически:
-
-- проверит совпадение tag с версиями backend и frontend
-- соберет release notes из `CHANGELOG.md`
-- опубликует GitHub Release для tag `v*.*.*`
+- `APP_ORIGINS` is required for real browser auth flows even if some older notes treat it as optional
+- `WEB_APP_JWT_SECRET` is required for local web auth work, not just production
+- `make setup-env` uses BSD-style `sed -i ''` and is not portable without adjustment on all shells
+- `web-app/README.md` is the current frontend-specific guide; root-level web-app markdowns other than that file are historical notes

@@ -26,6 +26,7 @@ export function LoginPage() {
     username: '',
     password: '',
   })
+  const errorId = error ? 'login-form-error' : undefined
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -99,6 +100,9 @@ export function LoginPage() {
                 value={formData.username}
                 onChange={handleChange}
                 disabled={isLoading}
+                autoComplete="username"
+                aria-invalid={Boolean(error)}
+                aria-describedby={errorId}
               />
             </div>
 
@@ -115,6 +119,9 @@ export function LoginPage() {
                 value={formData.password}
                 onChange={handleChange}
                 disabled={isLoading}
+                autoComplete="current-password"
+                aria-invalid={Boolean(error)}
+                aria-describedby={errorId}
               />
               <div className="flex justify-end">
                 <Link
@@ -127,7 +134,7 @@ export function LoginPage() {
             </div>
 
             {error && (
-              <Alert variant="destructive">
+              <Alert id={errorId} variant="destructive">
                 <AlertDescription>
                   {error}
                 </AlertDescription>

@@ -106,6 +106,7 @@
 Основной webhook surface:
 
 - `POST /api/v1/payments/{gateway_type}`
+- `POST /api/v1/payments/{gateway_type}/{webhook_secret}` for providers that need an app-owned secret path
 
 Endpoint:
 
@@ -113,6 +114,12 @@ Endpoint:
 2. вызывает `handle_webhook(request)`
 3. пишет dedupe record в `payment_webhook_events`
 4. enqueue'ит background task на обработку транзакции
+
+Security notes verified on `2026-03-27`:
+
+- `CRYPTOPAY` now relies on the provider-documented `crypto-pay-api-signature` HMAC over the raw request body. Crypto Bot docs also recommend a secret path and support `request_date` validation.
+- `MULENPAY` public docs and provider-owned repo were re-verified on `2026-03-27`: create-payment uses `POST https://mulenpay.ru/api/v2/payments`, Bearer `Authorization`, `shopId`, merchant `uuid`, item list, and SHA-1 `sign` over `currency + amount + shopId + secret_key`. The callback contract still returns provider `id` plus merchant `uuid`, and does not document signed inbound auth. AltShop therefore keeps the app-owned secret path and expects the MulenPay shop callback URL to target `POST /api/v1/payments/mulenpay/{webhook_secret}`. The provider-linked Node SDK currently hashes `uuid` into `sign`, but AltShop follows the published OpenAPI schema and provider integration examples that omit it.
+- `WATA` official docs re-verified on `2026-03-27` require the `X-Signature` RSA signature over the raw webhook JSON using the provider public key from `/public-key`. AltShop rejects missing or invalid WATA signatures before dedupe and enqueue.
 
 ### YooMoney redirect helper
 

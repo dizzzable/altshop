@@ -35,6 +35,7 @@ from src.core.enums import (
     PlanType,
     SubscriptionStatus,
 )
+from src.core.observability import emit_counter
 from src.core.utils.assets_sync import ASSETS_BACKUP_DIRNAME, ASSETS_VERSION_MARKER
 from src.core.utils.formatters import format_limits_to_plan_type
 from src.core.utils.time import datetime_now
@@ -375,6 +376,7 @@ class BackupService(BaseService):
             return True, message, str(backup_path)
 
         except Exception as e:
+            emit_counter("backup_job_failures_total", operation="create")
             if locale is not None:
                 error_msg = self._build_backup_create_error_message(str(e), locale=locale)
                 logger.error(error_msg, exc_info=True)
@@ -427,6 +429,7 @@ class BackupService(BaseService):
             return success, message
 
         except Exception as e:
+            emit_counter("backup_job_failures_total", operation="restore")
             if locale is not None:
                 error_msg = self._build_backup_restore_error_message(str(e), locale=locale)
                 logger.error(error_msg, exc_info=True)
@@ -672,6 +675,7 @@ class BackupService(BaseService):
                 if success:
                     logger.info(f"✅ Автобэкап завершен: {message}")
                 else:
+                    emit_counter("backup_job_failures_total", operation="auto_create")
                     logger.error(f"❌ Ошибка автобэкапа: {message}")
 
                 next_run = next_run + interval
@@ -679,6 +683,7 @@ class BackupService(BaseService):
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                emit_counter("backup_job_failures_total", operation="auto_loop")
                 logger.error(f"Ошибка в цикле автобэкапов: {e}")
                 next_run = datetime_now() + interval
 

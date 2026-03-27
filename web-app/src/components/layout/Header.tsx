@@ -153,7 +153,12 @@ export function Header({ forceMobileShell = false }: HeaderProps) {
 
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-10 w-10 rounded-full border border-white/12 bg-white/[0.03] p-0 hover:bg-white/[0.08]">
+                  <Button
+                    variant="ghost"
+                    className="relative h-10 w-10 rounded-full border border-white/12 bg-white/[0.03] p-0 hover:bg-white/[0.08]"
+                    aria-label={t('header.profileMenu')}
+                    title={t('header.profileMenu')}
+                  >
                     <Avatar className="h-10 w-10">
                       <AvatarImage src={user?.photo_url || undefined} alt={displayName} />
                       <AvatarFallback className="bg-primary/16 text-primary">

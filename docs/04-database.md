@@ -1,105 +1,101 @@
 # AltShop Database
 
-Проверено по коду: `2026-03-08`
+Last audited against the live repository: `2026-03-26`
 
-## Сводка
+## Summary
 
-- SQLAlchemy async models расположены в `src/infrastructure/database/models/sql`
-- Сейчас в коде определены 23 SQL-таблицы
-- Миграции ведутся Alembic из `src/infrastructure/database/migrations/versions`
-- Всего ревизий: 45 (`0001` ... `0045`)
+- SQLAlchemy async models live in `src/infrastructure/database/models/sql/`
+- The current schema defines `25` SQL tables
+- Migrations are managed with Alembic from `src/infrastructure/database/migrations/versions/`
+- The repository currently contains `50` migration revisions: `0001` through `0050`
 
-## Таблицы
+## Table inventory
 
-| Таблица | Модель | Назначение | Основные связи |
-| --- | --- | --- | --- |
-| `users` | `user.py` | основная пользовательская сущность | связана с subscriptions, transactions, referrals, web account |
-| `subscriptions` | `subscription.py` | VPN-подписки пользователя | относится к `users`, ссылается на snapshot плана |
-| `plans` | `plan.py` | каталог планов | родитель для `plan_durations` |
-| `plan_durations` | `plan.py` | длительности плана | родитель для `plan_prices` |
-| `plan_prices` | `plan.py` | цены по gateway/duration | относится к `plan_durations` |
-| `transactions` | `transaction.py` | платежные транзакции и renew context | относится к `users`, хранит pricing/plan snapshots |
-| `payment_gateways` | `payment_gateway.py` | runtime-конфигурация gateway adapters | используется `PaymentGatewayService` |
-| `promocodes` | `promocode.py` | определение промокодов и правил применения | связана с `promocode_activations` |
-| `promocode_activations` | `promocode.py` | история применений промокодов | относится к `users`, может ссылаться на subscription snapshot |
-| `referrals` | `referral.py` | связи referrer -> invited user | относится к `users` |
-| `referral_rewards` | `referral.py` | начисленные referral rewards | относится к referral events/users |
-| `partners` | `partner.py` | партнёрский профиль пользователя | относится к `users` |
-| `partner_referrals` | `partner.py` | реферальные связи для partner program | относится к `partners`/users |
-| `partner_transactions` | `partner.py` | начисления партнёру | относится к `partners` |
-| `partner_withdrawals` | `partner.py` | заявки на вывод | относится к `partners` |
-| `settings` | `settings.py` | глобальные настройки, branding, feature flags | singleton-like settings storage |
-| `broadcasts` | `broadcast.py` | сущности рассылок | родитель для `broadcast_messages` |
-| `broadcast_messages` | `broadcast.py` | статусы сообщений в рассылке | относится к `broadcasts` |
-| `web_accounts` | `web_account.py` | username/password/email слой поверх `users` | относится к `users`, связан с `auth_challenges` |
-| `auth_challenges` | `web_account.py` | временные коды и токены для verify/reset/link flows | относится к `web_accounts` |
-| `user_notification_events` | `user_notification_event.py` | persistable user-facing notification events | относится к `users` |
-| `web_analytics_events` | `web_analytics_event.py` | события frontend и auth funnel | опционально относится к `users` |
-| `payment_webhook_events` | `payment_webhook_event.py` | inbox/deduplication запись payment webhooks | ключи: gateway, payment_id, payload_hash |
+| Table | Model file | Purpose |
+| --- | --- | --- |
+| `users` | `user.py` | Core user identity keyed by Telegram ID |
+| `subscriptions` | `subscription.py` | User VPN subscriptions and runtime status |
+| `plans` | `plan.py` | Catalog of sellable plans |
+| `plan_durations` | `plan.py` | Duration options per plan |
+| `plan_prices` | `plan.py` | Gateway and currency specific pricing |
+| `transactions` | `transaction.py` | Payment transactions, renewals, and purchase context |
+| `payment_gateways` | `payment_gateway.py` | Enabled gateway configuration and credentials |
+| `promocodes` | `promocode.py` | Promocode definitions and constraints |
+| `promocode_activations` | `promocode.py` | Promocode activation history and snapshots |
+| `referral_invites` | `referral.py` | Invite tokens issued by existing users |
+| `referrals` | `referral.py` | Referrer to referred-user relationships |
+| `referral_rewards` | `referral.py` | Rewards issued through referral events |
+| `partners` | `partner.py` | Partner cabinet profile and payout settings |
+| `partner_referrals` | `partner.py` | Partner-specific referral relationships |
+| `partner_transactions` | `partner.py` | Partner earnings ledger |
+| `partner_withdrawals` | `partner.py` | Partner withdrawal requests |
+| `settings` | `settings.py` | Global runtime, branding, access, and feature settings |
+| `broadcasts` | `broadcast.py` | Broadcast job definitions |
+| `broadcast_messages` | `broadcast.py` | Per-user delivery status for broadcasts |
+| `web_accounts` | `web_account.py` | Web login, email, and token-version state layered over users |
+| `auth_challenges` | `web_account.py` | Email verification, reset, and Telegram-link challenges |
+| `user_notification_events` | `user_notification_event.py` | Persisted user-facing notification feed |
+| `web_analytics_events` | `web_analytics_event.py` | Frontend and auth funnel telemetry |
+| `payment_webhook_events` | `payment_webhook_event.py` | Durable deduplication and processing state for payment webhooks |
+| `backup_records` | `backup_record.py` | Metadata for generated backups and Telegram delivery status |
 
-## Что важно по текущей схеме
+## Persistence zones that matter
 
-### Пользователи и web auth
+### Users and web auth
 
-Текущий web auth контур хранится не в `users`, а в отдельных таблицах:
+Web auth is no longer stored only in `users`. The current login flow depends on:
 
 - `web_accounts`
   - username
   - password hash
-  - email
-  - email verification flags
-  - `token_version` для invalidation refresh/access tokens
+  - email and verification flags
+  - `token_version` for cookie invalidation
+  - bootstrap and prompt-snooze state for Telegram linking
 - `auth_challenges`
-  - code/token
-  - challenge type
-  - TTL/attempt counters
-  - используется для email verify, password reset и Telegram link confirm
+  - one-time codes or tokens
+  - challenge type and TTL
+  - attempt counters and delivery context
 
-### Подписки и покупки
+### Purchases, subscriptions, and webhooks
 
-- `transactions` хранит purchase context, включая `purchase_type`, `channel`, `payment_source`, renew IDs, settlement данные
-- `payment_webhook_events` даёт durable record для deduplication входящих webhook deliveries
-- `promocode_activations` хранит snapshot применения, а не только факт использования
+- `transactions` stores purchase type, payment source, pricing snapshot, renew context, and settlement state
+- `payment_webhook_events` stores per-gateway deduplication state and enqueue failures
+- `subscriptions` stores the active access object, while runtime refresh tasks reconcile data against Remnawave
 
-### Referral и partner
+### Referral and partner systems
 
-- referral program живёт в `referrals` и `referral_rewards`
-- partner program использует отдельные `partners`, `partner_referrals`, `partner_transactions`, `partner_withdrawals`
-- это две связанные, но не одинаковые подсистемы
+- `referral_invites` adds durable invite-token tracking on top of classic referral relationships
+- `referrals` and `referral_rewards` model the user referral program
+- `partners`, `partner_referrals`, `partner_transactions`, and `partner_withdrawals` model the partner cabinet and payout flow
 
-### Settings и branding
+### Operations and auditability
 
-Глобальные runtime flags находятся в `settings`, включая:
+- `broadcasts` and `broadcast_messages` track outgoing campaigns
+- `user_notification_events` gives the web app a persistent notification feed
+- `web_analytics_events` captures frontend and auth telemetry
+- `backup_records` records backup size, scope, compression, and Telegram delivery metadata
 
-- `access_mode`
-- rules/channel requirements
-- branding settings
-- referral/partner settings
-- notification settings
-- multi-subscription settings
+## Model file map
 
-## Модельные файлы
-
-| Файл | Какие таблицы содержит |
+| File | Tables |
 | --- | --- |
-| `user.py` | `users` |
-| `subscription.py` | `subscriptions` |
-| `plan.py` | `plans`, `plan_durations`, `plan_prices` |
-| `transaction.py` | `transactions` |
-| `payment_gateway.py` | `payment_gateways` |
-| `promocode.py` | `promocodes`, `promocode_activations` |
-| `referral.py` | `referrals`, `referral_rewards` |
-| `partner.py` | `partners`, `partner_transactions`, `partner_withdrawals`, `partner_referrals` |
-| `settings.py` | `settings` |
+| `backup_record.py` | `backup_records` |
 | `broadcast.py` | `broadcasts`, `broadcast_messages` |
-| `web_account.py` | `web_accounts`, `auth_challenges` |
-| `user_notification_event.py` | `user_notification_events` |
-| `web_analytics_event.py` | `web_analytics_events` |
+| `partner.py` | `partners`, `partner_referrals`, `partner_transactions`, `partner_withdrawals` |
+| `payment_gateway.py` | `payment_gateways` |
 | `payment_webhook_event.py` | `payment_webhook_events` |
+| `plan.py` | `plans`, `plan_durations`, `plan_prices` |
+| `promocode.py` | `promocodes`, `promocode_activations` |
+| `referral.py` | `referral_invites`, `referrals`, `referral_rewards` |
+| `settings.py` | `settings` |
+| `subscription.py` | `subscriptions` |
+| `transaction.py` | `transactions` |
+| `user.py` | `users` |
+| `user_notification_event.py` | `user_notification_events` |
+| `web_account.py` | `web_accounts`, `auth_challenges` |
+| `web_analytics_event.py` | `web_analytics_events` |
 
-## Alembic migrations
-
-### Полный список ревизий
+## Alembic revision history
 
 ```text
 0001_create_enums
@@ -147,22 +143,26 @@
 0043_add_crypto_payment_assets
 0044_add_tbank_partner_balance_and_market_currencies
 0045_drop_plan_subscription_count
+0046_add_archived_plan_transitions
+0047_add_referral_invites_and_invite_limits
+0048_add_invite_mode_started_at
+0049_add_bot_menu_settings
+0050_create_backup_records
 ```
 
-### Ключевые этапы эволюции схемы
+## Migration eras
 
-| Диапазон | Что изменилось |
+| Range | What changed |
 | --- | --- |
-| `0001-0008` | базовые enums, users/subscriptions, plan pricing, transactions, promocodes, broadcasts |
-| `0009-0017` | access mode fixes, channel rules, plan/extensions, referrals, device type, enum fixes |
-| `0018-0027` | multi-renew, rules acceptance, referral eligible plans, currencies/gateways, partner tables/settings, multi-subscription |
-| `0028-0036` | web auth fields, `web_accounts`, `auth_challenges`, branding, password reset flags, plan filters for promocodes |
-| `0037-0045` | notification events, analytics events, payment webhook inbox, cleanup legacy auth fields, новые gateway/currency additions |
+| `0001-0008` | Base enums, users, subscriptions, pricing, transactions, promocodes, broadcasts |
+| `0009-0017` | Access-mode fixes, channel rules, referrals, device types, enum corrections |
+| `0018-0027` | Renew flows, rules acceptance, partner tables, gateway and currency expansion, multi-subscription settings |
+| `0028-0036` | Web auth bootstrap, challenge tables, branding, password reset, promocode filters |
+| `0037-0045` | Notification events, analytics events, payment webhook inbox, gateway additions, partner balance currencies |
+| `0046-0050` | Archived plan transitions, referral invites, invite-mode timestamps, bot-menu settings, backup record audit trail |
 
-## Что поменялось относительно старых документов
+## Watch points for future doc updates
 
-- Схема больше не ограничивается старыми user/subscription/payment таблицами.
-- Web auth теперь отдельный persistence layer.
-- Payment webhooks имеют свою durable таблицу.
-- Referral и partner логика существенно расширены.
-- Число ревизий выросло до 45, поэтому устаревшие документы с диапазоном `0001-0027` больше не отражают реальность.
+- Any new SQLAlchemy model with `__tablename__` must update this file and usually [03-services.md](03-services.md)
+- Any new Alembic revision should be appended here with its purpose
+- Changes to web auth persistence should update this file together with [05-api.md](05-api.md) and [10-development.md](10-development.md)

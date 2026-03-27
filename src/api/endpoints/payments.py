@@ -80,13 +80,16 @@ async def yoomoney_redirect(
 
 
 @router.post("/{gateway_type}")
+@router.post("/{gateway_type}/{webhook_secret}")
 @inject
 async def payments_webhook(
     gateway_type: str,
     request: Request,
     payment_gateway_service: FromDishka[PaymentGatewayService],
     payment_webhook_event_service: FromDishka[PaymentWebhookEventService],
+    webhook_secret: str | None = None,
 ) -> Response:
+    del webhook_secret
     logger.info(f"Received webhook for gateway: '{gateway_type}'")
     app_state = getattr(getattr(request, "app", None), "state", None)
     app_config = getattr(app_state, "config", None)
@@ -114,15 +117,21 @@ async def payments_webhook(
             payment_id=payment_id,
             payload_hash=payload_hash,
         )
-        if inbox_result.already_processed:
+        if inbox_result.already_processed or inbox_result.already_in_flight:
+            duplicate_state = "processed" if inbox_result.already_processed else "in_flight"
             emit_counter(
                 "payment_webhook_duplicate_total",
                 gateway_type=gateway_enum.value,
+                state=duplicate_state,
             )
             logger.info(
-                "Duplicate webhook already processed for gateway='{}' payment_id='{}'",
+                (
+                    "Duplicate webhook ignored for gateway='{}' payment_id='{}' "
+                    "state='{}'"
+                ),
                 gateway_enum.value,
                 payment_id,
+                duplicate_state,
             )
             return await gateway.build_webhook_response(request)
 

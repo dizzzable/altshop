@@ -30,6 +30,7 @@ from src.core.enums import (
     TransactionStatus,
     UserRole,
 )
+from src.core.observability import clear_metrics_registry, render_metrics_text
 from src.infrastructure.database.models.sql.plan import Plan, PlanDuration, PlanPrice
 from src.infrastructure.database.models.sql.promocode import Promocode
 from src.infrastructure.database.models.sql.referral import ReferralInvite
@@ -144,6 +145,19 @@ def test_create_database_backup_contains_db_manifest_only(tmp_path: Path) -> Non
     assert metadata["includes_assets"] is False
     assert "database.json" in names
     assert all(not name.startswith("assets/") for name in names)
+
+
+def test_create_backup_emits_metric_on_failure(tmp_path: Path) -> None:
+    clear_metrics_registry()
+    service, _config = build_backup_service(tmp_path)
+    service._collect_database_overview = AsyncMock(side_effect=RuntimeError("boom"))  # type: ignore[method-assign]
+
+    success, message, file_path = run_async(service.create_backup(scope=BackupScope.DB))
+
+    assert success is False
+    assert file_path is None
+    assert "boom" in message
+    assert 'backup_job_failures_total{operation="create"} 1' in render_metrics_text()
 
 
 def test_create_assets_backup_contains_assets_only(tmp_path: Path) -> None:

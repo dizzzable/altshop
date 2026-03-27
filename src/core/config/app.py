@@ -31,6 +31,7 @@ class AppConfig(BaseConfig, env_prefix="APP_"):
     crypt_key: SecretStr
     assets_dir: Path = ASSETS_DIR
     origins: StringList = StringList("")
+    allowed_hosts: list[str] = Field(default_factory=list)
     trusted_proxy_ips: list[str] = Field(default_factory=lambda: ["127.0.0.1", "::1"])
 
     bot: BotConfig = Field(default_factory=BotConfig)
@@ -59,6 +60,19 @@ class AppConfig(BaseConfig, env_prefix="APP_"):
         if not self.trusted_proxy_ips:
             return "127.0.0.1,::1"
         return ",".join(self.trusted_proxy_ips)
+
+    @property
+    def resolved_allowed_hosts(self) -> list[str]:
+        configured_hosts = self.allowed_hosts or [self.domain.get_secret_value()]
+        defaults = ["localhost", "127.0.0.1", "::1", "[::1]"]
+
+        deduplicated: list[str] = []
+        for host in [*configured_hosts, *defaults]:
+            normalized = host.strip().lower()
+            if normalized and normalized not in deduplicated:
+                deduplicated.append(normalized)
+
+        return deduplicated
 
     @classmethod
     def get(cls) -> Self:
@@ -100,3 +114,19 @@ class AppConfig(BaseConfig, env_prefix="APP_"):
             return cleaned or ["127.0.0.1", "::1"]
 
         raise ValueError("APP_TRUSTED_PROXY_IPS must be a comma-separated string or list")
+
+    @field_validator("allowed_hosts", mode="before")
+    @classmethod
+    def validate_allowed_hosts(cls, field: Any) -> list[str]:
+        if field is None:
+            return []
+
+        if isinstance(field, str):
+            values = [value.strip() for value in field.split(",")]
+            return [value.lower() for value in values if value]
+
+        if isinstance(field, (list, tuple, set)):
+            cleaned = [str(value).strip().lower() for value in field if str(value).strip()]
+            return cleaned
+
+        raise ValueError("APP_ALLOWED_HOSTS must be a comma-separated string or list")

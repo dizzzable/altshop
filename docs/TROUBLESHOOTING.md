@@ -52,7 +52,7 @@ WHERE type='PLATEGA';
 - Base URL aligned to `https://api.wata.pro/api/h2h`
 - Webhook parser supports new fields (`transactionId`, `transactionStatus`) with legacy fallback
 - Status mapping aligned (`Paid`, `Declined`, `Created|Pending`)
-- Optional signature verification with public key endpoint `/public-key`
+- Mandatory `X-Signature` verification using the raw webhook body and the public key endpoint `/public-key`
 
 ---
 

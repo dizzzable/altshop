@@ -17,12 +17,17 @@ PAYMENT_WEBHOOK_STATUS_PROCESSED = "PROCESSED"
 PAYMENT_WEBHOOK_STATUS_FAILED = "FAILED"
 PAYMENT_WEBHOOK_STATUS_RECONCILED = "RECONCILED"
 PAYMENT_WEBHOOK_STATUS_RECONCILE_FAILED = "RECONCILE_FAILED"
+PAYMENT_WEBHOOK_IN_FLIGHT_STATUSES = {
+    PAYMENT_WEBHOOK_STATUS_ENQUEUED,
+    PAYMENT_WEBHOOK_STATUS_PROCESSING,
+}
 
 
 @dataclass(slots=True)
 class PaymentWebhookReceiveResult:
     event: PaymentWebhookEvent
     already_processed: bool
+    already_in_flight: bool = False
 
 
 class PaymentWebhookEventService:
@@ -46,6 +51,13 @@ class PaymentWebhookEventService:
 
             if existing and existing.status == PAYMENT_WEBHOOK_STATUS_PROCESSED:
                 return PaymentWebhookReceiveResult(event=existing, already_processed=True)
+
+            if existing and existing.status in PAYMENT_WEBHOOK_IN_FLIGHT_STATUSES:
+                return PaymentWebhookReceiveResult(
+                    event=existing,
+                    already_processed=False,
+                    already_in_flight=True,
+                )
 
             if existing:
                 updated = await self.uow.repository.payment_webhook_events.update(
@@ -87,6 +99,7 @@ class PaymentWebhookEventService:
                 return PaymentWebhookReceiveResult(
                     event=existing,
                     already_processed=existing.status == PAYMENT_WEBHOOK_STATUS_PROCESSED,
+                    already_in_flight=existing.status in PAYMENT_WEBHOOK_IN_FLIGHT_STATUSES,
                 )
 
             await self.uow.commit()

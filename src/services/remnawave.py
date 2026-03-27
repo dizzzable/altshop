@@ -5,7 +5,7 @@ from uuid import UUID
 
 from aiogram import Bot
 from fluentogram import TranslatorHub
-from httpx import AsyncClient, Timeout
+from httpx import AsyncClient, HTTPError, Timeout
 from loguru import logger
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -15,6 +15,11 @@ from remnawave.models import (
     CreateUserRequestDto,
     DeleteUserHwidDeviceResponseDto,
     DeleteUserResponseDto,
+    GetAllHostsResponseDto,
+    GetAllInboundsResponseDto,
+    GetAllInternalSquadsResponseDto,
+    GetAllNodesResponseDto,
+    GetAllUsersResponseDto,
     GetExternalSquadsResponseDto,
     GetStatsResponseDto,
     GetUserHwidDevicesResponseDto,
@@ -40,6 +45,7 @@ from src.core.enums import (
     UserNotificationType,
 )
 from src.core.i18n.keys import ByteUnitKey
+from src.core.observability import emit_counter
 from src.core.utils.formatters import (
     format_country_code,
     format_days_to_datetime,
@@ -119,6 +125,61 @@ class RemnawaveService(BaseService):
                 response = response.decode(errors="ignore")
             raise ValueError(f"Invalid response from Remnawave panel: {response}")
 
+    async def get_stats_safe(self) -> Optional[GetStatsResponseDto]:
+        try:
+            response = await self.remnawave.system.get_stats()
+        except HTTPError as exc:
+            emit_counter(
+                "remnawave_degraded_states_total",
+                stage="get_stats",
+                reason="http_error",
+            )
+            logger.warning(f"Failed to fetch Remnawave stats: {exc}")
+            return None
+
+        if not isinstance(response, GetStatsResponseDto):
+            emit_counter(
+                "remnawave_degraded_states_total",
+                stage="get_stats",
+                reason="invalid_payload",
+            )
+            logger.warning("Unexpected response from Remnawave system.get_stats()")
+            return None
+
+        return response
+
+    async def get_internal_squads(self) -> GetAllInternalSquadsResponseDto:
+        response = await self.remnawave.internal_squads.get_internal_squads()
+
+        if not isinstance(response, GetAllInternalSquadsResponseDto):
+            raise ValueError("Wrong response from Remnawave internal squads")
+
+        return response
+
+    async def get_hosts(self) -> GetAllHostsResponseDto:
+        response = await self.remnawave.hosts.get_all_hosts()
+
+        if not isinstance(response, GetAllHostsResponseDto):
+            raise ValueError("Wrong response from Remnawave hosts")
+
+        return response
+
+    async def get_nodes(self) -> GetAllNodesResponseDto:
+        response = await self.remnawave.nodes.get_all_nodes()
+
+        if not isinstance(response, GetAllNodesResponseDto):
+            raise ValueError("Wrong response from Remnawave nodes")
+
+        return response
+
+    async def get_inbounds(self) -> GetAllInboundsResponseDto:
+        response = await self.remnawave.inbounds.get_all_inbounds()
+
+        if not isinstance(response, GetAllInboundsResponseDto):
+            raise ValueError("Wrong response from Remnawave inbounds")
+
+        return response
+
     @staticmethod
     def _normalize_platform_to_device_type(platform: str | None) -> DeviceType:
         platform_upper = (platform or "").upper()
@@ -151,11 +212,21 @@ class RemnawaveService(BaseService):
             if isinstance(response, GetExternalSquadsResponseDto):
                 return [{"uuid": s.uuid, "name": s.name} for s in response.external_squads]
         except ValidationError as exc:
+            emit_counter(
+                "remnawave_degraded_states_total",
+                stage="external_squads",
+                reason="sdk_validation",
+            )
             logger.warning(
                 "Remnawave SDK validation error for /external-squads, falling back to raw HTTP: "
                 f"{exc}"
             )
         except Exception as exc:
+            emit_counter(
+                "remnawave_degraded_states_total",
+                stage="external_squads",
+                reason="sdk_error",
+            )
             logger.warning(
                 f"Failed to fetch /external-squads via SDK, falling back to raw HTTP: {exc}"
             )
@@ -317,6 +388,22 @@ class RemnawaveService(BaseService):
             f"all usernames are taken"
         )
 
+    async def import_user(
+        self,
+        *,
+        payload: dict[str, Any],
+        active_internal_squads: Sequence[UUID],
+    ) -> UserResponseDto:
+        created_user = CreateUserRequestDto.model_validate(payload)
+        created_user.active_internal_squads = list(active_internal_squads)
+
+        response = await self.remnawave.users.create_user(created_user)
+
+        if not isinstance(response, UserResponseDto):
+            raise ValueError("Failed to import RemnaUser: unexpected response")
+
+        return response
+
     async def updated_user(
         self,
         user: UserDto,
@@ -381,6 +468,15 @@ class RemnawaveService(BaseService):
         logger.info(f"RemnaUser '{user.telegram_id}' updated successfully")
         return updated_user
 
+    async def set_user_enabled(self, uuid: UUID, *, enabled: bool) -> None:
+        action = self.remnawave.users.enable_user if enabled else self.remnawave.users.disable_user
+        await action(uuid=str(uuid))
+        logger.info(f"{'Enabled' if enabled else 'Disabled'} RemnaUser '{uuid}'")
+
+    async def reset_user_traffic_by_uuid(self, uuid: UUID) -> None:
+        await self.remnawave.users.reset_user_traffic(uuid=str(uuid))
+        logger.info(f"Traffic reset for RemnaUser '{uuid}'")
+
     async def delete_user(self, user: UserDto, uuid: Optional[UUID] = None) -> bool:
         logger.info(f"Deleting RemnaUser '{user.telegram_id}'")
 
@@ -411,6 +507,20 @@ class RemnawaveService(BaseService):
             logger.info(f"RemnaUser '{user.telegram_id}' deleted successfully")
         else:
             logger.warning(f"RemnaUser '{user.telegram_id}' deletion failed")
+
+        return result.is_deleted
+
+    async def delete_user_by_uuid(self, uuid: UUID) -> bool:
+        logger.info(f"Deleting RemnaUser '{uuid}'")
+        result = await self.remnawave.users.delete_user(uuid=str(uuid))
+
+        if not isinstance(result, DeleteUserResponseDto):
+            raise ValueError("Failed to delete RemnaUser: unexpected response")
+
+        if result.is_deleted:
+            logger.info(f"RemnaUser '{uuid}' deleted successfully")
+        else:
+            logger.warning(f"RemnaUser '{uuid}' deletion failed")
 
         return result.is_deleted
 
@@ -501,6 +611,21 @@ class RemnawaveService(BaseService):
             f"Fetched '{len(users)}' RemnaUser(s) by telegram_id '{telegram_id}' successfully"
         )
         return users
+
+    async def get_all_users(self, page_size: int = 50) -> list[UserResponseDto]:
+        all_users: list[UserResponseDto] = []
+        start = 0
+
+        while True:
+            response = await self.remnawave.users.get_all_users(start=start, size=page_size)
+            if not isinstance(response, GetAllUsersResponseDto) or not response.users:
+                return all_users
+
+            all_users.extend(response.users)
+            start += len(response.users)
+
+            if len(response.users) < page_size:
+                return all_users
 
     async def get_subscription_url(self, uuid: UUID) -> Optional[str]:
         remna_user = await self.get_user(uuid)

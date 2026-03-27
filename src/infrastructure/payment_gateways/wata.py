@@ -127,10 +127,9 @@ class WataGateway(BasePaymentGateway):
         try:
             body = await request.body()
             signature = request.headers.get("X-Signature")
-            if signature:
-                await self._verify_signature(body, signature)
-            else:
-                logger.warning("WATA webhook without X-Signature header received")
+            if not signature or not signature.strip():
+                raise PermissionError("Missing WATA webhook signature")
+            await self._verify_signature(body, signature)
 
             webhook_data = orjson.loads(body)
             logger.debug(f"WATA webhook data: {webhook_data}")
@@ -239,18 +238,21 @@ class WataGateway(BasePaymentGateway):
         if not public_key_pem:
             raise PermissionError("Unable to verify WATA signature: public key is unavailable")
 
-        public_key = serialization.load_pem_public_key(public_key_pem.encode())
+        try:
+            public_key = serialization.load_pem_public_key(public_key_pem.encode())
+        except (TypeError, ValueError) as exception:
+            raise PermissionError("Invalid WATA public key") from exception
         if not isinstance(public_key, rsa.RSAPublicKey):
             raise PermissionError("Invalid WATA public key type")
-        signature_bytes = self._decode_signature(signature)
         try:
+            signature_bytes = self._decode_signature(signature)
             public_key.verify(
                 signature_bytes,
                 body,
                 padding.PKCS1v15(),
                 hashes.SHA512(),
             )
-        except InvalidSignature as exception:
+        except (TypeError, ValueError, InvalidSignature) as exception:
             raise PermissionError("Invalid WATA webhook signature") from exception
 
     async def _get_public_key(self) -> str | None:

@@ -1,10 +1,12 @@
 from aiogram import Dispatcher
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.api.endpoints import (
     TelegramWebhookEndpoint,
     analytics_router,
+    health_router,
     internal_router,
     payments_router,
     remnawave_router,
@@ -15,8 +17,11 @@ from src.core.config import AppConfig
 from src.lifespan import lifespan
 
 
-def create_app(config: AppConfig, dispatcher: Dispatcher) -> FastAPI:
-    app: FastAPI = FastAPI(lifespan=lifespan)
+def configure_http_middleware(app: FastAPI, config: AppConfig) -> None:
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=config.resolved_allowed_hosts,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=config.origins,
@@ -24,7 +29,13 @@ def create_app(config: AppConfig, dispatcher: Dispatcher) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+
+def create_app(config: AppConfig, dispatcher: Dispatcher) -> FastAPI:
+    app: FastAPI = FastAPI(lifespan=lifespan)
+    configure_http_middleware(app=app, config=config)
     app.include_router(analytics_router)
+    app.include_router(health_router)
     app.include_router(internal_router)
     app.include_router(payments_router)
     app.include_router(remnawave_router)

@@ -203,7 +203,7 @@ class UserActivityPortalService:
         fallback_user_telegram_id: int,
     ) -> TransactionHistoryItemSnapshot:
         return TransactionHistoryItemSnapshot(
-            payment_id=str(transaction.payment_id),
+            payment_id=_mask_payment_id(transaction.payment_id),
             user_telegram_id=fallback_user_telegram_id,
             status=_serialize_enum_value(transaction.status) or "",
             purchase_type=_serialize_enum_value(transaction.purchase_type) or "",
@@ -274,3 +274,10 @@ def _serialize_enum_value(value: object | None) -> str | None:
 
 def _build_notification_title(ntf_type: str) -> str:
     return ntf_type.replace("_", " ").title()
+
+
+def _mask_payment_id(payment_id: object) -> str:
+    raw_payment_id = str(payment_id)
+    if len(raw_payment_id) <= 16:
+        return raw_payment_id
+    return f"{raw_payment_id[:8]}...{raw_payment_id[-8:]}"

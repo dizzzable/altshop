@@ -1,19 +1,12 @@
 import logging
 from typing import Any, Optional
 
-import httpx
 from aiogram_dialog import DialogManager
 from aiogram_dialog.widgets.common import ManagedScroll
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
-from remnawave import RemnawaveSDK
-from remnawave.models import (
-    GetAllHostsResponseDto,
-    GetAllInboundsResponseDto,
-    GetAllNodesResponseDto,
-    GetStatsResponseDto,
-)
+from remnawave.models import GetStatsResponseDto
 
 from src.core.i18n.translator import get_translated_kwargs
 from src.core.utils.formatters import (
@@ -22,31 +15,22 @@ from src.core.utils.formatters import (
     i18n_format_bytes_to_unit,
     i18n_format_seconds,
 )
+from src.services.remnawave import RemnawaveService
 
 logger = logging.getLogger(__name__)
 
 
-async def _load_stats(remnawave: RemnawaveSDK) -> Optional[GetStatsResponseDto]:
-    try:
-        response = await remnawave.system.get_stats()
-    except httpx.HTTPError as exc:
-        logger.warning("Failed to fetch Remnawave stats: %s", exc)
-        return None
-
-    if not isinstance(response, GetStatsResponseDto):
-        logger.warning("Unexpected response from Remnawave system.get_stats()")
-        return None
-
-    return response
+async def _load_stats(remnawave_service: RemnawaveService) -> Optional[GetStatsResponseDto]:
+    return await remnawave_service.get_stats_safe()
 
 
 @inject
 async def system_getter(
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
-    response = await _load_stats(remnawave)
+    response = await _load_stats(remnawave_service)
 
     if response is None:
         return {
@@ -74,10 +58,10 @@ async def system_getter(
 @inject
 async def users_getter(
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
-    response = await _load_stats(remnawave)
+    response = await _load_stats(remnawave_service)
 
     if response is None:
         return {
@@ -109,7 +93,7 @@ async def users_getter(
 @inject
 async def hosts_getter(
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
     i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -119,11 +103,8 @@ async def hosts_getter(
         raise ValueError()
 
     current_page = await widget.get_page()
-    response = await remnawave.hosts.get_all_hosts()
+    response = await remnawave_service.get_hosts()
     hosts = []
-
-    if not isinstance(response, GetAllHostsResponseDto):
-        raise ValueError("Wrong response from Remnawave")
 
     for host in response:
         hosts.append(
@@ -147,7 +128,7 @@ async def hosts_getter(
 @inject
 async def nodes_getter(
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
     i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -157,11 +138,8 @@ async def nodes_getter(
         raise ValueError()
 
     current_page = await widget.get_page()
-    response = await remnawave.nodes.get_all_nodes()
+    response = await remnawave_service.get_nodes()
     nodes = []
-
-    if not isinstance(response, GetAllNodesResponseDto):
-        raise ValueError("Wrong response from Remnawave")
 
     # SDK compatibility: some versions expose nodes as RootModel (.root),
     # others are iterable directly.
@@ -203,7 +181,7 @@ async def nodes_getter(
 @inject
 async def inbounds_getter(
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
+    remnawave_service: FromDishka[RemnawaveService],
     i18n: FromDishka[TranslatorRunner],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -213,11 +191,8 @@ async def inbounds_getter(
         raise ValueError()
 
     current_page = await widget.get_page()
-    response = await remnawave.inbounds.get_all_inbounds()
+    response = await remnawave_service.get_inbounds()
     inbounds = []
-
-    if not isinstance(response, GetAllInboundsResponseDto):
-        raise ValueError("Wrong response from Remnawave")
 
     for inbound in response.inbounds:  # type: ignore[attr-defined]
         inbounds.append(
