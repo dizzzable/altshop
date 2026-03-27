@@ -88,6 +88,7 @@ async def user_getter(
     web_account_service: FromDishka[WebAccountService],
     subscription_service: FromDishka[SubscriptionService],
     settings_service: FromDishka[SettingsService],
+    referral_service: FromDishka[ReferralService],
     partner_service: FromDishka[PartnerService],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -129,6 +130,11 @@ async def user_getter(
     # Проверяем партнерский статус
     partner = await partner_service.get_partner_by_user(target_telegram_id)
     is_partner = partner is not None and partner.is_active
+    has_referral_attribution = await referral_service.has_referral_attribution(
+        target_telegram_id
+    )
+    has_partner_attribution = await partner_service.has_partner_attribution(target_telegram_id)
+    can_edit = user.role > target_user.role or user.telegram_id in config.bot.dev_id
 
     data: dict[str, Any] = {
         "user_id": str(target_user.telegram_id),
@@ -154,7 +160,15 @@ async def user_getter(
         "purchase_discount": target_user.purchase_discount,
         "is_blocked": target_user.is_blocked,
         "is_not_self": target_user.telegram_id != user.telegram_id,
-        "can_edit": user.role > target_user.role or user.telegram_id in config.bot.dev_id,
+        "can_edit": can_edit,
+        "has_referral_attribution": has_referral_attribution,
+        "has_partner_attribution": has_partner_attribution,
+        "can_attach_referrer": (
+            can_edit
+            and target_user.telegram_id != user.telegram_id
+            and not has_referral_attribution
+            and not has_partner_attribution
+        ),
         "status": None,
         "is_trial": False,
         "has_subscription": bool(visible_subscriptions),
@@ -177,6 +191,111 @@ async def user_getter(
         )
 
     return data
+
+
+async def _build_attach_candidate_rows(
+    users: list[UserDto],
+    *,
+    web_account_service: WebAccountService,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for candidate in users:
+        web_account = await web_account_service.get_by_user_telegram_id(candidate.telegram_id)
+        display = f"{candidate.telegram_id} ({candidate.name})"
+        if web_account and web_account.username:
+            display = f"{display} • @{web_account.username}"
+
+        rows.append(
+            {
+                "telegram_id": candidate.telegram_id,
+                "display": display,
+            }
+        )
+
+    return rows
+
+
+@inject
+async def referral_attach_search_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    return {
+        "target_name": target_user.name,
+        "target_telegram_id": target_user.telegram_id,
+    }
+
+
+@inject
+async def referral_attach_results_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    found_users_data = dialog_manager.dialog_data.get("referral_attach_found_users", [])
+    found_users = [
+        UserDto.model_validate_json(json_string) for json_string in found_users_data
+    ]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    return {
+        "target_name": target_user.name,
+        "target_telegram_id": target_user.telegram_id,
+        "count": len(found_users),
+        "found_users": await _build_attach_candidate_rows(
+            found_users,
+            web_account_service=web_account_service,
+        ),
+    }
+
+
+@inject
+async def referral_attach_confirm_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+    partner_service: FromDishka[PartnerService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    selected_referrer_telegram_id = dialog_manager.dialog_data.get(
+        "referral_attach_selected_referrer_telegram_id"
+    )
+
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    if selected_referrer_telegram_id is None:
+        raise ValueError("Selected referrer is missing")
+
+    referrer = await user_service.get(telegram_id=int(selected_referrer_telegram_id))
+    if not referrer:
+        raise ValueError(f"Referrer '{selected_referrer_telegram_id}' not found")
+
+    referrer_web_account = await web_account_service.get_by_user_telegram_id(referrer.telegram_id)
+    return {
+        "target_name": target_user.name,
+        "target_telegram_id": target_user.telegram_id,
+        "referrer_name": referrer.name,
+        "referrer_telegram_id": referrer.telegram_id,
+        "referrer_web_login": (
+            referrer_web_account.username if referrer_web_account else False
+        ),
+        "referrer_is_partner": await partner_service.is_partner(referrer.telegram_id),
+    }
 
 
 @inject

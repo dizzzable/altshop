@@ -90,6 +90,18 @@ class PartnerRepository(BaseRepository):
             PartnerTransaction.referral_telegram_id == telegram_id,
         )
 
+    async def get_transaction_by_partner_and_source(
+        self,
+        *,
+        partner_id: int,
+        source_transaction_id: int,
+    ) -> Optional[PartnerTransaction]:
+        return await self._get_one(
+            PartnerTransaction,
+            PartnerTransaction.partner_id == partner_id,
+            PartnerTransaction.source_transaction_id == source_transaction_id,
+        )
+
     async def has_partner_received_payment_from_referral(
         self,
         partner_id: int,
@@ -173,6 +185,20 @@ class PartnerRepository(BaseRepository):
     # Partner Referrals
     async def create_partner_referral(self, referral: PartnerReferral) -> PartnerReferral:
         return await self.create_instance(referral)
+
+    async def get_partner_referral(
+        self,
+        *,
+        partner_id: int,
+        referral_telegram_id: int,
+        level: PartnerLevel,
+    ) -> Optional[PartnerReferral]:
+        return await self._get_one(
+            PartnerReferral,
+            PartnerReferral.partner_id == partner_id,
+            PartnerReferral.referral_telegram_id == referral_telegram_id,
+            PartnerReferral.level == level,
+        )
 
     async def get_referrals_by_partner(
         self,

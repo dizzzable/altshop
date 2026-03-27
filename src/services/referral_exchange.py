@@ -53,6 +53,7 @@ class ReferralExchangeTypeOption:
     type: PointsExchangeType
     enabled: bool
     available: bool
+    availability_reason: str | None
     points_cost: int
     min_points: int
     max_points: int
@@ -150,19 +151,28 @@ class ReferralExchangeService(BaseService):
             has_plan_for_gift = (
                 bool(gift_plans) if exchange_type == PointsExchangeType.GIFT_SUBSCRIPTION else True
             )
+            availability_reason = self._resolve_availability_reason(
+                exchange_enabled=exchange_settings.exchange_enabled,
+                type_enabled=type_settings.enabled,
+                user_points=user.points,
+                min_points=type_settings.min_points,
+                points_cost=type_settings.points_cost,
+                computed_value=computed_value,
+                requires_subscription=requires_subscription,
+                has_subscriptions=has_subscriptions,
+                has_plan_for_gift=has_plan_for_gift,
+            )
             available = (
                 exchange_settings.exchange_enabled
                 and type_settings.enabled
-                and user.points >= type_settings.min_points
-                and computed_value > 0
-                and (not requires_subscription or has_subscriptions)
-                and has_plan_for_gift
+                and availability_reason is None
             )
             type_options.append(
                 ReferralExchangeTypeOption(
                     type=exchange_type,
                     enabled=exchange_settings.exchange_enabled and type_settings.enabled,
                     available=available,
+                    availability_reason=availability_reason,
                     points_cost=type_settings.points_cost,
                     min_points=type_settings.min_points,
                     max_points=type_settings.max_points,
@@ -181,6 +191,31 @@ class ReferralExchangeService(BaseService):
             types=type_options,
             gift_plans=gift_plans,
         )
+
+    @staticmethod
+    def _resolve_availability_reason(
+        *,
+        exchange_enabled: bool,
+        type_enabled: bool,
+        user_points: int,
+        min_points: int,
+        points_cost: int,
+        computed_value: int,
+        requires_subscription: bool,
+        has_subscriptions: bool,
+        has_plan_for_gift: bool,
+    ) -> str | None:
+        if not exchange_enabled:
+            return "EXCHANGE_DISABLED_GLOBAL"
+        if not type_enabled:
+            return "EXCHANGE_TYPE_DISABLED"
+        if user_points < max(min_points, points_cost) or computed_value <= 0:
+            return "INSUFFICIENT_POINTS"
+        if requires_subscription and not has_subscriptions:
+            return "SUBSCRIPTION_REQUIRED"
+        if not has_plan_for_gift:
+            return "GIFT_PLAN_REQUIRED"
+        return None
 
     async def execute(
         self,

@@ -14,6 +14,7 @@ from src.infrastructure.database.models.dto import (
 from .partner import PartnerService
 from .plan import PlanService
 from .purchase_access import PurchaseAccessService
+from .referral import ReferralService
 from .remnawave import RemnawaveService
 from .subscription import SubscriptionService
 
@@ -56,12 +57,14 @@ class SubscriptionTrialService:
         self,
         plan_service: PlanService,
         partner_service: PartnerService,
+        referral_service: ReferralService,
         purchase_access_service: PurchaseAccessService,
         remnawave_service: RemnawaveService,
         subscription_service: SubscriptionService,
     ) -> None:
         self.plan_service = plan_service
         self.partner_service = partner_service
+        self.referral_service = referral_service
         self.purchase_access_service = purchase_access_service
         self.remnawave_service = remnawave_service
         self.subscription_service = subscription_service
@@ -213,11 +216,19 @@ class SubscriptionTrialService:
             return False
         if self._is_linked_telegram_identity(user):
             return False
+        if await self._has_referral_attribution(user):
+            return False
         if getattr(user, "is_invited_user", False):
             return False
         if await self._has_partner_attribution(user):
             return False
         return True
+
+    async def _has_referral_attribution(self, user: UserDto) -> bool:
+        telegram_id = int(getattr(user, "telegram_id", 0) or 0)
+        if telegram_id == 0:
+            return False
+        return await self.referral_service.has_referral_attribution(telegram_id)
 
     async def _has_partner_attribution(self, user: UserDto) -> bool:
         telegram_id = int(getattr(user, "telegram_id", 0) or 0)

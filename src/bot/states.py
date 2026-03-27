@@ -105,6 +105,9 @@ class DashboardUsers(StatesGroup):
 
 class DashboardUser(StatesGroup):
     MAIN = State()
+    REFERRAL_ATTACH_SEARCH = State()
+    REFERRAL_ATTACH_RESULTS = State()
+    REFERRAL_ATTACH_CONFIRM = State()
     SUBSCRIPTIONS = State()
     SUBSCRIPTION = State()
     ASSIGN_PLAN_SUBSCRIPTIONS = State()

@@ -57,6 +57,19 @@ class TransactionService(BaseService):
         logger.debug(f"Retrieved '{len(db_transactions)}' transactions for user '{telegram_id}'")
         return TransactionDto.from_model_list(db_transactions)
 
+    async def get_completed_by_user_chronological(
+        self,
+        telegram_id: int,
+    ) -> list[TransactionDto]:
+        transactions_repo = self.uow.repository.transactions
+        db_transactions = await transactions_repo.get_completed_by_user_chronological(telegram_id)
+        logger.debug(
+            "Retrieved '{}' completed transactions for user '{}' in chronological order",
+            len(db_transactions),
+            telegram_id,
+        )
+        return TransactionDto.from_model_list(db_transactions)
+
     async def get_by_user_paginated(
         self,
         telegram_id: int,

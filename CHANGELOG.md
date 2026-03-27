@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.13] - 2026-03-27
+
+### Changed
+
+- the web referrals exchange flow now keeps enabled exchange types visible even when they are temporarily unavailable and surfaces an explicit availability reason instead of hiding the option entirely
+- admin user cards now include a manual referrer-attach flow with search, confirmation, and retroactive historical payment replay that reuses the regular referral and partner attribution logic
+- web trial onboarding is now triggered for first-session invited and partner-attributed users outside Telegram Mini App bootstrap as well, while keeping the purchase page trial card as a fallback surface
+
+### Fixed
+
+- invited and partner-attributed web users without a linked Telegram account are once again treated as trial-eligible based on real referral and partner attribution records
+- manual partner earning backfills are now idempotent through `source_transaction_id`, preventing duplicate historical partner payouts during repeated reconciliation or attach attempts
+- legacy duplicated partner referral registration code paths were removed, and the partner referral chain flow now keeps the level 1 attachment in the shared helper
+
 ## [1.2.12] - 2026-03-25
 
 ### Changed

@@ -23,6 +23,7 @@ import {
   isValidWebLogin,
   normalizeWebLogin,
 } from '@/lib/web-login'
+import { setPendingTrialOnboarding } from '@/lib/telegram-onboarding'
 
 export function RegisterPage() {
   const navigate = useNavigate()
@@ -137,6 +138,7 @@ export function RegisterPage() {
 
       clearLegacyAuthStorage()
       sessionStorage.setItem('auth_source', 'password')
+      setPendingTrialOnboarding()
       await refreshUser()
       clearStoredReferralCode()
       if (registrationAccess?.requires_telegram_id) {

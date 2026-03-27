@@ -384,6 +384,11 @@ class UserService(BaseService):
         if search_query.startswith(REMNASHOP_PREFIX):  # TODO: any username from panel
             return await self._search_users_by_remnashop_id(search_query)
 
+        referral_user = await self.get_by_referral_code(search_query.upper())
+        if referral_user:
+            logger.info(f"Searched by referral code '{search_query.upper()}', user found")
+            return [referral_user]
+
         return await self._search_users_by_login_or_name(search_query)
 
     async def _search_users_by_telegram_id(self, target_telegram_id: int) -> list[UserDto]:

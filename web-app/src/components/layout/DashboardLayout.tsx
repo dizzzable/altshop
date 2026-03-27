@@ -19,8 +19,8 @@ import {
   subscribeMobileExtraNavigationPreference,
 } from '@/lib/mobile-navigation-preferences'
 import {
-  clearPendingTelegramMiniAppOnboarding,
-  hasPendingTelegramMiniAppOnboarding,
+  clearPendingTrialOnboarding,
+  hasPendingTrialOnboarding,
 } from '@/lib/telegram-onboarding'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -162,12 +162,14 @@ export function DashboardLayout() {
       && !user?.telegram_linked
       && !openBootstrapPrompt
       && !openForcePasswordPrompt
+      && !openTrialOnboardingPrompt
       && !user?.requires_password_change
     )
     setOpenLinkPrompt(shouldOpen)
   }, [
     openBootstrapPrompt,
     openForcePasswordPrompt,
+    openTrialOnboardingPrompt,
     user?.requires_password_change,
     user?.show_link_prompt,
     user?.telegram_linked,
@@ -185,6 +187,54 @@ export function DashboardLayout() {
     isMiniAppBootstrapSession,
     openForcePasswordPrompt,
     user?.needs_web_credentials_bootstrap,
+    user?.requires_password_change,
+  ])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const maybeOpenTrialOnboarding = async () => {
+      if (
+        !user
+        || !hasPendingTrialOnboarding()
+        || !canPurchase
+        || openBootstrapPrompt
+        || openForcePasswordPrompt
+        || user.requires_password_change
+      ) {
+        return
+      }
+
+      try {
+        const { data: trialEligibility } = await api.subscription.trialEligibility()
+        if (isCancelled) {
+          return
+        }
+
+        if (trialEligibility.eligible && trialEligibility.trial_plan_id !== null) {
+          setTrialOnboardingError(null)
+          setOpenTrialOnboardingPrompt(true)
+          return
+        }
+
+        clearPendingTrialOnboarding()
+      } catch {
+        if (!isCancelled) {
+          clearPendingTrialOnboarding()
+        }
+      }
+    }
+
+    void maybeOpenTrialOnboarding()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [
+    canPurchase,
+    openBootstrapPrompt,
+    openForcePasswordPrompt,
+    user,
     user?.requires_password_change,
   ])
 
@@ -318,20 +368,6 @@ export function DashboardLayout() {
       await refreshUser()
       setOpenBootstrapPrompt(false)
       setBootstrapError(null)
-
-      if (hasPendingTelegramMiniAppOnboarding() && canPurchase) {
-        try {
-          const { data: trialEligibility } = await api.subscription.trialEligibility()
-          if (trialEligibility.eligible && trialEligibility.trial_plan_id !== null) {
-            setTrialOnboardingError(null)
-            setOpenTrialOnboardingPrompt(true)
-          } else {
-            clearPendingTelegramMiniAppOnboarding()
-          }
-        } catch {
-          clearPendingTelegramMiniAppOnboarding()
-        }
-      }
     } catch (error: unknown) {
       const backendError = error as { response?: { data?: { detail?: string; message?: string } } }
       const backendDetail = backendError.response?.data?.detail || backendError.response?.data?.message
@@ -358,7 +394,7 @@ export function DashboardLayout() {
   }
 
   const handleCloseTrialOnboarding = () => {
-    clearPendingTelegramMiniAppOnboarding()
+    clearPendingTrialOnboarding()
     setTrialOnboardingError(null)
     setOpenTrialOnboardingPrompt(false)
   }
@@ -374,7 +410,7 @@ export function DashboardLayout() {
     setTrialOnboardingError(null)
     try {
       await api.subscription.trial()
-      clearPendingTelegramMiniAppOnboarding()
+      clearPendingTrialOnboarding()
       setOpenTrialOnboardingPrompt(false)
       await refreshUser()
       navigate('/dashboard/subscription', { replace: true })

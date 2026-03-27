@@ -93,6 +93,7 @@ class ReferralExchangeTypeOptionResponse(BaseModel):
     type: PointsExchangeType
     enabled: bool
     available: bool
+    availability_reason: str | None = None
     points_cost: int
     min_points: int
     max_points: int
@@ -334,6 +335,7 @@ def _build_referral_exchange_options_response(
                 type=option.type,
                 enabled=option.enabled,
                 available=option.available,
+                availability_reason=option.availability_reason,
                 points_cost=option.points_cost,
                 min_points=option.min_points,
                 max_points=option.max_points,

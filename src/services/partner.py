@@ -332,6 +332,20 @@ class PartnerService(BaseService):
         parent_partner_id: Optional[int] = None,
     ) -> PartnerReferralDto:
         """Добавить реферала к партнеру."""
+        assert partner.id is not None, "Partner ID is required for referral creation"
+        existing_referral = await self.uow.repository.partners.get_partner_referral(
+            partner_id=partner.id,
+            referral_telegram_id=referral_telegram_id,
+            level=level,
+        )
+        if existing_referral:
+            logger.info(
+                "Partner referral already exists: partner '{}' -> referral '{}' (level {})",
+                partner.id,
+                referral_telegram_id,
+                level,
+            )
+            return PartnerReferralDto.from_model(existing_referral)  # type: ignore[return-value]
         referral = await self.uow.repository.partners.create_partner_referral(
             PartnerReferral(
                 partner_id=partner.id,
@@ -360,31 +374,18 @@ class PartnerService(BaseService):
         )
         return PartnerReferralDto.from_model(referral)  # type: ignore[return-value]
 
-    async def handle_new_user_referral(self, user: UserDto, referrer_code: str) -> None:
-        """
-        Обработать регистрацию нового пользователя по реферальной ссылке.
-        Создает связи партнер-реферал на всех уровнях.
-        """
-        # Получаем партнера по реферальному коду
-        referrer = await self.user_service.get_by_referral_code(referrer_code)
-        if not referrer:
-            logger.warning(f"Referrer with code '{referrer_code}' not found")
-            return
-
-        # Проверяем, является ли реферер партнером
+    async def attach_partner_referral_chain(self, *, user: UserDto, referrer: UserDto) -> bool:
         referrer_partner = await self.get_partner_by_user(referrer.telegram_id)
         if not referrer_partner or not referrer_partner.is_active:
             logger.debug(f"Referrer '{referrer.telegram_id}' is not an active partner")
-            return
+            return False
 
-        # Добавляем как реферала 1 уровня
         await self.add_partner_referral(
             partner=referrer_partner,
             referral_telegram_id=user.telegram_id,
             level=PartnerLevel.LEVEL_1,
         )
 
-        # Проверяем, есть ли у реферера свой партнер (для 2 уровня)
         referrer_referral = await self.uow.repository.partners.get_partner_referral_by_user(
             referrer.telegram_id
         )
@@ -398,7 +399,6 @@ class PartnerService(BaseService):
                     parent_partner_id=referrer_partner.id,
                 )
 
-                # Проверяем 3 уровень
                 level2_user = await self.user_service.get(
                     telegram_id=level2_partner.user_telegram_id
                 )
@@ -418,11 +418,25 @@ class PartnerService(BaseService):
                                 parent_partner_id=level2_partner.id,
                             )
 
+        return True
+
+    async def handle_new_user_referral(self, user: UserDto, referrer_code: str) -> None:
+        """
+        Обработать регистрацию нового пользователя по реферальной ссылке.
+        Создает связи партнер-реферал на всех уровнях.
+        """
+        # Получаем партнера по реферальному коду
+        referrer = await self.user_service.get_by_referral_code(referrer_code)
+        if not referrer:
+            logger.warning(f"Referrer with code '{referrer_code}' not found")
+            return
+        attached = await self.attach_partner_referral_chain(user=user, referrer=referrer)
+        if not attached:
+            return
         logger.info(
             f"User '{user.telegram_id}' registered via partner referral "
             f"from '{referrer.telegram_id}'"
         )
-
         try:
             await self.notification_service.notify_user(
                 user=referrer,
@@ -561,10 +575,12 @@ class PartnerService(BaseService):
         partner_settings: PartnerSettingsDto,
         gateway_commission: Decimal,
         gateway_name: str,
+        source_transaction_id: Optional[int] = None,
     ) -> None:
         partner = await self.get_partner(referral.partner_id)
         if not partner or not partner.is_active:
             return
+        assert partner.id is not None, "Partner ID is required"
 
         level = PartnerLevel(referral.level)
         if await self._should_skip_partner_earning(partner=partner, payer_user_id=payer_user_id):
@@ -581,6 +597,21 @@ class PartnerService(BaseService):
             logger.debug(f"Zero earning for partner '{partner.id}' at level {level}")
             return
 
+        if source_transaction_id is not None:
+            existing_transaction = (
+                await self.uow.repository.partners.get_transaction_by_partner_and_source(
+                    partner_id=partner.id,
+                    source_transaction_id=source_transaction_id,
+                )
+            )
+            if existing_transaction:
+                logger.info(
+                    "Partner earning already exists for partner '{}' and source transaction '{}'",
+                    partner.id,
+                    source_transaction_id,
+                )
+                return
+
         await self.create_partner_transaction(
             partner=partner,
             referral_telegram_id=payer_user_id,
@@ -588,7 +619,7 @@ class PartnerService(BaseService):
             payment_amount=payment_amount_kopecks,
             percent=percent_used,
             earned_amount=earning,
-            source_transaction_id=None,
+            source_transaction_id=source_transaction_id,
             description=(
                 "Earnings from referral payment via "
                 f"{gateway_name} "
@@ -615,6 +646,7 @@ class PartnerService(BaseService):
         payer_user_id: int,
         payment_amount: Decimal,
         gateway_type: Optional[PaymentGatewayType] = None,
+        source_transaction_id: Optional[int] = None,
     ) -> None:
         """
         Обработать начисление партнерского вознаграждения при оплате.
@@ -662,6 +694,7 @@ class PartnerService(BaseService):
                 partner_settings=partner_settings,
                 gateway_commission=gateway_commission,
                 gateway_name=gateway_name,
+                source_transaction_id=source_transaction_id,
             )
 
     async def _calculate_partner_earning(

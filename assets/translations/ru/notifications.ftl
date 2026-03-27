@@ -369,6 +369,8 @@ ntf-user-message-success = <i>✅ Сообщение успешно отправ
 ntf-user-message-not-sent = <i>❌ Не удалось отправить сообщение.</i>
 ntf-user-sync-failed = <i>❌ Не удалось синхронизировать пользователя.</i>
 ntf-user-sync-success = <i>✅ Синхронизация пользователя выполнена.</i>
+ntf-user-referral-attach-success = <i>✅ Реферер <b>{ $referrer_name }</b> закреплен. Обработано исторических платежей: <b>{ $payments }</b>.</i>
+ntf-user-referral-attach-failed = <i>❌ Не удалось закрепить реферера: { $error }</i>
 
 ntf-user-invalid-expire-time = <i>❌ Невозможно { $operation ->
     [ADD] продлить подписку на указанное количество дней

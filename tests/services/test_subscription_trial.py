@@ -42,11 +42,15 @@ def build_service(
     used_trial: bool = False,
     subscriptions: list[object] | None = None,
     partner_attribution: bool = False,
+    referral_attribution: bool = False,
 ) -> SubscriptionTrialService:
     return SubscriptionTrialService(
         plan_service=SimpleNamespace(
             get_trial_plan=AsyncMock(return_value=build_trial_plan()),
             get=AsyncMock(return_value=build_trial_plan()),
+        ),
+        referral_service=SimpleNamespace(
+            has_referral_attribution=AsyncMock(return_value=referral_attribution)
         ),
         partner_service=SimpleNamespace(
             has_partner_attribution=AsyncMock(return_value=partner_attribution)
@@ -84,14 +88,14 @@ def test_web_trial_requires_link_when_user_is_not_invited_or_partner_attributed(
 
 
 def test_web_trial_allows_invited_user_without_linked_telegram() -> None:
-    service = build_service()
+    service = build_service(referral_attribution=True)
     user = build_user(telegram_id=-103)
-    user._is_invited_user = True
 
     snapshot = run_async(service.get_eligibility(user, channel=PurchaseChannel.WEB))
 
     assert snapshot.eligible is True
     assert snapshot.requires_telegram_link is False
+    service.referral_service.has_referral_attribution.assert_awaited_once_with(-103)
 
 
 def test_web_trial_allows_partner_attributed_user_without_linked_telegram() -> None:

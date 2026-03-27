@@ -2277,6 +2277,32 @@ msg-user-referrals =
 
     Records found: <b>{ $count }</b>.
 
+msg-user-referral-attach-search =
+    <b>🔗 Manual Referrer Attach</b>
+
+    User: <b>{ $target_name }</b> (<code>{ $target_id }</code>)
+
+    Send the Telegram ID, username, or referral code of the user who should become the referrer.
+
+msg-user-referral-attach-results =
+    <b>🔗 Choose a Referrer for { $target_name }</b>
+
+    Matches found: <b>{ $count }</b>.
+
+msg-user-referral-attach-confirm =
+    <b>🔗 Confirm Referrer Attach</b>
+
+    User: <b>{ $target_name }</b> (<code>{ $target_id }</code>)
+    Referrer: <b>{ $referrer_name }</b> (<code>{ $referrer_id }</code>)
+    { $referrer_web_login ->
+        [false]
+       *[other] Web login: <code>{ $referrer_web_login }</code>
+    }
+    { $referrer_is_partner ->
+        [1] The partner attribution chain will also be created.
+       *[0] Only the standard referral link will be created.
+    }
+
 msg-branding-main =
     <b>🎨 Branding Settings</b>
 

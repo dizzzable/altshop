@@ -2500,6 +2500,32 @@ msg-user-referrals =
 
     Найдено записей: <b>{ $count }</b>.
 
+msg-user-referral-attach-search =
+    <b>🔗 Ручная привязка реферера</b>
+
+    Пользователь: <b>{ $target_name }</b> (<code>{ $target_id }</code>)
+
+    Отправьте Telegram ID, username или реферальный код пользователя, которого нужно назначить реферером.
+
+msg-user-referral-attach-results =
+    <b>🔗 Выберите реферера для { $target_name }</b>
+
+    Найдено вариантов: <b>{ $count }</b>.
+
+msg-user-referral-attach-confirm =
+    <b>🔗 Подтвердите привязку реферера</b>
+
+    Пользователь: <b>{ $target_name }</b> (<code>{ $target_id }</code>)
+    Реферер: <b>{ $referrer_name }</b> (<code>{ $referrer_id }</code>)
+    { $referrer_web_login ->
+        [false]
+       *[other] Web login: <code>{ $referrer_web_login }</code>
+    }
+    { $referrer_is_partner ->
+        [1] Партнерская цепочка тоже будет создана.
+       *[0] Будет создана только стандартная реферальная связь.
+    }
+
 msg-branding-main =
     <b>🎨 Настройки брендинга</b>
 

@@ -340,6 +340,7 @@ export interface ReferralExchangeTypeOption {
   type: PointsExchangeType
   enabled: boolean
   available: boolean
+  availability_reason?: string | null
   points_cost: number
   min_points: number
   max_points: number

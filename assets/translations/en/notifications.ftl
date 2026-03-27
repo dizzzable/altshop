@@ -344,6 +344,8 @@ ntf-user-message-success = <i>✅ Message sent successfully.</i>
 ntf-user-message-not-sent = <i>❌ Failed to send message.</i>
 ntf-user-sync-failed = <i>❌ Failed to synchronize user.</i>
 ntf-user-sync-success = <i>✅ User synchronization completed.</i>
+ntf-user-referral-attach-success = <i>✅ Referrer <b>{ $referrer_name }</b> attached. Historical payments processed: <b>{ $payments }</b>.</i>
+ntf-user-referral-attach-failed = <i>❌ Failed to attach referrer: { $error }</i>
 
 ntf-user-invalid-expire-time = <i>❌ Unable to { $operation ->
     [ADD] extend subscription by the specified number of days

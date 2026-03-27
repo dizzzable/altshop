@@ -77,6 +77,12 @@ class ReferralInviteStateSnapshot:
     refill_step_target: int | None
 
 
+@dataclass(slots=True, frozen=True)
+class ReferralManualAttachResult:
+    historical_payments_processed: int
+    partner_chain_attached: bool
+
+
 class ReferralService(BaseService):
     uow: UnitOfWork
     user_service: UserService
@@ -128,6 +134,9 @@ class ReferralService(BaseService):
     async def get_referral_by_referred(self, telegram_id: int) -> Optional[ReferralDto]:
         referral = await self.uow.repository.referrals.get_referral_by_referred(telegram_id)
         return ReferralDto.from_model(referral) if referral else None
+
+    async def has_referral_attribution(self, telegram_id: int) -> bool:
+        return await self.get_referral_by_referred(telegram_id) is not None
 
     async def get_referrals_by_referrer(self, telegram_id: int) -> List[ReferralDto]:
         referrals = await self.uow.repository.referrals.get_referrals_by_referrer(telegram_id)
@@ -598,6 +607,69 @@ class ReferralService(BaseService):
                     message_effect=MessageEffect.CONFETTI,
                 ),
             )
+
+    async def attach_referrer_manually(
+        self,
+        *,
+        user: UserDto,
+        referrer: UserDto,
+        partner_service: Any,
+        transaction_service: Any,
+    ) -> ReferralManualAttachResult:
+        if referrer.telegram_id == user.telegram_id:
+            raise ValueError("Cannot attach a user as their own referrer")
+
+        if await self.has_referral_attribution(user.telegram_id):
+            raise ValueError("User already has referral attribution")
+
+        if await partner_service.has_partner_attribution(user.telegram_id):
+            raise ValueError("User already has partner attribution")
+
+        await self._attach_referral(
+            user=user,
+            referrer=referrer,
+            source=ReferralInviteSource.UNKNOWN,
+            enforce_slot_capacity=False,
+        )
+        partner_chain_attached = await partner_service.attach_partner_referral_chain(
+            user=user,
+            referrer=referrer,
+        )
+
+        historical_payments_processed = 0
+        historical_transactions = await transaction_service.get_completed_by_user_chronological(
+            user.telegram_id
+        )
+        for historical_transaction in historical_transactions:
+            if historical_transaction.pricing.is_free:
+                continue
+
+            transaction = historical_transaction
+            if transaction.user is None:
+                transaction = historical_transaction.model_copy(update={"user": user})
+
+            await self.assign_referral_rewards(transaction)
+            await partner_service.process_partner_earning(
+                payer_user_id=user.telegram_id,
+                payment_amount=transaction.pricing.final_amount,
+                gateway_type=transaction.gateway_type,
+                source_transaction_id=transaction.id,
+            )
+            historical_payments_processed += 1
+
+        logger.info(
+            "Manual referral attach completed: referrer '{}' -> user '{}', "
+            "historical_payments_processed='{}', partner_chain_attached='{}'",
+            referrer.telegram_id,
+            user.telegram_id,
+            historical_payments_processed,
+            partner_chain_attached,
+        )
+
+        return ReferralManualAttachResult(
+            historical_payments_processed=historical_payments_processed,
+            partner_chain_attached=partner_chain_attached,
+        )
 
     async def assign_referral_rewards(self, transaction: TransactionDto) -> None:
         from src.infrastructure.taskiq.tasks.referrals import (  # noqa: PLC0415

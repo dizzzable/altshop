@@ -106,6 +106,17 @@ function getExchangeTypeLabel(type: PointsExchangeType, locale: ReferralsLocale)
   return translateText(locale, 'referrals.auto.004')
 }
 
+function getExchangeAvailabilityReason(
+  reason: string | null | undefined,
+  locale: ReferralsLocale
+): string {
+  if (!reason) {
+    return translateText(locale, 'referrals.exchangeReason.default')
+  }
+
+  return translateText(locale, `referrals.exchangeReason.${reason}`)
+}
+
 export function ReferralsPage() {
   const { user, refreshUser } = useAuth()
   const { locale } = useI18n()
@@ -173,31 +184,31 @@ export function ReferralsPage() {
     [subscriptions]
   )
 
-  const availableExchangeTypes = useMemo(
-    () => (exchangeOptions?.types ?? []).filter((option) => option.enabled && option.available),
+  const visibleExchangeTypes = useMemo(
+    () => (exchangeOptions?.types ?? []).filter((option) => option.enabled),
     [exchangeOptions?.types]
   )
   const giftPlans = useMemo(() => exchangeOptions?.gift_plans ?? [], [exchangeOptions?.gift_plans])
 
   const effectiveSelectedExchangeType = useMemo(() => {
-    if (availableExchangeTypes.length === 0) {
+    if (visibleExchangeTypes.length === 0) {
       return null
     }
 
     if (
       selectedExchangeType &&
-      availableExchangeTypes.some((option) => option.type === selectedExchangeType)
+      visibleExchangeTypes.some((option) => option.type === selectedExchangeType)
     ) {
       return selectedExchangeType
     }
 
-    return availableExchangeTypes[0].type
-  }, [availableExchangeTypes, selectedExchangeType])
+    return visibleExchangeTypes[0].type
+  }, [visibleExchangeTypes, selectedExchangeType])
 
   const selectedExchangeOption = useMemo(
     () =>
-      availableExchangeTypes.find((option) => option.type === effectiveSelectedExchangeType) ?? null,
-    [availableExchangeTypes, effectiveSelectedExchangeType]
+      visibleExchangeTypes.find((option) => option.type === effectiveSelectedExchangeType) ?? null,
+    [visibleExchangeTypes, effectiveSelectedExchangeType]
   )
   const selectedExchangeLabel = selectedExchangeOption
     ? getExchangeTypeLabel(selectedExchangeOption.type, referralLocale)
@@ -294,7 +305,7 @@ export function ReferralsPage() {
   const showExchangePreview = exchangeLoading || Boolean(exchangeOptions?.exchange_enabled)
   const showMobileExchangeAction = Boolean(!exchangeLoading && exchangeOptions?.exchange_enabled)
   const isMobileExchangeActionActive = Boolean(
-    exchangeOptions?.exchange_enabled && availableExchangeTypes.length > 0
+    exchangeOptions?.exchange_enabled && visibleExchangeTypes.length > 0
   )
   const inviteBlockReason = referralInfo?.invite_block_reason ?? null
   const inviteStatusDescription =
@@ -546,7 +557,7 @@ export function ReferralsPage() {
                         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
                           {translateText(referralLocale, 'referrals.auto.024')}
                         </p>
-                        <p className="text-lg font-bold">{availableExchangeTypes.length}</p>
+                        <p className="text-lg font-bold">{visibleExchangeTypes.length}</p>
                       </div>
                       <div className="rounded-lg border p-2.5">
                         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -618,14 +629,14 @@ export function ReferralsPage() {
               </p>
             </div>
 
-            {availableExchangeTypes.length === 0 ? (
+            {visibleExchangeTypes.length === 0 ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                 {translateText(referralLocale, 'referrals.auto.034')}
               </div>
             ) : (
               <>
                 <div className="grid gap-3 md:grid-cols-2">
-                  {availableExchangeTypes.map((option) => (
+                  {visibleExchangeTypes.map((option) => (
                     <button
                       key={option.type}
                       type="button"
@@ -636,7 +647,14 @@ export function ReferralsPage() {
                           : 'border-border hover:border-primary/40'
                       }`}
                     >
-                      <p className="font-medium">{getExchangeTypeLabel(option.type, referralLocale)}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="font-medium">{getExchangeTypeLabel(option.type, referralLocale)}</p>
+                        <Badge variant={option.available ? 'secondary' : 'outline'}>
+                          {option.available
+                            ? translateText(referralLocale, 'referrals.auto.024')
+                            : translateText(referralLocale, 'referrals.exchangeReason.unavailable')}
+                        </Badge>
+                      </div>
                       <p className="text-sm text-muted-foreground">{describeExchangeValue(option, referralLocale)}</p>
                     </button>
                   ))}
@@ -651,6 +669,15 @@ export function ReferralsPage() {
                         {translateText(referralLocale, 'referrals.auto.023')}
                       </Badge>
                     </div>
+
+                    {!selectedExchangeOption.available && (
+                      <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                        {getExchangeAvailabilityReason(
+                          selectedExchangeOption.availability_reason,
+                          referralLocale
+                        )}
+                      </div>
+                    )}
 
                     {selectedExchangeOption.requires_subscription && (
                       <div className="space-y-2">
@@ -699,8 +726,11 @@ export function ReferralsPage() {
                       onClick={handleExecuteExchange}
                       disabled={
                         executeExchangeMutation.isPending ||
+                        !selectedExchangeOption.available ||
                         (selectedExchangeOption.requires_subscription &&
-                          exchangeableSubscriptions.length === 0)
+                          exchangeableSubscriptions.length === 0) ||
+                        (selectedExchangeOption.type === 'GIFT_SUBSCRIPTION' &&
+                          giftPlans.length === 0)
                       }
                       className="w-full"
                     >

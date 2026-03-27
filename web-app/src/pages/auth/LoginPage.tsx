@@ -13,6 +13,7 @@ import { clearStoredReferralCode } from '@/lib/referral'
 import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { resolvePostLoginPathWithAccess } from '@/lib/post-login-route'
+import { setPendingTrialOnboarding } from '@/lib/telegram-onboarding'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -53,6 +54,7 @@ export function LoginPage() {
 
       clearLegacyAuthStorage()
       sessionStorage.setItem('auth_source', 'password')
+      setPendingTrialOnboarding()
       clearStoredReferralCode()
       await refreshUser()
       const nextPath = await resolvePostLoginPathWithAccess(deviceMode, useMobileUiV2)

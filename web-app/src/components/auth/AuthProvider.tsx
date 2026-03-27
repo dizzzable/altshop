@@ -9,8 +9,8 @@ import {
   getReferralCodeForAuth,
 } from '@/lib/referral'
 import {
-  clearPendingTelegramMiniAppOnboarding,
-  setPendingTelegramMiniAppOnboarding,
+  clearPendingTrialOnboarding,
+  setPendingTrialOnboarding,
 } from '@/lib/telegram-onboarding'
 import {
   consumePendingPaymentReturnStatus,
@@ -152,12 +152,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearLegacyAuthStorage()
         const authSource = data.auth_source === 'WEB_TELEGRAM_WEBAPP' ? 'telegram-miniapp' : 'telegram'
         sessionStorage.setItem('auth_source', authSource)
-        const shouldStartMiniAppOnboarding =
-          data.is_new_user === true && data.auth_source === 'WEB_TELEGRAM_WEBAPP'
-        if (shouldStartMiniAppOnboarding) {
-          setPendingTelegramMiniAppOnboarding()
+        const shouldStartTrialOnboarding = data.is_new_user === true
+        if (shouldStartTrialOnboarding) {
+          setPendingTrialOnboarding()
         } else {
-          clearPendingTelegramMiniAppOnboarding()
+          clearPendingTrialOnboarding()
         }
 
         const currentUser = await loadUserWithRefresh()
@@ -221,7 +220,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Logout error:', error)
     } finally {
       clearLegacyAuthStorage()
-      clearPendingTelegramMiniAppOnboarding()
+      clearPendingTrialOnboarding()
       sessionStorage.removeItem('auth_source')
       dispatch({ type: 'SET_USER', payload: null })
       dispatch({ type: 'SET_LOADING', payload: false })
@@ -272,12 +271,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearLegacyAuthStorage()
         const authSource = data.auth_source === 'WEB_TELEGRAM_WEBAPP' ? 'telegram-miniapp' : 'telegram'
         sessionStorage.setItem('auth_source', authSource)
-        const shouldStartMiniAppOnboarding =
-          data.is_new_user === true && data.auth_source === 'WEB_TELEGRAM_WEBAPP'
-        if (shouldStartMiniAppOnboarding) {
-          setPendingTelegramMiniAppOnboarding()
+        const shouldStartTrialOnboarding = data.is_new_user === true
+        if (shouldStartTrialOnboarding) {
+          setPendingTrialOnboarding()
         } else {
-          clearPendingTelegramMiniAppOnboarding()
+          clearPendingTrialOnboarding()
         }
 
         const currentUser = await loadUserWithRefresh()

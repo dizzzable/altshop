@@ -17,6 +17,14 @@ class TransactionRepository(BaseRepository):
     async def get_by_user(self, telegram_id: int) -> list[Transaction]:
         return await self._get_many(Transaction, Transaction.user_telegram_id == telegram_id)
 
+    async def get_completed_by_user_chronological(self, telegram_id: int) -> list[Transaction]:
+        return await self._get_many(
+            Transaction,
+            Transaction.user_telegram_id == telegram_id,
+            Transaction.status == TransactionStatus.COMPLETED,
+            order_by=[Transaction.created_at.asc(), Transaction.id.asc()],
+        )
+
     async def get_by_user_paginated(
         self,
         telegram_id: int,

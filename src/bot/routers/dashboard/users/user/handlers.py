@@ -34,6 +34,7 @@ from src.services.email_recovery import EmailRecoveryService
 from src.services.notification import NotificationService
 from src.services.partner import PartnerService
 from src.services.plan import PlanService
+from src.services.referral import ReferralService
 from src.services.remnawave import RemnawaveService
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
@@ -2452,3 +2453,137 @@ async def on_max_subscriptions_input(
     logger.info(
         f"{log(user)} Set max_subscriptions to {limit_display} for user '{target_telegram_id}'"
     )
+
+
+@inject
+async def on_referral_attach_search(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    dialog_manager.show_mode = ShowMode.EDIT
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    search_query = message.text.strip() if message.text else None
+    found_users = await user_service.search_users(message)
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+
+    filtered_users = [
+        candidate
+        for candidate in found_users
+        if candidate.telegram_id != target_telegram_id and candidate.telegram_id != user.telegram_id
+    ]
+
+    if not filtered_users:
+        logger.info(
+            f"{log(user)} Referrer search for '{search_query}' yielded no eligible results"
+        )
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-user-not-found"),
+        )
+        return
+
+    if len(filtered_users) == 1:
+        dialog_manager.dialog_data["referral_attach_selected_referrer_telegram_id"] = (
+            filtered_users[0].telegram_id
+        )
+        await dialog_manager.switch_to(DashboardUser.REFERRAL_ATTACH_CONFIRM)
+        return
+
+    dialog_manager.dialog_data["referral_attach_found_users"] = [
+        found_user.model_dump_json() for found_user in filtered_users
+    ]
+    await dialog_manager.switch_to(DashboardUser.REFERRAL_ATTACH_RESULTS)
+
+
+async def on_referral_attach_result_select(
+    callback: CallbackQuery,
+    widget: Select[int],
+    dialog_manager: DialogManager,
+    selected_user: int,
+) -> None:
+    dialog_manager.dialog_data["referral_attach_selected_referrer_telegram_id"] = selected_user
+    await dialog_manager.switch_to(DashboardUser.REFERRAL_ATTACH_CONFIRM)
+
+
+@inject
+async def on_referral_attach_confirm(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    referral_service: FromDishka[ReferralService],
+    partner_service: FromDishka[PartnerService],
+    transaction_service: FromDishka[TransactionService],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    selected_referrer_telegram_id = dialog_manager.dialog_data.get(
+        "referral_attach_selected_referrer_telegram_id"
+    )
+
+    if selected_referrer_telegram_id is None:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-user-referral-attach-failed",
+                i18n_kwargs={"error": "Selected referrer is missing"},
+            ),
+        )
+        return
+
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    referrer = await user_service.get(telegram_id=int(selected_referrer_telegram_id))
+
+    if not target_user or not referrer:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-user-referral-attach-failed",
+                i18n_kwargs={"error": "User or referrer was not found"},
+            ),
+        )
+        return
+
+    try:
+        result = await referral_service.attach_referrer_manually(
+            user=target_user,
+            referrer=referrer,
+            partner_service=partner_service,
+            transaction_service=transaction_service,
+        )
+    except ValueError as exception:
+        logger.warning(
+            f"{log(user)} Failed to manually attach referrer '{referrer.telegram_id}' "
+            f"to '{target_user.telegram_id}': {exception}"
+        )
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-user-referral-attach-failed",
+                i18n_kwargs={"error": str(exception)},
+            ),
+        )
+        return
+
+    dialog_manager.dialog_data.pop("referral_attach_found_users", None)
+    dialog_manager.dialog_data.pop("referral_attach_selected_referrer_telegram_id", None)
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(
+            i18n_key="ntf-user-referral-attach-success",
+            i18n_kwargs={
+                "referrer_name": referrer.name,
+                "payments": result.historical_payments_processed,
+            },
+        ),
+    )
+    logger.info(
+        f"{log(user)} Manually attached referrer '{referrer.telegram_id}' "
+        f"to '{target_user.telegram_id}' (payments={result.historical_payments_processed}, "
+        f"partner_chain={result.partner_chain_attached})"
+    )
+    await dialog_manager.switch_to(DashboardUser.MAIN)

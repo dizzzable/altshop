@@ -44,6 +44,9 @@ from .getters import (
     partner_settings_getter,
     points_getter,
     purchase_discount_getter,
+    referral_attach_confirm_getter,
+    referral_attach_results_getter,
+    referral_attach_search_getter,
     referral_invite_settings_getter,
     referrals_getter,
     role_getter,
@@ -100,6 +103,9 @@ from .handlers import (
     on_points_select,
     on_purchase_discount_input,
     on_purchase_discount_select,
+    on_referral_attach_confirm,
+    on_referral_attach_result_select,
+    on_referral_attach_search,
     on_referral_invite_initial_slots_input,
     on_referral_invite_refill_amount_input,
     on_referral_invite_refill_threshold_input,
@@ -244,6 +250,14 @@ user = Window(
         ),
     ),
     Row(
+        SwitchTo(
+            text=I18nFormat("btn-user-attach-referrer"),
+            id="attach_referrer",
+            state=DashboardUser.REFERRAL_ATTACH_SEARCH,
+            when=F["can_attach_referrer"],
+        ),
+    ),
+    Row(
         Button(
             text=I18nFormat("btn-user-reset-web-password"),
             id="reset_web_password",
@@ -263,6 +277,89 @@ user = Window(
     IgnoreUpdate(),
     state=DashboardUser.MAIN,
     getter=user_getter,
+)
+
+referral_attach_search = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat(
+        "msg-user-referral-attach-search",
+        target_name=F["target_name"],
+        target_id=F["target_telegram_id"],
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.MAIN,
+        ),
+    ),
+    MessageInput(func=on_referral_attach_search),
+    IgnoreUpdate(),
+    state=DashboardUser.REFERRAL_ATTACH_SEARCH,
+    getter=referral_attach_search_getter,
+)
+
+referral_attach_results = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat(
+        "msg-user-referral-attach-results",
+        target_name=F["target_name"],
+        count=F["count"],
+    ),
+    ScrollingGroup(
+        Select(
+            text=Format("{item[display]}"),
+            id="referral_attach_result",
+            item_id_getter=lambda item: item["telegram_id"],
+            items="found_users",
+            type_factory=int,
+            on_click=on_referral_attach_result_select,
+        ),
+        id="referral_attach_results_scroll",
+        width=1,
+        height=7,
+        hide_on_single_page=True,
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.REFERRAL_ATTACH_SEARCH,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.REFERRAL_ATTACH_RESULTS,
+    getter=referral_attach_results_getter,
+)
+
+referral_attach_confirm = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat(
+        "msg-user-referral-attach-confirm",
+        target_name=F["target_name"],
+        target_id=F["target_telegram_id"],
+        referrer_name=F["referrer_name"],
+        referrer_id=F["referrer_telegram_id"],
+        referrer_web_login=F["referrer_web_login"],
+        referrer_is_partner=F["referrer_is_partner"],
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-referral-attach-confirm"),
+            id="confirm",
+            on_click=on_referral_attach_confirm,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.REFERRAL_ATTACH_SEARCH,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.REFERRAL_ATTACH_CONFIRM,
+    getter=referral_attach_confirm_getter,
 )
 
 subscriptions = Window(
@@ -1418,6 +1515,9 @@ referral_invite_refill_amount = Window(
 
 router = Dialog(
     user,
+    referral_attach_search,
+    referral_attach_results,
+    referral_attach_confirm,
     subscriptions,
     subscription,
     traffic_limit,
