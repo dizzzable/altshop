@@ -20,6 +20,7 @@ from src.core.enums import (
     PurchaseType,
     TransactionStatus,
 )
+from src.core.exceptions import SubscriptionPurchaseError
 from src.infrastructure.database.models.dto import (
     PaymentGatewayDto,
     PlanSnapshotDto,
@@ -29,15 +30,6 @@ from src.infrastructure.database.models.dto import (
 )
 from src.services.partner import PartnerService
 from src.services.payment_gateway import PaymentGatewayService
-
-PurchaseErrorDetail = str | dict[str, str]
-
-
-class PurchaseFlowError(Exception):
-    def __init__(self, *, status_code: int, detail: PurchaseErrorDetail) -> None:
-        self.status_code = status_code
-        self.detail = detail
-        super().__init__(str(detail))
 
 
 @dataclass(slots=True, frozen=True)
@@ -68,7 +60,7 @@ class PartnerBalancePurchaseFlow:
         is_gateway_explicitly_selected: bool,
     ) -> None:
         if channel != PurchaseChannel.WEB:
-            raise PurchaseFlowError(
+            raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail={
                     "code": "PARTNER_BALANCE_WEB_ONLY",
@@ -77,7 +69,7 @@ class PartnerBalancePurchaseFlow:
             )
 
         if not is_gateway_explicitly_selected:
-            raise PurchaseFlowError(
+            raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail={
                     "code": "PARTNER_BALANCE_GATEWAY_REQUIRED",
@@ -86,7 +78,7 @@ class PartnerBalancePurchaseFlow:
             )
 
         if gateway.currency != Currency.RUB:
-            raise PurchaseFlowError(
+            raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail={
                     "code": "PARTNER_BALANCE_RUB_ONLY",
@@ -96,7 +88,7 @@ class PartnerBalancePurchaseFlow:
 
         partner = await self.partner_service.get_partner_by_user(current_user.telegram_id)
         if not partner or not partner.is_active:
-            raise PurchaseFlowError(
+            raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.FORBIDDEN,
                 detail={
                     "code": "PARTNER_BALANCE_PARTNER_INACTIVE",
@@ -161,7 +153,7 @@ class PartnerBalancePurchaseFlow:
                 status=TransactionStatus.COMPLETED.value,
                 message="Payment completed from partner balance",
             )
-        except PurchaseFlowError:
+        except SubscriptionPurchaseError:
             raise
         except Exception as exception:
             logger.exception(f"Partner balance payment failed for '{payment_id}': {exception}")
@@ -178,7 +170,7 @@ class PartnerBalancePurchaseFlow:
                     amount_kopecks=amount_kopecks,
                 )
 
-            raise PurchaseFlowError(
+            raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
                 detail="Failed to process partner balance payment",
             ) from exception
@@ -244,7 +236,7 @@ class PartnerBalancePurchaseFlow:
             return True
 
         await self._mark_transaction_failed_if_present(payment_id=payment_id)
-        raise PurchaseFlowError(
+        raise SubscriptionPurchaseError(
             status_code=HTTPStatus.BAD_REQUEST,
             detail={
                 "code": "INSUFFICIENT_PARTNER_BALANCE",
@@ -308,7 +300,7 @@ class ExternalPurchaseFlow:
                 exception,
             )
             provider_suffix = f" ({provider_status})" if provider_status is not None else ""
-            raise PurchaseFlowError(
+            raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.BAD_GATEWAY,
                 detail=(
                     f"Payment provider '{gateway_type.value}' rejected the request{provider_suffix}"
@@ -316,9 +308,9 @@ class ExternalPurchaseFlow:
             ) from exception
         except Exception as exception:
             logger.exception(f"Payment creation failed: {exception}")
-            raise PurchaseFlowError(
+            raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create payment: {str(exception)}",
+                detail="Failed to create payment",
             ) from exception
 
         return PurchaseExecutionResult(

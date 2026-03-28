@@ -17,7 +17,8 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TYPE device_type ADD VALUE IF NOT EXISTS 'OTHER'")
+    with op.get_context().autocommit_block():
+        op.execute("ALTER TYPE device_type ADD VALUE IF NOT EXISTS 'OTHER'")
 
     op.execute(
         sa.text(

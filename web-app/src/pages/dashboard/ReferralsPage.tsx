@@ -8,6 +8,8 @@ import { translateWithLocale, type TranslationParams } from '@/i18n/runtime'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
 import { api } from '@/lib/api'
+import { getApiErrorMessage } from '@/lib/api-error'
+import { queryKeys } from '@/lib/query-keys'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -124,19 +126,19 @@ export function ReferralsPage() {
   const [fullHistoryOpen, setFullHistoryOpen] = useState(false)
 
   const { data: referralInfo, isLoading: infoLoading } = useQuery<ReferralInfo>({
-    queryKey: ['referral-info'],
+    queryKey: queryKeys.referralInfo(),
     queryFn: () => api.referral.info().then((response) => response.data),
     enabled: !isPartnerActive,
   })
 
   const { data: referralList, isLoading: listLoading } = useQuery<ReferralListResponse>({
-    queryKey: ['referrals'],
+    queryKey: queryKeys.referrals(),
     queryFn: () => api.referral.list().then((response) => response.data),
     enabled: !isPartnerActive,
   })
 
   const { data: exchangeOptions, isLoading: exchangeLoading } = useQuery({
-    queryKey: ['referral-exchange-options'],
+    queryKey: queryKeys.referralExchangeOptions(),
     queryFn: () => api.referral.exchangeOptions().then((response) => response.data),
     enabled: !isPartnerActive,
   })
@@ -146,7 +148,7 @@ export function ReferralsPage() {
   })
 
   const { data: qrBlob, isLoading: qrLoading } = useQuery<Blob>({
-    queryKey: ['referral-qr', qrTarget],
+    queryKey: queryKeys.referralQr(qrTarget),
     queryFn: () => api.referral.qr(qrTarget).then((response) => response.data),
     enabled: qrDialogOpen && !isPartnerActive,
   })
@@ -247,11 +249,11 @@ export function ReferralsPage() {
       toast.success(buildExchangeSuccessMessage(result, referralLocale))
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['referral-info'] }),
-        queryClient.invalidateQueries({ queryKey: ['referrals'] }),
-        queryClient.invalidateQueries({ queryKey: ['referral-exchange-options'] }),
-        queryClient.invalidateQueries({ queryKey: ['subscriptions'] }),
-        queryClient.invalidateQueries({ queryKey: ['user-profile'] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.referralInfo() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.referrals() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.referralExchangeOptions() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.userProfile() }),
       ])
       await refreshUser()
     },
@@ -1651,22 +1653,7 @@ function buildExchangeSuccessMessage(result: ReferralExchangeExecuteResponse, lo
 }
 
 function extractExchangeError(error: unknown, locale: ReferralsLocale): string {
-  const apiError = error as {
-    response?: {
-      data?: {
-        detail?: string | { code?: string; message?: string }
-      }
-    }
-  }
-
-  const detail = apiError.response?.data?.detail
-  if (typeof detail === 'string' && detail.length > 0) {
-    return detail
-  }
-  if (detail && typeof detail === 'object' && detail.message) {
-    return detail.message
-  }
-  return translateText(locale, 'referrals.auto.095')
+  return getApiErrorMessage(error) ?? translateText(locale, 'referrals.auto.095')
 }
 
 function formatShortDate(value: string, locale: ReferralsLocale): string {

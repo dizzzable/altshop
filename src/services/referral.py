@@ -577,6 +577,7 @@ class ReferralService(BaseService):
         user_telegram_id: int,
         type: ReferralRewardType,
         amount: int,
+        source_transaction_id: int | None = None,
     ) -> ReferralRewardDto:
         reward = await self.uow.repository.referrals.create_reward(
             ReferralReward(
@@ -585,10 +586,29 @@ class ReferralService(BaseService):
                 type=type,
                 amount=amount,
                 is_issued=False,
+                source_transaction_id=source_transaction_id,
             )
         )
         logger.info(f"ReferralReward '{referral_id} created, user '{user_telegram_id}'")
         return ReferralRewardDto.from_model(reward)  # type: ignore[return-value]
+
+    async def get_reward(self, reward_id: int) -> Optional[ReferralRewardDto]:
+        reward = await self.uow.repository.referrals.get_reward_by_id(reward_id)
+        return ReferralRewardDto.from_model(reward) if reward else None
+
+    async def get_reward_by_source_transaction(
+        self,
+        *,
+        referral_id: int,
+        user_telegram_id: int,
+        source_transaction_id: int,
+    ) -> Optional[ReferralRewardDto]:
+        reward = await self.uow.repository.referrals.get_reward_by_source_transaction(
+            referral_id=referral_id,
+            user_telegram_id=user_telegram_id,
+            source_transaction_id=source_transaction_id,
+        )
+        return ReferralRewardDto.from_model(reward) if reward else None
 
     async def get_rewards_by_user(self, telegram_id: int) -> List[ReferralRewardDto]:
         rewards = await self.uow.repository.referrals.get_rewards_by_user(telegram_id)
@@ -601,6 +621,13 @@ class ReferralService(BaseService):
     #
 
     async def mark_reward_as_issued(self, reward_id: int) -> None:
+        reward = await self.uow.repository.referrals.get_reward_by_id(reward_id)
+        if reward is None:
+            raise ValueError(f"Referral reward '{reward_id}' not found")
+        if reward.is_issued:
+            logger.info(f"Referral reward '{reward_id}' already marked as issued")
+            return
+
         await self.uow.repository.referrals.update_reward(reward_id, is_issued=True)
         logger.info(f"Marked reward '{reward_id}' as issued")
 
@@ -829,12 +856,34 @@ class ReferralService(BaseService):
             )
             return
 
-        reward = await self.create_reward(
+        if transaction.id is None:
+            logger.warning(
+                "Skipping referral reward for referrer '{}' because transaction id is missing",
+                referrer.telegram_id,
+            )
+            return
+
+        reward = await self.get_reward_by_source_transaction(
             referral_id=referral.id,
             user_telegram_id=referrer.telegram_id,
-            type=settings.reward.type,
-            amount=reward_amount,
+            source_transaction_id=transaction.id,
         )
+        if reward is None:
+            reward = await self.create_reward(
+                referral_id=referral.id,
+                user_telegram_id=referrer.telegram_id,
+                type=settings.reward.type,
+                amount=reward_amount,
+                source_transaction_id=transaction.id,
+            )
+            await self.uow.commit()
+        elif reward.is_issued:
+            logger.info(
+                "Referral reward already issued for referrer '{}' transaction '{}'",
+                referrer.telegram_id,
+                transaction.id,
+            )
+            return
 
         await task.kiq(
             user_telegram_id=referrer.telegram_id,
@@ -1064,6 +1113,7 @@ class ReferralService(BaseService):
             referral_id=referral.id,
             **qualified_data,
         )
+        await self.uow.commit()
 
         try:
             await self.notification_service.notify_user(

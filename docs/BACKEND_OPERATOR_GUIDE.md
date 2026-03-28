@@ -81,11 +81,15 @@ Smoke checks:
 curl -I https://<host>/
 curl -I https://<host>/webapp/
 curl -I https://<host>/api/v1/auth/access-status
+docker compose -f docker-compose.prod.yml exec altshop python -c "import json, urllib.request; payload = json.load(urllib.request.urlopen('http://127.0.0.1:5000/api/v1/internal/readiness', timeout=5)); print(payload['status'], payload['checks']['schema']['current_revision'], payload['checks']['schema']['expected_revision'])"
 ```
 
 Notes:
 
 - `401` from `/api/v1/auth/access-status` is acceptable for unauthenticated smoke
+- `/api/v1/internal/readiness` should print `ready <current> <expected>` only when PostgreSQL, Redis, and `checks.schema` are all `up`
+- schema drift returns HTTP `503` and exposes both `checks.schema.current_revision` and `checks.schema.expected_revision` in the JSON payload
+- `remnawave` may still be `degraded` inside readiness without failing the deploy smoke
 
 ## Current Operational Checks
 

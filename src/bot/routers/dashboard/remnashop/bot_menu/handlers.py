@@ -15,7 +15,11 @@ from src.bot.states import RemnashopBotMenu
 from src.core.config import AppConfig
 from src.core.constants import USER_KEY
 from src.core.enums import BotMenuCustomButtonKind
-from src.core.utils.bot_menu import BOT_MENU_MAX_CUSTOM_BUTTONS, resolve_bot_menu_url
+from src.core.utils.bot_menu import (
+    BOT_MENU_MAX_CUSTOM_BUTTONS,
+    is_valid_bot_menu_web_app_url,
+    resolve_bot_menu_web_app_url,
+)
 from src.core.utils.formatters import format_user_log as log
 from src.core.utils.message_payload import MessagePayload
 from src.core.utils.validators import is_double_click
@@ -90,7 +94,7 @@ async def on_bot_menu_mode_toggle(
         )
         return
 
-    resolved_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=config)
+    resolved_url, _ = resolve_bot_menu_web_app_url(bot_menu=settings.bot_menu, config=config)
     if not resolved_url:
         logger.warning(f"{log(user)} Failed to enable mini app-first mode: no URL configured")
         await _notify(
@@ -129,7 +133,7 @@ async def on_mini_app_url_input(
 
     if normalized.lower() in BUTTON_CLEAR_COMMANDS:
         settings.bot_menu.mini_app_url = None
-        resolved_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=config)
+        resolved_url, _ = resolve_bot_menu_web_app_url(bot_menu=settings.bot_menu, config=config)
         if settings.bot_menu.miniapp_only_enabled and not resolved_url:
             settings.bot_menu.miniapp_only_enabled = False
             await settings_service.update(settings)
@@ -148,6 +152,18 @@ async def on_mini_app_url_input(
                 i18n_key="ntf-bot-menu-url-cleared",
             )
         await dialog_manager.switch_to(state=RemnashopBotMenu.MAIN)
+        return
+
+    if not is_valid_bot_menu_web_app_url(normalized):
+        logger.warning(
+            f"{log(user)} Rejected mini app URL incompatible with Telegram WebApp buttons: "
+            f"'{normalized}'"
+        )
+        await _notify(
+            user=user,
+            notification_service=notification_service,
+            i18n_key="ntf-bot-menu-invalid-url",
+        )
         return
 
     settings.bot_menu.mini_app_url = normalized
@@ -283,6 +299,20 @@ async def on_custom_button_kind_toggle(
         if button.kind == BotMenuCustomButtonKind.URL
         else BotMenuCustomButtonKind.URL
     )
+    if next_kind == BotMenuCustomButtonKind.WEB_APP and not is_valid_bot_menu_web_app_url(
+        button.url
+    ):
+        logger.warning(
+            f"{log(user)} Rejected custom button '{button.id}' WEB_APP toggle due to "
+            f"incompatible URL '{button.url}'"
+        )
+        await _notify(
+            user=user,
+            notification_service=notification_service,
+            i18n_key="ntf-bot-menu-invalid-url",
+        )
+        return
+
     buttons[index] = BotMenuCustomButtonDto.model_validate(
         {**button.model_dump(), "kind": next_kind}
     )
@@ -460,9 +490,23 @@ async def on_custom_button_url_input(
         return
 
     buttons, index, button = selected
+    normalized = message.text.strip()
+    if button.kind == BotMenuCustomButtonKind.WEB_APP and not is_valid_bot_menu_web_app_url(
+        normalized
+    ):
+        logger.warning(
+            f"{log(user)} Rejected WEB_APP custom button URL for '{button.id}': '{normalized}'"
+        )
+        await _notify(
+            user=user,
+            notification_service=notification_service,
+            i18n_key="ntf-bot-menu-invalid-url",
+        )
+        return
+
     try:
         buttons[index] = BotMenuCustomButtonDto.model_validate(
-            {**button.model_dump(), "url": message.text}
+            {**button.model_dump(), "url": normalized}
         )
         _assign_buttons(settings, buttons)
         await settings_service.update(settings)

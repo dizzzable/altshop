@@ -755,6 +755,7 @@ class PartnerService(BaseService):
         partner_settings: PartnerSettingsDto,
         gateway_commission: Decimal,
         gateway_name: str,
+        source_transaction_id: int | None = None,
     ) -> None:
         partner = await self.get_partner(referral.partner_id)
         if not partner or not partner.is_active:
@@ -775,6 +776,27 @@ class PartnerService(BaseService):
             logger.debug(f"Zero earning for partner '{partner.id}' at level {level}")
             return
 
+        if source_transaction_id is not None:
+            assert partner.id is not None, "Partner ID is required for earning lookup"
+            existing_transaction = (
+                await self.uow.repository.partners.get_transaction_by_source_transaction(
+                    partner_id=partner.id,
+                    referral_telegram_id=payer_user_id,
+                    level=level,
+                    source_transaction_id=source_transaction_id,
+                )
+            )
+            if existing_transaction is not None:
+                logger.info(
+                    "Partner earning already recorded for partner '{}' source_transaction_id='{}' "
+                    "payer_user_id='{}' level='{}'",
+                    partner.id,
+                    source_transaction_id,
+                    payer_user_id,
+                    level.name,
+                )
+                return
+
         await self.create_partner_transaction(
             partner=partner,
             referral_telegram_id=payer_user_id,
@@ -782,11 +804,12 @@ class PartnerService(BaseService):
             payment_amount=payment_amount_kopecks,
             percent=percent_used,
             earned_amount=earning,
-            source_transaction_id=None,
+            source_transaction_id=source_transaction_id,
             description=(
                 f"Earnings from referral payment via {gateway_name} (level {level.value})"
             ),
         )
+        await self.uow.commit()
         logger.info(
             f"Partner '{partner.id}' earned {earning} kopecks from "
             f"user '{payer_user_id}' payment via {gateway_name} "
@@ -807,6 +830,7 @@ class PartnerService(BaseService):
         payer_user_id: int,
         payment_amount: Decimal,
         gateway_type: Optional[PaymentGatewayType] = None,
+        source_transaction_id: Optional[int] = None,
     ) -> None:
         """
         Обработать начисление партнерского вознаграждения при оплате.
@@ -854,6 +878,7 @@ class PartnerService(BaseService):
                 partner_settings=partner_settings,
                 gateway_commission=gateway_commission,
                 gateway_name=gateway_name,
+                source_transaction_id=source_transaction_id,
             )
 
     async def _calculate_partner_earning(

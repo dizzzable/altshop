@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { getApiErrorMessage } from '@/lib/api-error'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
+import { queryKeys } from '@/lib/query-keys'
 import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -117,13 +119,6 @@ function getSubscriptionCardActionState(
   }
 }
 
-function extractErrorDetail(error: unknown): string | null {
-  const detail = (
-    error as { response?: { data?: { detail?: unknown } } }
-  )?.response?.data?.detail
-  return typeof detail === 'string' && detail.length > 0 ? detail : null
-}
-
 const MOBILE_LONG_PRESS_DURATION_MS = 430
 const MOBILE_LONG_PRESS_MOVE_CANCEL_PX = 10
 
@@ -181,7 +176,7 @@ export function SubscriptionPage() {
     if (paymentStatus === 'success') {
       toast.success(t('subscription.paymentSuccess'))
       setShouldResolveSuccessDialog(true)
-      void queryClient.invalidateQueries({ queryKey: ['subscriptions'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() })
       void refreshUser()
       window.setTimeout(() => {
         void refreshUser()
@@ -447,12 +442,12 @@ export function SubscriptionPage() {
     }
 
     void Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['subscriptions'] }),
-      queryClient.invalidateQueries({ queryKey: ['user-profile'] }),
-      queryClient.invalidateQueries({ queryKey: ['referral-info'] }),
-      queryClient.invalidateQueries({ queryKey: ['partner-info'] }),
-      queryClient.invalidateQueries({ queryKey: ['promocode-activations'] }),
-      queryClient.invalidateQueries({ queryKey: ['promocode-activations-preview'] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.userProfile() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.referralInfo() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.partnerInfo() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.promocodeActivations() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.promocodeActivationsPreview() }),
     ])
     void refreshUser()
 
@@ -482,7 +477,7 @@ export function SubscriptionPage() {
       handlePromocodeResult(response.data, payload.code)
     },
     onError: (error: unknown) => {
-      const detail = extractErrorDetail(error) || t('promocodes.activationFailedFallback')
+      const detail = getApiErrorMessage(error) || t('promocodes.activationFailedFallback')
       setPromocodeStatus({
         kind: 'error',
         title: t('promocodes.statusActivationFailed'),
@@ -1138,7 +1133,7 @@ export function SubscriptionPage() {
     try {
       await api.subscription.delete(id)
       toast.success(t('subscription.toast.deleted'))
-      await queryClient.invalidateQueries({ queryKey: ['subscriptions'] })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() })
     } catch {
       toast.error(t('subscription.toast.deleteFailed'))
     }

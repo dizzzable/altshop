@@ -56,12 +56,13 @@ class CryptomusGateway(BasePaymentGateway):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
         is_test_payment: bool = False,
     ) -> PaymentResult:
-        payment_id = uuid.uuid4()
+        payment_id = payment_id or uuid.uuid4()
         default_redirect_url = await self._get_bot_redirect_url()
         redirect_url = success_redirect_url or default_redirect_url
         payload = {

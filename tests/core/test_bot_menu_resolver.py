@@ -5,8 +5,10 @@ from src.core.utils.bot_menu import (
     BOT_MENU_SOURCE_CONFIG,
     BOT_MENU_SOURCE_MISSING,
     BOT_MENU_SOURCE_SETTINGS,
+    is_valid_bot_menu_web_app_url,
     resolve_bot_menu_state,
     resolve_bot_menu_url,
+    resolve_bot_menu_web_app_url,
 )
 from src.infrastructure.database.models.dto import (
     BotMenuCustomButtonDto,
@@ -47,6 +49,22 @@ def test_resolve_bot_menu_url_reports_missing_when_absent() -> None:
 
     assert resolved_url is None
     assert source == BOT_MENU_SOURCE_MISSING
+
+
+def test_is_valid_bot_menu_web_app_url_requires_https_non_telegram_host() -> None:
+    assert is_valid_bot_menu_web_app_url("https://example.com/app") is True
+    assert is_valid_bot_menu_web_app_url("http://example.com/app") is False
+    assert is_valid_bot_menu_web_app_url("https://t.me/example_bot/app") is False
+
+
+def test_resolve_bot_menu_web_app_url_falls_back_to_config_when_settings_url_is_invalid() -> None:
+    bot_menu = BotMenuSettingsDto(mini_app_url="https://t.me/example_bot/app")
+    config = _build_config("https://config.example/app/")
+
+    resolved_url, source = resolve_bot_menu_web_app_url(bot_menu=bot_menu, config=config)
+
+    assert resolved_url == "https://config.example/app"
+    assert source == BOT_MENU_SOURCE_CONFIG
 
 
 def test_resolve_bot_menu_state_filters_disabled_buttons_and_sorts_enabled() -> None:
@@ -92,6 +110,40 @@ def test_resolve_bot_menu_state_filters_disabled_buttons_and_sorts_enabled() -> 
     assert [button.id for button in state.custom_buttons] == ["first", "second"]
     assert state.custom_buttons[0].is_web_app is True
     assert state.custom_buttons[1].is_url is True
+
+
+def test_resolve_bot_menu_state_ignores_invalid_web_app_entries() -> None:
+    bot_menu = BotMenuSettingsDto(
+        miniapp_only_enabled=True,
+        mini_app_url="https://t.me/example_bot/app",
+        custom_buttons=[
+            BotMenuCustomButtonDto(
+                id="invalid-webapp",
+                label="Invalid App",
+                kind=BotMenuCustomButtonKind.WEB_APP,
+                url="https://t.me/example_bot/app",
+                enabled=True,
+                order=0,
+            ),
+            BotMenuCustomButtonDto(
+                id="valid-url",
+                label="Docs",
+                kind=BotMenuCustomButtonKind.URL,
+                url="https://example.com/docs",
+                enabled=True,
+                order=1,
+            ),
+        ],
+    )
+    branding = BrandingSettingsDto(project_name="AltShop", bot_menu_button_text="Open App")
+    config = _build_config(None)
+
+    state = resolve_bot_menu_state(bot_menu=bot_menu, branding=branding, config=config)
+
+    assert state.mini_app_url is None
+    assert state.miniapp_only_active is False
+    assert state.mini_app_source == BOT_MENU_SOURCE_SETTINGS
+    assert [button.id for button in state.custom_buttons] == ["valid-url"]
 
 
 def test_resolve_bot_menu_state_uses_project_name_as_primary_button_fallback() -> None:

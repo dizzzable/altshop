@@ -90,6 +90,23 @@ class ReferralRepository(BaseRepository):
     async def create_reward(self, reward: ReferralReward) -> ReferralReward:
         return await self.create_instance(reward)
 
+    async def get_reward_by_id(self, reward_id: int) -> Optional[ReferralReward]:
+        return await self._get_one(ReferralReward, ReferralReward.id == reward_id)
+
+    async def get_reward_by_source_transaction(
+        self,
+        *,
+        referral_id: int,
+        user_telegram_id: int,
+        source_transaction_id: int,
+    ) -> Optional[ReferralReward]:
+        return await self._get_one(
+            ReferralReward,
+            ReferralReward.referral_id == referral_id,
+            ReferralReward.user_telegram_id == user_telegram_id,
+            ReferralReward.source_transaction_id == source_transaction_id,
+        )
+
     async def get_rewards_by_user(self, telegram_id: int) -> List[ReferralReward]:
         return await self._get_many(ReferralReward, ReferralReward.user_telegram_id == telegram_id)
 

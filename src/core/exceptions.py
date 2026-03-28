@@ -23,3 +23,15 @@ class PaymentError(Exception):
 
 class RemnawaveError(Exception):
     """Raised when Remnawave API call fails."""
+
+
+PurchaseErrorDetail = str | dict[str, str]
+
+
+class SubscriptionPurchaseError(Exception):
+    """Raised when subscription purchase validation or execution fails."""
+
+    def __init__(self, *, status_code: int, detail: PurchaseErrorDetail) -> None:
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(str(detail))

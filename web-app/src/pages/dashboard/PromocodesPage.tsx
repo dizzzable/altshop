@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { getApiErrorMessage } from '@/lib/api-error'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { translateWithLocale, type TranslationParams } from '@/i18n/runtime'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
+import { queryKeys } from '@/lib/query-keys'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -229,13 +231,6 @@ function formatText(template: string, params: TranslationParams): string {
   )
 }
 
-function extractErrorDetail(error: unknown): string | null {
-  const detail = (
-    error as { response?: { data?: { detail?: unknown } } }
-  )?.response?.data?.detail
-  return typeof detail === 'string' && detail.length > 0 ? detail : null
-}
-
 export function PromocodesPage() {
   const { refreshUser } = useAuth()
   const { locale } = useI18n()
@@ -263,12 +258,12 @@ export function PromocodesPage() {
   const { data: subscriptions } = useSubscriptionsQuery()
 
   const { data: previewHistoryData, isLoading: previewHistoryLoading } = useQuery({
-    queryKey: ['promocode-activations-preview', HISTORY_PREVIEW_LIMIT],
+    queryKey: queryKeys.promocodeActivationsPreviewLimit(HISTORY_PREVIEW_LIMIT),
     queryFn: () => api.promocode.history(1, HISTORY_PREVIEW_LIMIT).then((r) => r.data),
   })
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
-    queryKey: ['promocode-activations', historyPage, HISTORY_PAGE_SIZE],
+    queryKey: queryKeys.promocodeActivationsPage(historyPage, HISTORY_PAGE_SIZE),
     queryFn: () => api.promocode.history(historyPage, HISTORY_PAGE_SIZE).then((r) => r.data),
     enabled: historyDialogOpen,
   })
@@ -333,12 +328,12 @@ export function PromocodesPage() {
 
     setHistoryPage(1)
     void Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['subscriptions'] }),
-      queryClient.invalidateQueries({ queryKey: ['user-profile'] }),
-      queryClient.invalidateQueries({ queryKey: ['referral-info'] }),
-      queryClient.invalidateQueries({ queryKey: ['partner-info'] }),
-      queryClient.invalidateQueries({ queryKey: ['promocode-activations'] }),
-      queryClient.invalidateQueries({ queryKey: ['promocode-activations-preview'] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.userProfile() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.referralInfo() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.partnerInfo() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.promocodeActivations() }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.promocodeActivationsPreview() }),
     ])
     void refreshUser()
 
@@ -367,7 +362,7 @@ export function PromocodesPage() {
       handleActivationResult(response.data, payload.code)
     },
     onError: (error: unknown) => {
-      const detail = extractErrorDetail(error) || text.activationFailedFallback
+      const detail = getApiErrorMessage(error) || text.activationFailedFallback
       setActivationStatus({
         kind: 'error',
         title: text.statusActivationFailed,

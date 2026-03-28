@@ -59,7 +59,7 @@ class FakeDishkaContainer:
     def __init__(self, services: dict[object, object]) -> None:
         self.services = services
 
-    async def get(self, type_hint, *, component=None):
+    async def get(self, type_hint, component=None):
         del component
         try:
             return self.services[type_hint]

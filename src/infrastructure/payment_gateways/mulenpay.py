@@ -55,6 +55,7 @@ class MulenpayGateway(BasePaymentGateway):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
@@ -64,7 +65,7 @@ class MulenpayGateway(BasePaymentGateway):
         if self.config is not None:
             self._get_webhook_secret()
 
-        payment_id = uuid4()
+        payment_id = payment_id or uuid4()
         payload = self._build_create_payment_payload(
             payment_id=payment_id,
             amount=amount,

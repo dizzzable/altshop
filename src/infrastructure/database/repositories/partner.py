@@ -69,6 +69,22 @@ class PartnerRepository(BaseRepository):
     async def create_transaction(self, transaction: PartnerTransaction) -> PartnerTransaction:
         return await self.create_instance(transaction)
 
+    async def get_transaction_by_source_transaction(
+        self,
+        *,
+        partner_id: int,
+        referral_telegram_id: int,
+        level: PartnerLevel,
+        source_transaction_id: int,
+    ) -> Optional[PartnerTransaction]:
+        return await self._get_one(
+            PartnerTransaction,
+            PartnerTransaction.partner_id == partner_id,
+            PartnerTransaction.referral_telegram_id == referral_telegram_id,
+            PartnerTransaction.level == level,
+            PartnerTransaction.source_transaction_id == source_transaction_id,
+        )
+
     async def get_transactions_by_partner(
         self,
         partner_id: int,

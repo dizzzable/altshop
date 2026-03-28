@@ -57,20 +57,18 @@ from src.api.utils.web_auth_transport import (
     parse_token_subject_and_version,
     set_account_session,
 )
-from src.bot.keyboards import get_user_keyboard
 from src.core.config import AppConfig
-from src.core.enums import SystemNotificationType
 from src.core.security.jwt_handler import verify_refresh_token
 from src.core.utils.bot_menu import resolve_bot_menu_url
 from src.core.utils.branding import normalize_text, resolve_project_name
-from src.core.utils.message_payload import MessagePayload
+from src.core.utils.mini_app_urls import resolve_telegram_mini_app_launch_url
 from src.infrastructure.database.models.dto import UserDto, WebAccountDto
 from src.services.email_recovery import EmailRecoveryService
 from src.services.notification import NotificationService
 from src.services.partner import PartnerService
 from src.services.referral import ReferralService
 from src.services.settings import SettingsService
-from src.services.telegram_link import TelegramLinkError, TelegramLinkService
+from src.services.telegram_link import TelegramLinkService
 from src.services.user import UserService
 from src.services.user_profile import UserProfileService
 from src.services.web_access_guard import WebAccessGuardService
@@ -103,39 +101,6 @@ WEB_AUTH_MESSAGES: dict[str, dict[Literal["ru", "en"], str]] = {
         "en": "Password updated",
     },
 }
-
-def _build_user_i18n_kwargs(user: UserDto) -> dict[str, object]:
-    return {
-        "user_id": str(user.telegram_id),
-        "user_name": user.name or str(user.telegram_id),
-        "username": user.username or False,
-    }
-
-
-async def _notify_web_account_linked(
-    *,
-    notification_service: NotificationService | None,
-    linked_user: UserDto,
-    web_username: str,
-    old_user_id: int,
-    linked_telegram_id: int,
-) -> None:
-    if notification_service is None:
-        return
-
-    await notification_service.system_notify(
-        payload=MessagePayload.not_deleted(
-            i18n_key="ntf-event-web-account-linked",
-            i18n_kwargs={
-                **_build_user_i18n_kwargs(linked_user),
-                "web_username": web_username,
-                "old_user_id": str(old_user_id),
-                "linked_telegram_id": str(linked_telegram_id),
-            },
-            reply_markup=get_user_keyboard(linked_telegram_id),
-        ),
-        ntf_type=SystemNotificationType.WEB_ACCOUNT_LINKED,
-    )
 
 def _resolve_web_auth_message(key: str, locale: Literal["ru", "en"]) -> str:
     values = WEB_AUTH_MESSAGES.get(key, {})
@@ -387,10 +352,15 @@ async def get_web_branding(
 ) -> WebBrandingResponse:
     settings = await settings_service.get()
     mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=config)
+    mini_app_launch_url = resolve_telegram_mini_app_launch_url(
+        settings.bot_menu.mini_app_url,
+        config.bot.mini_app_url,
+    )
     return _build_web_branding_response(
         settings.branding,
         config=config,
         mini_app_url=mini_app_url,
+        mini_app_launch_url=mini_app_launch_url,
     )
 
 
@@ -427,6 +397,7 @@ async def request_telegram_link_code(
     web_account: WebAccountDto = Depends(get_current_web_account),
     telegram_link_service: FromDishka[TelegramLinkService] = _DISHKA_DEFAULT,
     settings_service: FromDishka[SettingsService] = _DISHKA_DEFAULT,
+    web_access_guard_service: FromDishka[WebAccessGuardService] = _DISHKA_DEFAULT,
     config: FromDishka[AppConfig] = _DISHKA_DEFAULT,
     redis_client: FromDishka[Redis] = _DISHKA_DEFAULT,
 ) -> TelegramLinkRequestResponse:
@@ -463,6 +434,7 @@ async def request_telegram_link_code(
         message=message,
         delivered=result.delivered,
         expires_in_seconds=result.expires_in_seconds,
+        verification_bot_link=await web_access_guard_service.get_verification_bot_link(),
     )
 
 
@@ -488,43 +460,20 @@ async def confirm_telegram_link_code(
     )
     locale = _resolve_web_request_locale(request, config=config, current_user=current_user)
 
-    try:
-        result = await telegram_link_service.confirm_code(
-            web_account=web_account,
-            telegram_id=payload.telegram_id,
-            code=payload.code,
-        )
-    except TelegramLinkError as exc:
-        if exc.code in {"TELEGRAM_ALREADY_LINKED", "MANUAL_MERGE_REQUIRED"}:
-            raise HTTPException(
-                status_code=409, detail={"code": exc.code, "message": str(exc)}
-            ) from exc
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    linked_user = await user_service.get(result.linked_telegram_id) if user_service else None
-    if linked_user:
-        await _notify_web_account_linked(
-            notification_service=notification_service,
-            linked_user=linked_user,
-            web_username=result.web_account.username,
-            old_user_id=web_account.user_telegram_id,
-            linked_telegram_id=result.linked_telegram_id,
-        )
-
-    branding = await settings_service.get_branding_settings()
-    message_template = settings_service.resolve_localized_branding_text(
-        branding.verification.web_confirm_success,
-        language=locale,
-    )
-    message = settings_service.render_branding_text(
-        message_template,
-        placeholders={"project_name": branding.project_name},
+    result = await web_auth_flows.confirm_telegram_link(
+        payload=payload,
+        web_account=web_account,
+        locale=locale,
+        telegram_link_service=telegram_link_service,
+        user_service=user_service,
+        notification_service=notification_service,
+        settings_service=settings_service,
     )
 
     set_account_session(response, result.web_account)
 
     return TelegramLinkConfirmResponse(
-        message=message,
+        message=result.message,
         linked_telegram_id=result.linked_telegram_id,
     )
 

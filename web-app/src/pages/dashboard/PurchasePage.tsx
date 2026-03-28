@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { getApiErrorDetail, getApiErrorDetailObject, getApiErrorMessage } from '@/lib/api-error'
 import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useI18n } from '@/components/common/I18nProvider'
@@ -10,6 +11,7 @@ import { translateWithLocale, type TranslationParams } from '@/i18n/runtime'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
+import { queryKeys } from '@/lib/query-keys'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
@@ -723,12 +725,12 @@ export function PurchasePage() {
 
   const { data: subscriptions = [] } = useSubscriptionsQuery()
   const { data: userProfile } = useQuery<User>({
-    queryKey: ['user-profile'],
+    queryKey: queryKeys.userProfile(),
     queryFn: () => api.user.me().then((response) => response.data),
     enabled: Boolean(user),
   })
   const { data: trialEligibility } = useQuery<TrialEligibilityResponse>({
-    queryKey: ['trial-eligibility'],
+    queryKey: queryKeys.trialEligibility(),
     queryFn: () => api.subscription.trialEligibility().then((response) => response.data),
     enabled: isNewPurchaseFlow,
     retry: false,
@@ -738,9 +740,9 @@ export function PurchasePage() {
     onSuccess: async () => {
       toast.success(text.trialActivated)
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['subscriptions'] }),
-        queryClient.invalidateQueries({ queryKey: ['user-profile'] }),
-        queryClient.invalidateQueries({ queryKey: ['trial-eligibility'] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.userProfile() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.trialEligibility() }),
       ])
       navigate('/dashboard/subscription')
     },
@@ -750,7 +752,7 @@ export function PurchasePage() {
   })
 
   const { data: partnerInfo } = useQuery<PartnerInfo>({
-    queryKey: ['partner-info'],
+    queryKey: queryKeys.partnerInfo(),
     queryFn: () => api.partner.info().then((response) => response.data),
     enabled: Boolean((userProfile ?? user)?.is_partner || (userProfile ?? user)?.is_partner_active),
   })
@@ -876,7 +878,7 @@ export function PurchasePage() {
 
     if (paymentStatus === 'success') {
       toast.success(text.paymentCompleted)
-      void queryClient.invalidateQueries({ queryKey: ['subscriptions'] })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() })
     } else if (paymentStatus === 'failed') {
       toast.error(text.paymentFailed)
     }
@@ -1330,7 +1332,7 @@ export function PurchasePage() {
       }
 
       toast.success(text.paymentSuccess)
-      await queryClient.invalidateQueries({ queryKey: ['subscriptions'] })
+      await queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() })
       navigate('/dashboard/subscription')
     } catch (error: unknown) {
       toast.error(extractPurchaseError(error, text))
@@ -1985,18 +1987,7 @@ export function PurchasePage() {
 }
 
 function extractPurchaseError(error: unknown, text: PurchaseText): string {
-  const apiError = error as {
-    response?: {
-      data?: {
-        detail?: string | { code?: string; message?: string }
-      }
-    }
-  }
-
-  const detail = apiError.response?.data?.detail
-  if (typeof detail === 'string' && detail.length > 0) {
-    return detail
-  }
+  const detail = getApiErrorDetailObject(error)
   if (detail && typeof detail === 'object') {
     if (detail.code === 'INSUFFICIENT_PARTNER_BALANCE') {
       return text.insufficientPartnerBalance
@@ -2019,11 +2010,8 @@ function extractPurchaseError(error: unknown, text: PurchaseText): string {
     if (detail.code === 'ARCHIVED_PLAN_NOT_PURCHASABLE') {
       return text.archivedPlanNotPurchasable
     }
-    if (detail.message) {
-      return detail.message
-    }
   }
-  return text.createPaymentFailed
+  return getApiErrorMessage(error) ?? text.createPaymentFailed
 }
 
 function resolveTrialReasonMessageByCode(code: string, text: PurchaseText): string {
@@ -2078,15 +2066,7 @@ function resolveTrialEligibilityMessage(
 }
 
 function extractTrialError(error: unknown, text: PurchaseText): string {
-  const apiError = error as {
-    response?: {
-      data?: {
-        detail?: string | { code?: string; message?: string }
-      }
-    }
-  }
-
-  const detail = apiError.response?.data?.detail
+  const detail = getApiErrorDetail(error)
   if (typeof detail === 'string' && detail.length > 0) {
     if (detail === 'Trial subscription already used') {
       return text.trialErrorAlreadyUsed
@@ -2097,19 +2077,17 @@ function extractTrialError(error: unknown, text: PurchaseText): string {
     return detail
   }
 
-  if (detail && typeof detail === 'object') {
-    if (detail.code === 'TRIAL_TELEGRAM_LINK_REQUIRED') {
+  const detailObject = getApiErrorDetailObject(error)
+  if (detailObject) {
+    if (detailObject.code === 'TRIAL_TELEGRAM_LINK_REQUIRED') {
       return text.trialErrorLinkRequired
     }
-    if (detail.code) {
-      return resolveTrialReasonMessageByCode(detail.code, text)
-    }
-    if (detail.message) {
-      return detail.message
+    if (typeof detailObject.code === 'string') {
+      return resolveTrialReasonMessageByCode(detailObject.code, text)
     }
   }
 
-  return text.trialErrorDefault
+  return getApiErrorMessage(error) ?? text.trialErrorDefault
 }
 
 function PurchaseSkeleton() {

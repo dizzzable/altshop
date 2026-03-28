@@ -1963,31 +1963,6 @@ async def on_subscription_for_renew_toggle(
         )
         return
 
-        # Найти план для продления
-        plans = await plan_service.get_available_plans(user)
-        matched_plan = subscription.find_matching_plan(plans)
-
-        if not matched_plan:
-            await notification_service.notify_user(
-                user=user,
-                payload=MessagePayload(i18n_key="ntf-subscription-renew-plan-unavailable"),
-            )
-            return
-
-        # Сохраняем план и переходим к выбору длительности
-        adapter = DialogDataAdapter(dialog_manager)
-        adapter.save(matched_plan)
-        dialog_manager.dialog_data["purchase_type"] = PurchaseType.RENEW
-        dialog_manager.dialog_data["only_single_plan"] = True
-        dialog_manager.dialog_data["renew_subscription_id"] = selected_subscription
-        # Очищаем renew_subscription_ids чтобы использовалось одиночное продление
-        dialog_manager.dialog_data["renew_subscription_ids"] = None
-        dialog_manager.dialog_data[SELECTED_SUBSCRIPTIONS_FOR_RENEW_KEY] = [selected_subscription]
-        # Очищаем кэш платежей, так как выбрана новая подписка для продления
-        dialog_manager.dialog_data.pop(PAYMENT_CACHE_KEY, None)
-
-        await dialog_manager.switch_to(Subscription.DURATION)
-        return
 
     # Режим множественного выбора (toggle)
     # Получаем текущий список выбранных подписок
@@ -2122,29 +2097,6 @@ async def on_subscription_for_renew_select(
     )
     return
 
-    plans = await plan_service.get_available_plans(user)
-    matched_plan = subscription.find_matching_plan(plans)
-
-    if not matched_plan:
-        await notification_service.notify_user(
-            user=user,
-            payload=MessagePayload(i18n_key="ntf-subscription-renew-plan-unavailable"),
-        )
-        return
-
-    # Сохраняем план и переходим к выбору длительности
-    adapter = DialogDataAdapter(dialog_manager)
-    adapter.save(matched_plan)
-    dialog_manager.dialog_data["purchase_type"] = PurchaseType.RENEW
-    dialog_manager.dialog_data["only_single_plan"] = True
-    dialog_manager.dialog_data["renew_subscription_id"] = selected_subscription
-    # Очищаем renew_subscription_ids чтобы использовалось одиночное продление
-    dialog_manager.dialog_data["renew_subscription_ids"] = None
-    dialog_manager.dialog_data[SELECTED_SUBSCRIPTIONS_FOR_RENEW_KEY] = [selected_subscription]
-    # Очищаем кэш платежей для новой подписки
-    dialog_manager.dialog_data.pop(PAYMENT_CACHE_KEY, None)
-
-    await dialog_manager.switch_to(Subscription.DURATION)
 
 
 @inject

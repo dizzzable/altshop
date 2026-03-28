@@ -103,11 +103,13 @@ class PaymentGatewayService(BaseService):
             config=config,
             bot=bot,
             translator_hub=translator_hub,
+            uow=uow,
             transaction_service=transaction_service,
             settings_service=settings_service,
             get_gateway_instance=lambda gateway_type: self._get_gateway_instance(gateway_type),
         )
         self.payment_finalization_use_case = PaymentFinalizationUseCase(
+            uow=uow,
             transaction_service=transaction_service,
             subscription_service=subscription_service,
             referral_service=referral_service,

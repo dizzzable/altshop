@@ -32,6 +32,19 @@ def build_telegram_payment_return_url(
     return f"{T_ME}{normalized_bot_username}?startapp={_TELEGRAM_MINI_APP_START_PARAMS[status]}"
 
 
+def resolve_telegram_mini_app_launch_url(*candidates: str | bool | None) -> str | None:
+    for candidate in candidates:
+        normalized = _normalize_url(candidate)
+        if not normalized:
+            continue
+
+        parsed = urlsplit(normalized)
+        if parsed.scheme.lower() in {"http", "https"} and parsed.netloc.lower() in _TELEGRAM_HOSTS:
+            return normalized
+
+    return None
+
+
 def _apply_payment_return_payload(*, url: str, status: PaymentReturnStatus) -> str:
     parsed = urlsplit(url)
     params = dict(parse_qsl(parsed.query, keep_blank_values=True))
@@ -59,8 +72,11 @@ def _normalize_bot_username(value: str | None) -> str | None:
     return normalized or None
 
 
-def _normalize_url(value: str | None) -> str | None:
-    normalized = str(value or "").strip()
+def _normalize_url(value: str | bool | None) -> str | None:
+    if not isinstance(value, str):
+        return None
+
+    normalized = value.strip()
     return normalized or None
 
 
@@ -68,4 +84,5 @@ __all__ = [
     "PAYMENT_RETURN_STATUS_QUERY_KEY",
     "PaymentReturnStatus",
     "build_telegram_payment_return_url",
+    "resolve_telegram_mini_app_launch_url",
 ]

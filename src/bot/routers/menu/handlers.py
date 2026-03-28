@@ -132,8 +132,24 @@ async def on_rules_accept(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
 ) -> None:
+    await _handle_rules_accept(
+        callback=callback,
+        user=user,
+        dialog_manager=dialog_manager,
+        user_service=user_service,
+    )
+
+
+async def _handle_rules_accept(
+    *,
+    callback: CallbackQuery,
+    user: UserDto,
+    dialog_manager: DialogManager,
+    user_service: UserService,
+) -> None:
     logger.info(f"{log(user)} Accepted rules")
     await on_start_dialog(user, dialog_manager, user_service)
+    await callback.answer()
 
 
 @router.callback_query(F.data == CALLBACK_CHANNEL_CONFIRM)
@@ -144,8 +160,24 @@ async def on_channel_confirm(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
 ) -> None:
+    await _handle_channel_confirm(
+        callback=callback,
+        user=user,
+        dialog_manager=dialog_manager,
+        user_service=user_service,
+    )
+
+
+async def _handle_channel_confirm(
+    *,
+    callback: CallbackQuery,
+    user: UserDto,
+    dialog_manager: DialogManager,
+    user_service: UserService,
+) -> None:
     logger.info(f"{log(user)} Cofirmed join channel")
     await on_start_dialog(user, dialog_manager, user_service)
+    await callback.answer()
 
 
 @dialog_inject

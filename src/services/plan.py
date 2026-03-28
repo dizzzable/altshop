@@ -1,18 +1,11 @@
 from typing import Optional, Sequence
 
-from aiogram import Bot
-from fluentogram import TranslatorHub
 from loguru import logger
-from redis.asyncio import Redis
 
-from src.core.config import AppConfig
 from src.core.enums import ArchivedPlanRenewMode, PlanAvailability
 from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import PlanDto, UserDto
 from src.infrastructure.database.models.sql import Plan, PlanDuration, PlanPrice
-from src.infrastructure.redis import RedisRepository
-
-from .base import BaseService
 
 
 class PlanValidationError(ValueError):
@@ -29,20 +22,10 @@ class PlanDeletionBlockedError(ValueError):
 
 # TODO: Implement logic for plan availability for specific gateways
 # TODO: Implement general discount for plan
-class PlanService(BaseService):
+class PlanService:
     uow: UnitOfWork
 
-    def __init__(
-        self,
-        config: AppConfig,
-        bot: Bot,
-        redis_client: Redis,
-        redis_repository: RedisRepository,
-        translator_hub: TranslatorHub,
-        #
-        uow: UnitOfWork,
-    ) -> None:
-        super().__init__(config, bot, redis_client, redis_repository, translator_hub)
+    def __init__(self, uow: UnitOfWork) -> None:
         self.uow = uow
 
     async def create(self, plan: PlanDto) -> PlanDto:

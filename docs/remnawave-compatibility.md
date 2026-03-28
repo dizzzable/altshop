@@ -32,6 +32,11 @@ AltShop currently holds the Python SDK on `remnawave 2.4.4`.
 - Official webhook docs include a top-level `scope` field since panel `2.5.0`, but the Python SDK
   webhook payload model still routes by `event` prefix. AltShop intentionally follows the event-prefix
   contract and tolerates the extra field.
+- Official webhook docs now publish `service`, `crm`, `torrent_blocker`, and `errors` scopes in addition
+  to the user, HWID, and node flows AltShop actively consumes. The webhook endpoint currently dispatches
+  `user.*`, `user_hwid_devices.*`, and `node.*` through `RemnawaveService`, then returns `200` for the
+  other official scopes after logging them as unhandled. Keep that behavior explicit until AltShop has
+  a product-owned reason to process the newer scopes.
 - Official SDK `2.6.3` relaxes the strict `subscriptionSettings.*` fields that currently force the
   `/external-squads` raw fallback, but adopting it also raises the official panel floor to `>=2.6.3`.
 - The repo therefore keeps the fallback and the `2.4.4` SDK hold together until a deliberate panel uplift
@@ -41,5 +46,11 @@ AltShop currently holds the Python SDK on `remnawave 2.4.4`.
 
 `src/services/backup.py` still keeps one direct SDK lookup for restore-time panel recovery. That code is
 an infrastructure-only exception because `BackupService` is app-scoped and does not participate in bot or
-Taskiq request orchestration. If backup/restore grows more panel touchpoints, move them into a dedicated
+Taskiq request orchestration.
+
+`src/bot/routers/extra/test.py` also keeps a superdev-only sandbox command that injects `RemnawaveSDK`
+directly for manual diagnostics. Treat it as a debug-only exception, not a precedent for production bot
+or API code.
+
+If backup/restore or the superdev sandbox grows more panel touchpoints, move them into a dedicated
 app-scoped Remnawave adapter instead of adding more direct SDK calls there.

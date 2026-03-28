@@ -133,6 +133,11 @@ class ReferralReward(BaseSql, TimestampMixin):
     )
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     is_issued: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    source_transaction_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("transactions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     referral: Mapped["Referral"] = relationship(
         "Referral",
@@ -144,5 +149,10 @@ class ReferralReward(BaseSql, TimestampMixin):
     user: Mapped["User"] = relationship(
         "User",
         foreign_keys=[user_telegram_id],
+        lazy="selectin",
+    )
+    source_transaction: Mapped["Transaction | None"] = relationship(
+        "Transaction",
+        foreign_keys=[source_transaction_id],
         lazy="selectin",
     )

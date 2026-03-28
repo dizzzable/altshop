@@ -68,12 +68,13 @@ class PlategaGateway(BasePaymentGateway):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
         is_test_payment: bool = False,
     ) -> PaymentResult:
-        payment_id = uuid.uuid4()
+        payment_id = payment_id or uuid.uuid4()
         default_redirect_url = await self._get_bot_redirect_url()
         resolved_success_url = success_redirect_url or default_redirect_url
         resolved_fail_url = fail_redirect_url or resolved_success_url

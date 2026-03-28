@@ -1,13 +1,13 @@
 # AltShop Database
 
-Last audited against the live repository: `2026-03-26`
+Last audited against the live repository: `2026-03-28`
 
 ## Summary
 
 - SQLAlchemy async models live in `src/infrastructure/database/models/sql/`
 - The current schema defines `25` SQL tables
 - Migrations are managed with Alembic from `src/infrastructure/database/migrations/versions/`
-- The repository currently contains `50` migration revisions: `0001` through `0050`
+- The repository currently contains `51` migration revisions: `0001` through `0051`
 
 ## Table inventory
 
@@ -148,6 +148,7 @@ Web auth is no longer stored only in `users`. The current login flow depends on:
 0048_add_invite_mode_started_at
 0049_add_bot_menu_settings
 0050_create_backup_records
+0051_add_hotspot_indexes
 ```
 
 ## Migration eras
@@ -159,7 +160,7 @@ Web auth is no longer stored only in `users`. The current login flow depends on:
 | `0018-0027` | Renew flows, rules acceptance, partner tables, gateway and currency expansion, multi-subscription settings |
 | `0028-0036` | Web auth bootstrap, challenge tables, branding, password reset, promocode filters |
 | `0037-0045` | Notification events, analytics events, payment webhook inbox, gateway additions, partner balance currencies |
-| `0046-0050` | Archived plan transitions, referral invites, invite-mode timestamps, bot-menu settings, backup record audit trail |
+| `0046-0051` | Archived plan transitions, referral invites, invite-mode timestamps, bot-menu settings, backup record audit trail, hotspot indexes |
 
 ## Watch points for future doc updates
 

@@ -46,6 +46,7 @@ class BasePaymentGateway(ABC):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: Optional[str] = None,
         fail_redirect_url: Optional[str] = None,

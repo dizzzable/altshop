@@ -19,6 +19,7 @@ import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { api } from '@/lib/api'
 import { aggregateDeviceStats, getActiveSubscriptions } from '@/lib/dashboard-metrics'
+import { queryKeys } from '@/lib/query-keys'
 import infoSquareIcon from '@/assets/icons/info-square.svg'
 import { cn } from '@/lib/utils'
 import { useQuery } from '@tanstack/react-query'
@@ -75,12 +76,12 @@ export function DashboardPage() {
   const subscriptionsQuery = useSubscriptionsQuery()
 
   const referralQuery = useQuery({
-    queryKey: ['referral-info'],
+    queryKey: queryKeys.referralInfo(),
     queryFn: () => api.referral.info().then((response) => response.data),
     enabled: !isPartnerActive,
   })
   const partnerQuery = useQuery<PartnerInfo>({
-    queryKey: ['partner-info'],
+    queryKey: queryKeys.partnerInfo(),
     queryFn: () => api.partner.info().then((response) => response.data),
     enabled: isPartnerActive,
   })

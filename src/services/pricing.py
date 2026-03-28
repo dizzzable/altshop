@@ -5,10 +5,8 @@ from loguru import logger
 from src.core.enums import Currency, DiscountSource
 from src.infrastructure.database.models.dto import PriceDetailsDto, UserDto
 
-from .base import BaseService
 
-
-class PricingService(BaseService):
+class PricingService:
     def calculate(self, user: UserDto, price: Decimal, currency: Currency) -> PriceDetailsDto:
         logger.debug(
             f"Calculating price for amount '{price}' and currency "

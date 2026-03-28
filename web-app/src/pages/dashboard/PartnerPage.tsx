@@ -1,10 +1,12 @@
 ﻿import { useMemo, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { getApiErrorMessage } from '@/lib/api-error'
 import { useBranding } from '@/components/common/BrandingProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { translateWithLocale, type TranslationParams } from '@/i18n/runtime'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
+import { queryKeys } from '@/lib/query-keys'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -152,13 +154,6 @@ function formatSafeDate(value: string, locale: PartnerLocale): string {
     return translateText(locale, 'partner.auto.001')
   }
   return parsed.toLocaleDateString(locale === 'ru' ? 'ru-RU' : 'en-US')
-}
-
-function extractErrorDetail(error: unknown): string | null {
-  const detail = (
-    error as { response?: { data?: { detail?: unknown } } }
-  )?.response?.data?.detail
-  return typeof detail === 'string' && detail.length > 0 ? detail : null
 }
 
 function toDayStart(date: Date): Date {
@@ -313,24 +308,24 @@ export function PartnerPage() {
     isFetching: infoFetching,
     refetch: refetchPartnerInfo,
   } = useQuery<PartnerInfo>({
-    queryKey: ['partner-info'],
+    queryKey: queryKeys.partnerInfo(),
     queryFn: () => api.partner.info().then((response) => response.data),
   })
 
   const { data: earningsData, isLoading: earningsLoading } = useQuery<PartnerEarningsListResponse>({
-    queryKey: ['partner-earnings'],
+    queryKey: queryKeys.partnerEarnings(),
     queryFn: () => api.partner.earnings().then((response) => response.data),
     enabled: !!partnerInfo?.is_partner,
   })
 
   const { data: referralsData, isLoading: referralsLoading } = useQuery<PartnerReferralsListResponse>({
-    queryKey: ['partner-referrals'],
+    queryKey: queryKeys.partnerReferrals(),
     queryFn: () => api.partner.referrals().then((response) => response.data),
     enabled: !!partnerInfo?.is_partner,
   })
 
   const { data: withdrawalsData, isLoading: withdrawalsLoading } = useQuery<PartnerWithdrawalsListResponse>({
-    queryKey: ['partner-withdrawals'],
+    queryKey: queryKeys.partnerWithdrawals(),
     queryFn: () => api.partner.withdrawals().then((response) => response.data),
     enabled: !!partnerInfo?.is_partner,
   })
@@ -451,12 +446,12 @@ export function PartnerPage() {
       setRequisites('')
 
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['partner-info'] }),
-        queryClient.invalidateQueries({ queryKey: ['partner-withdrawals'] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.partnerInfo() }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.partnerWithdrawals() }),
       ])
     },
     onError: (error: unknown) => {
-      toast.error(extractErrorDetail(error) || translateText(partnerLocale, 'partner.auto.014'))
+      toast.error(getApiErrorMessage(error) || translateText(partnerLocale, 'partner.auto.014'))
     },
   })
 

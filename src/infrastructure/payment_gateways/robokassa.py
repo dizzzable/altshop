@@ -44,12 +44,13 @@ class RobokassaGateway(BasePaymentGateway):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
         is_test_payment: bool = False,
     ) -> PaymentResult:
-        payment_id = uuid.uuid4()
+        payment_id = payment_id or uuid.uuid4()
         inv_id = payment_id.hex
         out_sum = self._format_amount(amount)
         shp_items = {"Shp_payment_id": str(payment_id)}

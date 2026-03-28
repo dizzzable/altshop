@@ -4,7 +4,8 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Optional
+from dataclasses import dataclass
+from typing import Literal, Optional
 from urllib.parse import parse_qsl
 from uuid import uuid4
 
@@ -18,6 +19,7 @@ from src.api.contracts.web_auth import (
     LoginRequest,
     RegisterRequest,
     TelegramAuthRequest,
+    TelegramLinkConfirmPayload,
     WebAccountBootstrapRequest,
 )
 from src.api.dependencies.web_access import (
@@ -32,12 +34,12 @@ from src.core.config import AppConfig
 from src.core.constants import REFERRAL_PREFIX
 from src.core.enums import ReferralInviteSource, SystemNotificationType
 from src.core.utils.message_payload import MessagePayload
-from src.infrastructure.database.models.dto import SettingsDto, UserDto
+from src.infrastructure.database.models.dto import SettingsDto, UserDto, WebAccountDto
 from src.services.notification import NotificationService
 from src.services.partner import PartnerService
 from src.services.referral import ReferralService
 from src.services.settings import SettingsService
-from src.services.telegram_link import TelegramLinkService
+from src.services.telegram_link import TelegramLinkError, TelegramLinkService
 from src.services.user import UserService
 from src.services.web_account import WebAccountService, WebAuthResult
 from src.services.web_analytics_event import WebAnalyticsEventService
@@ -53,6 +55,13 @@ class TelegramAuthData(BaseModel):
     photo_url: Optional[str] = None
     auth_date: int
     hash: str
+
+
+@dataclass(slots=True)
+class TelegramLinkConfirmFlowResult:
+    web_account: WebAccountDto
+    linked_telegram_id: int
+    message: str
 
 
 def verify_telegram_hash(data: dict, bot_token: str) -> bool:
@@ -250,6 +259,32 @@ async def _notify_web_user_registered(
             reply_markup=get_user_keyboard(user.telegram_id),
         ),
         ntf_type=SystemNotificationType.WEB_USER_REGISTERED,
+    )
+
+
+async def _notify_web_account_linked(
+    *,
+    notification_service: Optional[NotificationService],
+    linked_user: UserDto,
+    web_username: str,
+    old_user_id: int,
+    linked_telegram_id: int,
+) -> None:
+    if notification_service is None:
+        return
+
+    await notification_service.system_notify(
+        payload=MessagePayload.not_deleted(
+            i18n_key="ntf-event-web-account-linked",
+            i18n_kwargs={
+                **_build_user_i18n_kwargs(linked_user),
+                "web_username": web_username,
+                "old_user_id": str(old_user_id),
+                "linked_telegram_id": str(linked_telegram_id),
+            },
+            reply_markup=get_user_keyboard(linked_telegram_id),
+        ),
+        ntf_type=SystemNotificationType.WEB_ACCOUNT_LINKED,
     )
 
 
@@ -461,6 +496,55 @@ async def bootstrap_web_account_credentials(
             else status.HTTP_400_BAD_REQUEST
         )
         raise HTTPException(status_code=error_status, detail=error_message) from exc
+
+
+async def confirm_telegram_link(
+    *,
+    payload: TelegramLinkConfirmPayload,
+    web_account: WebAccountDto,
+    locale: Literal["ru", "en"],
+    telegram_link_service: TelegramLinkService,
+    user_service: UserService | None,
+    notification_service: NotificationService | None,
+    settings_service: SettingsService,
+) -> TelegramLinkConfirmFlowResult:
+    try:
+        result = await telegram_link_service.confirm_code(
+            web_account=web_account,
+            telegram_id=payload.telegram_id,
+            code=payload.code,
+        )
+    except TelegramLinkError as exc:
+        if exc.code in {"TELEGRAM_ALREADY_LINKED", "MANUAL_MERGE_REQUIRED"}:
+            raise HTTPException(
+                status_code=409, detail={"code": exc.code, "message": str(exc)}
+            ) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    linked_user = await user_service.get(result.linked_telegram_id) if user_service else None
+    if linked_user:
+        await _notify_web_account_linked(
+            notification_service=notification_service,
+            linked_user=linked_user,
+            web_username=result.web_account.username,
+            old_user_id=web_account.user_telegram_id,
+            linked_telegram_id=result.linked_telegram_id,
+        )
+
+    branding = await settings_service.get_branding_settings()
+    message_template = settings_service.resolve_localized_branding_text(
+        branding.verification.web_confirm_success,
+        language=locale,
+    )
+    message = settings_service.render_branding_text(
+        message_template,
+        placeholders={"project_name": branding.project_name},
+    )
+    return TelegramLinkConfirmFlowResult(
+        web_account=result.web_account,
+        linked_telegram_id=result.linked_telegram_id,
+        message=message,
+    )
 
 
 async def authenticate_with_telegram(

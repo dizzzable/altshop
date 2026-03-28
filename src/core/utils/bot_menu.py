@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from src.core.config import AppConfig
 from src.core.enums import BotMenuCustomButtonKind
@@ -15,6 +16,7 @@ BOT_MENU_SOURCE_CONFIG = "config"
 BOT_MENU_SOURCE_MISSING = "missing"
 BOT_MENU_SOURCE_SETTINGS = "settings"
 BOT_MENU_MAX_CUSTOM_BUTTONS = 5
+_TELEGRAM_MINI_APP_LINK_HOSTS = {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}
 
 
 @dataclass(slots=True, frozen=True)
@@ -51,7 +53,10 @@ def resolve_bot_menu_state(
     branding: BrandingSettingsDto,
     config: AppConfig,
 ) -> ResolvedBotMenuState:
-    mini_app_url, mini_app_source = resolve_bot_menu_url(bot_menu=bot_menu, config=config)
+    mini_app_url, mini_app_source = resolve_bot_menu_web_app_url(
+        bot_menu=bot_menu,
+        config=config,
+    )
     custom_buttons = tuple(_resolve_custom_buttons(bot_menu.custom_buttons))
 
     return ResolvedBotMenuState(
@@ -83,12 +88,53 @@ def resolve_bot_menu_url(
     return None, BOT_MENU_SOURCE_MISSING
 
 
+def resolve_bot_menu_web_app_url(
+    *,
+    bot_menu: BotMenuSettingsDto,
+    config: AppConfig,
+) -> tuple[str | None, str]:
+    settings_url = _normalize_url(bot_menu.mini_app_url)
+    if settings_url and is_valid_bot_menu_web_app_url(settings_url):
+        return settings_url, BOT_MENU_SOURCE_SETTINGS
+
+    config_url = _normalize_url(config.bot.mini_app_url)
+    if config_url and is_valid_bot_menu_web_app_url(config_url):
+        return config_url, BOT_MENU_SOURCE_CONFIG
+
+    if settings_url:
+        return None, BOT_MENU_SOURCE_SETTINGS
+    if config_url:
+        return None, BOT_MENU_SOURCE_CONFIG
+    return None, BOT_MENU_SOURCE_MISSING
+
+
+def is_valid_bot_menu_web_app_url(value: str | bool | None) -> bool:
+    normalized = _normalize_url(value)
+    if not normalized:
+        return False
+
+    parsed = urlsplit(normalized)
+    host = (parsed.hostname or "").lower()
+    return (
+        parsed.scheme.lower() == "https"
+        and bool(host)
+        and parsed.username is None
+        and parsed.password is None
+        and host not in _TELEGRAM_MINI_APP_LINK_HOSTS
+    )
+
+
 def _resolve_custom_buttons(
     buttons: list[BotMenuCustomButtonDto],
 ) -> list[ResolvedBotMenuButton]:
     resolved: list[ResolvedBotMenuButton] = []
     for button in sorted(buttons, key=lambda item: (item.order, item.id)):
         if not button.enabled:
+            continue
+        if (
+            button.kind == BotMenuCustomButtonKind.WEB_APP
+            and not is_valid_bot_menu_web_app_url(button.url)
+        ):
             continue
         resolved.append(
             ResolvedBotMenuButton(

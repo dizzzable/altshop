@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAdaptivePollingInterval } from '@/hooks/useAdaptivePollingInterval'
+import { queryKeys } from '@/lib/query-keys'
 import type { Subscription } from '@/types'
 
 function normalizeSubscriptions(value: unknown): Subscription[] {
@@ -28,7 +29,7 @@ export function useSubscriptionsQuery(options?: {
   })
 
   return useQuery<unknown, Error, Subscription[]>({
-    queryKey: ['subscriptions'],
+    queryKey: queryKeys.subscriptions(),
     queryFn: async () => {
       const response = await api.subscription.list()
       return response.data

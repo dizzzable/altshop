@@ -54,6 +54,7 @@ class ReferralRewardDto(TrackableDto):
     type: ReferralRewardType
     amount: int
     is_issued: bool = False
+    source_transaction_id: Optional[int] = None
 
     created_at: Optional[datetime] = Field(default=None, frozen=True)
     updated_at: Optional[datetime] = Field(default=None, frozen=True)

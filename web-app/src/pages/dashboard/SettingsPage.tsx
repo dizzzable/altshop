@@ -21,6 +21,7 @@ import { useAuth } from '@/components/auth/AuthProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { api, clearLegacyAuthStorage } from '@/lib/api'
 import { resolveAccessCapabilities } from '@/lib/access-capabilities'
+import { getApiErrorMessage } from '@/lib/api-error'
 import { getPaymentGatewayDisplayName } from '@/lib/payment-gateway-icons'
 import { readLocaleOverride } from '@/lib/locale'
 import {
@@ -28,6 +29,7 @@ import {
   subscribeMobileExtraNavigationPreference,
   writeMobileExtraNavigationEnabled,
 } from '@/lib/mobile-navigation-preferences'
+import { queryKeys } from '@/lib/query-keys'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -122,14 +124,7 @@ function getRenewSubscriptionLabel(transaction: Transaction): string {
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
-  const response = error as { response?: { data?: { detail?: unknown } } }
-  const detail = response.response?.data?.detail
-  if (!detail) return fallback
-  if (typeof detail === 'string') return detail
-  if (typeof detail === 'object' && detail && 'message' in detail) {
-    return String((detail as { message?: string }).message || fallback)
-  }
-  return fallback
+  return getApiErrorMessage(error) ?? fallback
 }
 
 export function SettingsPage() {
@@ -175,13 +170,13 @@ export function SettingsPage() {
   const [extraNavigationEnabled, setExtraNavigationEnabled] = useState(() => readMobileExtraNavigationEnabled())
 
   const { data: userProfile, isLoading: profileLoading, refetch } = useQuery({
-    queryKey: ['user-profile'],
+    queryKey: queryKeys.userProfile(),
     queryFn: () => api.user.me().then((response) => response.data),
     initialData: user || undefined,
   })
 
   const { data: operationHistoryData, isLoading: operationHistoryLoading } = useQuery({
-    queryKey: ['user-transactions', operationHistoryPage, OPERATION_HISTORY_PAGE_SIZE],
+    queryKey: queryKeys.userTransactions(operationHistoryPage, OPERATION_HISTORY_PAGE_SIZE),
     queryFn: () =>
       api.user.transactions(operationHistoryPage, OPERATION_HISTORY_PAGE_SIZE).then((response) => response.data),
     enabled: operationHistoryOpen,
@@ -192,7 +187,7 @@ export function SettingsPage() {
     isLoading: accessStatusLoading,
     refetch: refetchAccessStatus,
   } = useQuery({
-    queryKey: ['auth-access-status'],
+    queryKey: queryKeys.accessStatus(),
     queryFn: () => api.auth.getAccessStatus().then((response) => response.data),
   })
 

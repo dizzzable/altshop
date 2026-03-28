@@ -62,13 +62,14 @@ class CryptopayGateway(BasePaymentGateway):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
         is_test_payment: bool = False,
     ) -> PaymentResult:
         """Create a new fiat invoice in CryptoBot restricted to the selected asset."""
-        payment_id = uuid.uuid4()
+        payment_id = payment_id or uuid.uuid4()
 
         payload = {
             "currency_type": "fiat",

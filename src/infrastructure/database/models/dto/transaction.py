@@ -61,6 +61,10 @@ class BaseTransactionDto(TrackableDto):
     renew_subscription_ids: Optional[list[int]] = None
     # Список типов устройств для новых подписок
     device_types: Optional[list[DeviceType]] = None
+    discount_consumed_at: Optional[datetime] = None
+    test_notification_sent_at: Optional[datetime] = None
+    subscription_notification_sent_at: Optional[datetime] = None
+    subscription_purchase_enqueued_at: Optional[datetime] = None
 
     created_at: Optional[datetime] = Field(default=None, frozen=True)
     updated_at: Optional[datetime] = Field(default=None, frozen=True)

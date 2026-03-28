@@ -63,9 +63,18 @@ function applyPaymentReturnPayload(url: string, status: PaymentReturnStatus): st
 export function resolveTelegramPaymentReturnUrl(
   status: PaymentReturnStatus,
   options: {
+    miniAppLaunchUrl?: string | null
     miniAppUrl?: string | null
   } = {}
 ): string {
+  const resolvedMiniAppLaunchUrl = applyPaymentReturnPayload(
+    options.miniAppLaunchUrl?.trim() || '',
+    status
+  )
+  if (resolvedMiniAppLaunchUrl) {
+    return resolvedMiniAppLaunchUrl
+  }
+
   const resolvedMiniAppUrl = applyPaymentReturnPayload(options.miniAppUrl?.trim() || '', status)
   if (resolvedMiniAppUrl) {
     return resolvedMiniAppUrl

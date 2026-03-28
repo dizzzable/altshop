@@ -9,6 +9,7 @@ from fastapi import Request
 from httpx import AsyncClient, HTTPStatusError
 from loguru import logger
 
+from src.api.utils.request_ip import resolve_client_ip
 from src.core.config import AppConfig
 from src.core.enums import CryptoAsset, TransactionStatus, YookassaVatCode
 from src.infrastructure.database.models.dto import (
@@ -58,16 +59,19 @@ class YookassaGateway(BasePaymentGateway):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
         is_test_payment: bool = False,
     ) -> PaymentResult:
         client = self._get_client()
-        headers = {"Idempotence-Key": str(uuid.uuid4())}
+        resolved_payment_id = payment_id or uuid.uuid4()
+        headers = {"Idempotence-Key": str(resolved_payment_id)}
         payload = await self._create_payment_payload(
             str(amount),
             details,
+            payment_id=resolved_payment_id,
             success_redirect_url=success_redirect_url,
             fail_redirect_url=fail_redirect_url,
         )
@@ -77,7 +81,7 @@ class YookassaGateway(BasePaymentGateway):
             response = await client.post("", headers=headers, content=content)
             response.raise_for_status()
             data = orjson.loads(response.content)
-            return self._get_payment_data(data)
+            return self._get_payment_data(data, payment_id=resolved_payment_id)
 
         except HTTPStatusError as exception:
             logger.error(
@@ -94,17 +98,13 @@ class YookassaGateway(BasePaymentGateway):
 
     async def handle_webhook(self, request: Request) -> tuple[UUID, TransactionStatus]:
         # Получаем IP клиента из различных заголовков
+        client_ip = (
+            resolve_client_ip(request, self.config)
+            if self.config is not None
+            else (request.client.host if request.client else "")
+        )
         x_forwarded_for = request.headers.get("X-Forwarded-For", "")
         x_real_ip = request.headers.get("X-Real-IP", "")
-
-        # X-Forwarded-For может содержать несколько IP через запятую, берём первый
-        if x_forwarded_for:
-            client_ip = x_forwarded_for.split(",")[0].strip()
-        elif x_real_ip:
-            client_ip = x_real_ip.strip()
-        else:
-            # Fallback на IP из request
-            client_ip = request.client.host if request.client else ""
 
         logger.debug(
             f"Webhook request - X-Forwarded-For: '{x_forwarded_for}', "
@@ -126,7 +126,11 @@ class YookassaGateway(BasePaymentGateway):
                 raise ValueError
 
             payment_object: dict = webhook_data.get("object", {})
-            payment_id_str = payment_object.get("id")
+            metadata = payment_object.get("metadata") or {}
+            payment_id_str = None
+            if isinstance(metadata, dict):
+                payment_id_str = metadata.get("payment_id")
+            payment_id_str = payment_id_str or payment_object.get("id")
             status_str = payment_object.get("status")
 
             if not payment_id_str or not status_str:
@@ -156,6 +160,7 @@ class YookassaGateway(BasePaymentGateway):
         self,
         amount: str,
         details: str,
+        payment_id: UUID,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
     ) -> dict[str, Any]:
@@ -165,6 +170,7 @@ class YookassaGateway(BasePaymentGateway):
             "confirmation": {"type": "redirect", "return_url": return_url},
             "capture": True,
             "description": details,
+            "metadata": {"payment_id": str(payment_id)},
             "receipt": {
                 "customer": {"email": self.gateway.settings.customer or self.CUSTOMER},
                 "items": [
@@ -180,7 +186,7 @@ class YookassaGateway(BasePaymentGateway):
             },
         }
 
-    def _get_payment_data(self, data: dict[str, Any]) -> PaymentResult:
+    def _get_payment_data(self, data: dict[str, Any], *, payment_id: UUID) -> PaymentResult:
         payment_id_str = data.get("id")
 
         if not payment_id_str:
@@ -192,7 +198,12 @@ class YookassaGateway(BasePaymentGateway):
         if not payment_url:
             raise KeyError("Invalid response from Yookassa API: missing 'confirmation_url'")
 
-        return PaymentResult(id=UUID(payment_id_str), url=str(payment_url))
+        logger.debug(
+            "Yookassa payment created. internal_payment_id='{}' provider_payment_id='{}'",
+            payment_id,
+            payment_id_str,
+        )
+        return PaymentResult(id=payment_id, url=str(payment_url))
 
     def _get_client(self) -> AsyncClient:
         if self._client is None:

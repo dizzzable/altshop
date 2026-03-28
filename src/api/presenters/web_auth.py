@@ -69,6 +69,7 @@ class TelegramLinkRequestResponse(BaseModel):
     message: str
     delivered: bool
     expires_in_seconds: int
+    verification_bot_link: str | None = None
 
 
 class TelegramLinkConfirmResponse(BaseModel):
@@ -83,6 +84,7 @@ class WebBrandingResponse(BaseModel):
     supported_locales: list[Literal["ru", "en"]]
     support_url: str | None = None
     mini_app_url: str | None = None
+    mini_app_launch_url: str | None = None
 
 
 class RegistrationAccessRequirementsResponse(BaseModel):
@@ -279,6 +281,7 @@ def _build_web_branding_response(
     *,
     config: AppConfig,
     mini_app_url: str | None = None,
+    mini_app_launch_url: str | None = None,
 ) -> WebBrandingResponse:
     return WebBrandingResponse(
         project_name=branding.project_name,
@@ -287,6 +290,7 @@ def _build_web_branding_response(
         supported_locales=_resolve_supported_web_locales(config),
         support_url=_resolve_support_url(config),
         mini_app_url=mini_app_url,
+        mini_app_launch_url=mini_app_launch_url,
     )
 
 

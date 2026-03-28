@@ -19,13 +19,17 @@ from pydantic import SecretStr
 from src.core.enums import Currency, PaymentGatewayType, TransactionStatus
 from src.infrastructure.database.models.dto import (
     CryptopayGatewaySettingsDto,
+    HeleketGatewaySettingsDto,
     MulenpayGatewaySettingsDto,
     PaymentGatewayDto,
     WataGatewaySettingsDto,
+    YookassaGatewaySettingsDto,
 )
 from src.infrastructure.payment_gateways.cryptopay import CryptopayGateway
+from src.infrastructure.payment_gateways.heleket import HeleketGateway
 from src.infrastructure.payment_gateways.mulenpay import MulenpayGateway
 from src.infrastructure.payment_gateways.wata import WataGateway
+from src.infrastructure.payment_gateways.yookassa import YookassaGateway
 
 
 def run_async(coroutine):
@@ -39,10 +43,12 @@ class FakeRequest:
         body: bytes,
         headers: dict[str, str] | None = None,
         path_params: dict[str, str] | None = None,
+        client_host: str = "127.0.0.1",
     ) -> None:
         self._body = body
         self.headers = headers or {}
         self.path_params = path_params or {}
+        self.client = SimpleNamespace(host=client_host)
 
     async def body(self) -> bytes:
         return self._body
@@ -97,6 +103,50 @@ def build_mulenpay_gateway(
         config=SimpleNamespace(
             get_webhook=lambda _gateway_type: "https://example.test/api/v1/payments/mulenpay"
         ),
+    )
+
+
+def build_heleket_gateway() -> HeleketGateway:
+    gateway = PaymentGatewayDto(
+        order_index=1,
+        type=PaymentGatewayType.HELEKET,
+        currency=Currency.USD,
+        is_active=True,
+        settings=HeleketGatewaySettingsDto(
+            merchant_id="merchant-id",
+            api_key=SecretStr("heleket-api-key"),
+        ),
+    )
+    return HeleketGateway(
+        gateway=gateway,
+        bot=SimpleNamespace(),
+        config=None,
+    )
+
+
+def build_yookassa_gateway(
+    *,
+    trusted_proxy_ips: list[str] | None = None,
+) -> YookassaGateway:
+    gateway = PaymentGatewayDto(
+        order_index=1,
+        type=PaymentGatewayType.YOOKASSA,
+        currency=Currency.RUB,
+        is_active=True,
+        settings=YookassaGatewaySettingsDto(
+            shop_id="shop-id",
+            api_key=SecretStr("api-key"),
+        ),
+    )
+    config = (
+        SimpleNamespace(trusted_proxy_ips=trusted_proxy_ips or ["127.0.0.1"])
+        if trusted_proxy_ips is not None
+        else None
+    )
+    return YookassaGateway(
+        gateway=gateway,
+        bot=SimpleNamespace(),
+        config=config,
     )
 
 
@@ -194,6 +244,19 @@ def test_cryptopay_handle_webhook_rejects_invalid_signature() -> None:
                 )
             )
         )
+
+
+def test_heleket_handle_webhook_rejects_missing_signature() -> None:
+    gateway = build_heleket_gateway()
+    body = orjson.dumps(
+        {
+            "order_id": str(uuid4()),
+            "status": "paid",
+        }
+    )
+
+    with pytest.raises(PermissionError, match="Missing Heleket webhook signature"):
+        run_async(gateway.handle_webhook(FakeRequest(body=body)))
 
 
 @pytest.mark.parametrize(
@@ -347,6 +410,40 @@ def test_mulenpay_create_payment_requires_documented_signing_settings(
         )
 
 
+def test_yookassa_create_payment_uses_internal_payment_id_metadata_and_response_id() -> None:
+    gateway = build_yookassa_gateway()
+    internal_payment_id = uuid4()
+    gateway._client = SimpleNamespace(  # type: ignore[assignment]
+        post=AsyncMock(
+            return_value=FakeResponse(
+                {
+                    "id": "provider-payment-id",
+                    "confirmation": {
+                        "confirmation_url": "https://yookassa.test/confirm",
+                    },
+                }
+            )
+        )
+    )
+
+    result = run_async(
+        gateway.handle_create_payment(
+            amount=Decimal("149.00"),
+            details="VPN subscription",
+            payment_id=internal_payment_id,
+            success_redirect_url="https://example.test/success",
+        )
+    )
+
+    payload = orjson.loads(gateway._client.post.await_args.kwargs["content"])
+    headers = gateway._client.post.await_args.kwargs["headers"]
+
+    assert result.id == internal_payment_id
+    assert result.url == "https://yookassa.test/confirm"
+    assert payload["metadata"] == {"payment_id": str(internal_payment_id)}
+    assert headers["Idempotence-Key"] == str(internal_payment_id)
+
+
 @pytest.mark.parametrize(
     ("status", "expected_status"),
     [
@@ -413,3 +510,79 @@ def test_wata_handle_webhook_rejects_invalid_signature_encoding() -> None:
                 )
             )
         )
+
+
+def test_yookassa_handle_webhook_rejects_spoofed_forwarded_header_from_untrusted_client() -> None:
+    gateway = build_yookassa_gateway()
+    body = orjson.dumps(
+        {
+            "object": {
+                "id": str(uuid4()),
+                "status": "succeeded",
+            }
+        }
+    )
+
+    with pytest.raises(PermissionError, match="IP address is not trusted"):
+        run_async(
+            gateway.handle_webhook(
+                FakeRequest(
+                    body=body,
+                    headers={"X-Forwarded-For": "185.71.76.5"},
+                    client_host="198.51.100.23",
+                )
+            )
+        )
+
+
+def test_yookassa_handle_webhook_accepts_forwarded_ip_only_from_trusted_proxy() -> None:
+    gateway = build_yookassa_gateway(trusted_proxy_ips=["127.0.0.1"])
+    payment_id = uuid4()
+    body = orjson.dumps(
+        {
+            "object": {
+                "id": str(payment_id),
+                "status": "succeeded",
+            }
+        }
+    )
+
+    resolved_payment_id, resolved_status = run_async(
+        gateway.handle_webhook(
+            FakeRequest(
+                body=body,
+                headers={"X-Forwarded-For": "185.71.76.5"},
+                client_host="127.0.0.1",
+            )
+        )
+    )
+
+    assert resolved_payment_id == payment_id
+    assert resolved_status == TransactionStatus.COMPLETED
+
+
+def test_yookassa_handle_webhook_prefers_internal_payment_id_from_metadata() -> None:
+    gateway = build_yookassa_gateway(trusted_proxy_ips=["127.0.0.1"])
+    internal_payment_id = uuid4()
+    body = orjson.dumps(
+        {
+            "object": {
+                "id": "provider-payment-id",
+                "status": "succeeded",
+                "metadata": {"payment_id": str(internal_payment_id)},
+            }
+        }
+    )
+
+    resolved_payment_id, resolved_status = run_async(
+        gateway.handle_webhook(
+            FakeRequest(
+                body=body,
+                headers={"X-Forwarded-For": "185.71.76.5"},
+                client_host="127.0.0.1",
+            )
+        )
+    )
+
+    assert resolved_payment_id == internal_payment_id
+    assert resolved_status == TransactionStatus.COMPLETED

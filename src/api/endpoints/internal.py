@@ -3,18 +3,25 @@ from __future__ import annotations
 import asyncio
 import inspect
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from time import perf_counter
 from typing import Awaitable, Callable, Literal, cast
 
+from alembic.config import Config as AlembicConfig
+from alembic.runtime.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from dishka import FromDishka
 from dishka.integrations.fastapi import inject
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from loguru import logger
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 from sqlalchemy import text
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from src.__version__ import __version__ as local_version
@@ -36,6 +43,17 @@ from src.services.user import UserService
 
 router = APIRouter(prefix="/api/v1/internal", tags=["Internal"])
 security = HTTPBearer(auto_error=False)
+_MIGRATIONS_PATH = (
+    Path(__file__).resolve().parents[2] / "infrastructure" / "database" / "migrations"
+)
+
+
+@dataclass(slots=True)
+class ReadinessProbeResult:
+    status: Literal["up", "down", "degraded"]
+    detail: str | None = None
+    current_revision: str | None = None
+    expected_revision: str | None = None
 
 
 class ReleaseNotifyRequest(BaseModel):
@@ -90,10 +108,53 @@ def _verify_release_notify_credentials(
         )
 
 
-async def _check_database_readiness(engine: AsyncEngine) -> tuple[str, str | None]:
+async def _check_database_readiness(engine: AsyncEngine) -> ReadinessProbeResult:
     async with engine.connect() as connection:
         await connection.execute(text("SELECT 1"))
-    return "up", None
+    return ReadinessProbeResult(status="up")
+
+
+def _get_expected_migration_revision() -> str | None:
+    config = AlembicConfig()
+    config.set_main_option("script_location", str(_MIGRATIONS_PATH))
+    return ScriptDirectory.from_config(config).get_current_head()
+
+
+def _get_current_migration_revision(connection: Connection) -> str | None:
+    context = MigrationContext.configure(connection)
+    return context.get_current_revision()
+
+
+async def _check_database_schema_readiness(engine: AsyncEngine) -> ReadinessProbeResult:
+    expected_revision = _get_expected_migration_revision()
+    if expected_revision is None:
+        logger.error("Readiness schema check failed because the Alembic head is unavailable")
+        return ReadinessProbeResult(
+            status="down",
+            detail="schema check unavailable",
+        )
+
+    async with engine.connect() as connection:
+        current_revision = await connection.run_sync(_get_current_migration_revision)
+
+    if current_revision != expected_revision:
+        logger.warning(
+            "Readiness schema mismatch detected. current_revision='{}' expected_revision='{}'",
+            current_revision,
+            expected_revision,
+        )
+        return ReadinessProbeResult(
+            status="down",
+            detail="schema mismatch detected",
+            current_revision=current_revision,
+            expected_revision=expected_revision,
+        )
+
+    return ReadinessProbeResult(
+        status="up",
+        current_revision=current_revision,
+        expected_revision=expected_revision,
+    )
 
 
 async def _await_redis_ping(redis_client: Redis) -> bool:
@@ -103,43 +164,50 @@ async def _await_redis_ping(redis_client: Redis) -> bool:
     return response
 
 
-async def _check_redis_readiness(redis_client: Redis) -> tuple[str, str | None]:
+async def _check_redis_readiness(redis_client: Redis) -> ReadinessProbeResult:
     response = await _await_redis_ping(redis_client)
     if response is not True:
         raise RuntimeError(f"unexpected ping response: {response!r}")
-    return "up", None
+    return ReadinessProbeResult(status="up")
 
 
 async def _check_remnawave_posture(
     remnawave_service: RemnawaveService,
-) -> tuple[str, str | None]:
+) -> ReadinessProbeResult:
     stats = await remnawave_service.get_stats_safe()
     if stats is None:
-        return "degraded", "panel stats unavailable"
-    return "up", None
+        return ReadinessProbeResult(status="degraded", detail="panel stats unavailable")
+    return ReadinessProbeResult(status="up")
 
 
 async def _run_readiness_probe(
     name: str,
-    probe: Callable[[], Awaitable[tuple[str, str | None]]],
+    probe: Callable[[], Awaitable[ReadinessProbeResult]],
 ) -> tuple[str, ReadinessCheck]:
     started_at = perf_counter()
 
     try:
-        status_name, detail = await probe()
+        result = await probe()
     except Exception as exception:
-        status_name = "down"
-        detail = f"{type(exception).__name__}: {exception}"
+        logger.exception("Readiness probe '{}' failed: {}", name, exception)
+        result = ReadinessProbeResult(
+            status="down",
+            detail="probe failed",
+        )
 
     latency_ms = round((perf_counter() - started_at) * 1000, 2)
     set_gauge(
         "backend_dependency_status",
-        1 if status_name == "up" else 0,
+        1 if result.status == "up" else 0,
         dependency=name,
     )
     return (
         name,
-        ReadinessCheck(status=status_name, latency_ms=latency_ms, detail=detail),
+        ReadinessCheck(
+            status=result.status,
+            latency_ms=latency_ms,
+            detail=result.detail,
+        ),
     )
 
 
@@ -152,6 +220,7 @@ async def _build_readiness_response(
     checks = dict(
         await asyncio.gather(
             _run_readiness_probe("postgresql", lambda: _check_database_readiness(engine)),
+            _run_readiness_probe("schema", lambda: _check_database_schema_readiness(engine)),
             _run_readiness_probe("redis", lambda: _check_redis_readiness(redis_client)),
             _run_readiness_probe(
                 "remnawave",
@@ -160,7 +229,10 @@ async def _build_readiness_response(
         )
     )
 
-    ready = all(checks[dependency].status == "up" for dependency in ("postgresql", "redis"))
+    ready = all(
+        checks[dependency].status == "up"
+        for dependency in ("postgresql", "schema", "redis")
+    )
     all_dependencies_up = all(check.status == "up" for check in checks.values())
     overall_status: Literal["ready", "degraded", "not_ready"]
     if not ready:
@@ -170,6 +242,7 @@ async def _build_readiness_response(
     else:
         overall_status = "degraded"
 
+    set_gauge("backend_schema_revision_match", 1 if checks["schema"].status == "up" else 0)
     set_gauge("backend_readiness_status", 1 if ready else 0)
     return ReadinessResponse(
         ready=ready,

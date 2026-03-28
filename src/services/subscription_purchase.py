@@ -16,6 +16,7 @@ from src.core.enums import (
     PurchaseType,
     SubscriptionStatus,
 )
+from src.core.exceptions import SubscriptionPurchaseError
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.dto import (
     PaymentGatewayDto,
@@ -31,6 +32,7 @@ from src.infrastructure.database.models.dto import (
 from .market_quote import CurrencyConversionQuote, MarketQuoteService
 from .partner import PartnerService
 from .payment_gateway import PaymentGatewayService
+from .payment_redirect_policy import sanitize_payment_redirect_urls_for_channel
 from .plan import PlanService
 from .pricing import PricingService
 from .purchase_access import PurchaseAccessService
@@ -40,7 +42,6 @@ from .subscription_purchase_flows import (
     ExternalPurchaseFlow,
     PartnerBalancePurchaseFlow,
     PurchaseExecutionResult,
-    PurchaseFlowError,
 )
 from .subscription_purchase_gateway_selection import (
     SubscriptionPurchaseGatewaySelectionService,
@@ -51,18 +52,10 @@ from .subscription_purchase_policy import (
     SubscriptionPurchasePolicyService,
 )
 
-PurchaseErrorDetail = str | dict[str, str]
 ARCHIVED_PLAN_NOT_PURCHASABLE_CODE = "ARCHIVED_PLAN_NOT_PURCHASABLE"
 ARCHIVED_PLAN_NOT_PURCHASABLE_MESSAGE = (
     "Archived plans cannot be purchased as a new subscription"
 )
-
-
-class SubscriptionPurchaseError(Exception):
-    def __init__(self, *, status_code: int, detail: PurchaseErrorDetail) -> None:
-        self.status_code = status_code
-        self.detail = detail
-        super().__init__(str(detail))
 
 
 @dataclass(slots=True, frozen=True)
@@ -197,18 +190,12 @@ class SubscriptionPurchaseService:
             effective_multiplier=effective_multiplier,
         )
         if request.payment_source == PaymentSource.PARTNER_BALANCE:
-            try:
-                await self.partner_balance_purchase_flow.assert_allowed(
-                    current_user=current_user,
-                    channel=request.channel,
-                    gateway=gateway,
-                    is_gateway_explicitly_selected=bool(request.gateway_type),
-                )
-            except PurchaseFlowError as exception:
-                raise SubscriptionPurchaseError(
-                    status_code=exception.status_code,
-                    detail=exception.detail,
-                ) from exception
+            await self.partner_balance_purchase_flow.assert_allowed(
+                current_user=current_user,
+                channel=request.channel,
+                gateway=gateway,
+                is_gateway_explicitly_selected=bool(request.gateway_type),
+            )
 
         final_display_quote = await self._build_display_quote(
             current_user=current_user,
@@ -293,47 +280,64 @@ class SubscriptionPurchaseService:
             request=request,
             effective_subscription_count=effective_subscription_count,
         )
+        success_redirect_url, fail_redirect_url = await self._sanitize_redirect_urls(
+            request=request
+        )
 
-        try:
-            if request.payment_source == PaymentSource.PARTNER_BALANCE:
-                return self._build_purchase_result(
-                    await self.partner_balance_purchase_flow.handle(
-                        current_user=current_user,
-                        channel=request.channel,
-                        purchase_type=request.purchase_type,
-                        gateway=gateway,
-                        gateway_type=gateway_type,
-                        is_gateway_explicitly_selected=bool(request.gateway_type),
-                        final_price=final_price,
-                        payment_asset=payment_asset,
-                        plan_snapshot=plan_snapshot,
-                        renew_subscription_id=request.renew_subscription_id,
-                        renew_subscription_ids=list(request.renew_subscription_ids or ()) or None,
-                        device_types=device_types,
-                    )
-                )
-
+        if request.payment_source == PaymentSource.PARTNER_BALANCE:
             return self._build_purchase_result(
-                await self.external_purchase_flow.handle(
+                await self.partner_balance_purchase_flow.handle(
                     current_user=current_user,
+                    channel=request.channel,
+                    purchase_type=request.purchase_type,
+                    gateway=gateway,
                     gateway_type=gateway_type,
+                    is_gateway_explicitly_selected=bool(request.gateway_type),
                     final_price=final_price,
                     payment_asset=payment_asset,
                     plan_snapshot=plan_snapshot,
-                    purchase_type=request.purchase_type,
-                    channel=request.channel,
                     renew_subscription_id=request.renew_subscription_id,
                     renew_subscription_ids=list(request.renew_subscription_ids or ()) or None,
                     device_types=device_types,
-                    success_redirect_url=request.success_redirect_url,
-                    fail_redirect_url=request.fail_redirect_url,
                 )
             )
-        except PurchaseFlowError as exception:
-            raise SubscriptionPurchaseError(
-                status_code=exception.status_code,
-                detail=exception.detail,
-            ) from exception
+
+        return self._build_purchase_result(
+            await self.external_purchase_flow.handle(
+                current_user=current_user,
+                gateway_type=gateway_type,
+                final_price=final_price,
+                payment_asset=payment_asset,
+                plan_snapshot=plan_snapshot,
+                purchase_type=request.purchase_type,
+                channel=request.channel,
+                renew_subscription_id=request.renew_subscription_id,
+                renew_subscription_ids=list(request.renew_subscription_ids or ()) or None,
+                device_types=device_types,
+                success_redirect_url=success_redirect_url,
+                fail_redirect_url=fail_redirect_url,
+            )
+        )
+
+    async def _sanitize_redirect_urls(
+        self,
+        *,
+        request: SubscriptionPurchaseRequest,
+    ) -> tuple[str | None, str | None]:
+        if request.channel == PurchaseChannel.TELEGRAM:
+            # Telegram redirect allow-listing is finalized later in PaymentCreationUseCase,
+            # where the bot username is available and startapp deep-link fallbacks can be
+            # validated correctly.
+            return request.success_redirect_url, request.fail_redirect_url
+
+        mini_app_url: str | None = None
+        return sanitize_payment_redirect_urls_for_channel(
+            channel=request.channel,
+            config=self.config,
+            success_redirect_url=request.success_redirect_url,
+            fail_redirect_url=request.fail_redirect_url,
+            mini_app_url=mini_app_url,
+        )
 
     async def execute_renewal_alias(
         self,
@@ -1037,3 +1041,15 @@ class SubscriptionPurchaseService:
         if hasattr(status_value, "value"):
             return str(getattr(status_value, "value")) == SubscriptionStatus.DELETED.value
         return str(status_value) == SubscriptionStatus.DELETED.value
+
+
+__all__ = [
+    "ARCHIVED_PLAN_NOT_PURCHASABLE_CODE",
+    "ARCHIVED_PLAN_NOT_PURCHASABLE_MESSAGE",
+    "SubscriptionPurchaseError",
+    "SubscriptionPurchaseQuoteResult",
+    "SubscriptionPurchaseRequest",
+    "SubscriptionPurchaseResult",
+    "SubscriptionPurchaseService",
+    "ValidatedPurchaseContext",
+]

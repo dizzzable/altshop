@@ -17,13 +17,14 @@ class TelegramStarsGateway(BasePaymentGateway):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
         is_test_payment: bool = False,
     ) -> PaymentResult:
         prices = [LabeledPrice(label=self.gateway.currency, amount=int(amount))]
-        payment_id = uuid.uuid4()
+        payment_id = payment_id or uuid.uuid4()
 
         try:
             payment_url = await self.bot.create_invoice_link(

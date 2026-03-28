@@ -22,7 +22,7 @@ function parsePaymentReturnTarget(rawTarget: string | null): PaymentReturnTarget
 
 export function PaymentReturnPage() {
   const { t } = useI18n()
-  const { isLoaded: isBrandingLoaded, miniAppUrl } = useBranding()
+  const { isLoaded: isBrandingLoaded, miniAppLaunchUrl, miniAppUrl } = useBranding()
   const [searchParams] = useSearchParams()
   const status = parsePaymentReturnStatus(searchParams.get('status'))
   const target = parsePaymentReturnTarget(searchParams.get('target'))
@@ -32,11 +32,11 @@ export function PaymentReturnPage() {
       if (!isBrandingLoaded) {
         return null
       }
-      return resolveTelegramPaymentReturnUrl(status, { miniAppUrl })
+      return resolveTelegramPaymentReturnUrl(status, { miniAppLaunchUrl, miniAppUrl })
     }
 
     return buildAbsoluteAppUrl(resolvePaymentRedirectPath(status))
-  }, [isBrandingLoaded, miniAppUrl, status, target])
+  }, [isBrandingLoaded, miniAppLaunchUrl, miniAppUrl, status, target])
 
   useEffect(() => {
     if (!redirectUrl) {

@@ -19,12 +19,14 @@ def test_build_web_branding_response_includes_runtime_mini_app_url() -> None:
     response = _build_web_branding_response(
         BrandingSettingsDto(project_name="2GET SHOP", web_title="2GET SHOP - Dashboard"),
         config=_build_config(),
-        mini_app_url="https://t.me/example_bot/app",
+        mini_app_url="https://example.com/miniapp",
+        mini_app_launch_url="https://t.me/example_bot/app",
     )
 
     assert response.project_name == "2GET SHOP"
     assert response.web_title == "2GET SHOP - Dashboard"
-    assert response.mini_app_url == "https://t.me/example_bot/app"
+    assert response.mini_app_url == "https://example.com/miniapp"
+    assert response.mini_app_launch_url == "https://t.me/example_bot/app"
 
 
 def test_render_webapp_entry_html_uses_branding_meta_and_entry_redirect() -> None:

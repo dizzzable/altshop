@@ -54,6 +54,7 @@ class TbankGateway(BasePaymentGateway):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
@@ -61,7 +62,7 @@ class TbankGateway(BasePaymentGateway):
     ) -> PaymentResult:
         del payment_asset, is_test_payment
 
-        payment_id = uuid.uuid4()
+        payment_id = payment_id or uuid.uuid4()
         payload = self._build_init_payload(
             payment_id=payment_id,
             amount=amount,

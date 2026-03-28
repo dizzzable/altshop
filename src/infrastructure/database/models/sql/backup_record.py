@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String
+from sqlalchemy import BigInteger, Boolean, DateTime, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.sql import text
 
 from .base import BaseSql
 from .timestamp import TimestampMixin
@@ -12,6 +13,14 @@ from .timestamp import TimestampMixin
 
 class BackupRecord(BaseSql, TimestampMixin):
     __tablename__ = "backup_records"
+    __table_args__ = (
+        Index(
+            "ix_backup_records_backup_timestamp_created_at_id",
+            text("backup_timestamp DESC NULLS LAST"),
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     filename: Mapped[str] = mapped_column(String(255), nullable=False, index=True)

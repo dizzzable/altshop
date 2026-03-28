@@ -27,6 +27,21 @@ async def give_referrer_reward_task(
     notification_service: FromDishka[NotificationService],
     referral_service: FromDishka[ReferralService],
 ) -> None:
+    if reward.id is None:
+        raise ValueError("Referral reward payload is missing id")
+
+    fresh_reward = await referral_service.get_reward(reward.id)
+    if fresh_reward is None:
+        raise ValueError(f"Referral reward '{reward.id}' not found")
+    if fresh_reward.is_issued:
+        logger.info(
+            "Skipping already-issued referral reward '{}' for user '{}'",
+            fresh_reward.id,
+            user_telegram_id,
+        )
+        return
+
+    reward = fresh_reward
     logger.info(
         f"Start applying reward of '{reward.amount}' '{reward.type}' to user '{user_telegram_id}'"
     )

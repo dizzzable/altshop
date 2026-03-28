@@ -2,11 +2,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
+import { getApiErrorMessage } from '@/lib/api-error'
 import { useI18n } from '@/components/common/I18nProvider'
 import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
 import { resolveAccessCapabilities } from '@/lib/access-capabilities'
+import { queryKeys } from '@/lib/query-keys'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -60,13 +62,6 @@ const STATUS_META: Record<
 
 function formatCount(value: number): string {
   return value < 0 ? '0' : String(value)
-}
-
-function extractErrorDetail(error: unknown): string | null {
-  const detail = (
-    error as { response?: { data?: { detail?: unknown } } }
-  )?.response?.data?.detail
-  return typeof detail === 'string' && detail.length > 0 ? detail : null
 }
 
 type SubscriptionsCache = Subscription[] | { subscriptions: Subscription[] }
@@ -168,7 +163,7 @@ export function DevicesPage() {
     error: devicesError,
     refetch: refetchDevices,
   } = useQuery<DeviceListResponse, Error>({
-    queryKey: ['devices', selectedSubscription?.id],
+    queryKey: queryKeys.devices(selectedSubscription?.id),
     queryFn: () => api.devices.list(selectedSubscription!.id).then((response) => response.data),
     enabled: !!selectedSubscription,
   })
@@ -177,7 +172,7 @@ export function DevicesPage() {
     if (!devicesError) {
       return
     }
-    toast.error(extractErrorDetail(devicesError) || t('devices.toast.loadFailed'))
+    toast.error(getApiErrorMessage(devicesError) || t('devices.toast.loadFailed'))
   }, [devicesError, t])
 
   useEffect(() => {
@@ -185,7 +180,7 @@ export function DevicesPage() {
       return
     }
 
-    queryClient.setQueryData<SubscriptionsCache>(['subscriptions'], (current) =>
+    queryClient.setQueryData<SubscriptionsCache>(queryKeys.subscriptions(), (current) =>
       updateSubscriptionsCache(current, selectedSubscription.id, {
         devices_count: devicesData.devices_count,
         device_limit: devicesData.device_limit,
@@ -204,18 +199,18 @@ export function DevicesPage() {
       api.subscription.updateAssignment(selectedSubscription!.id, payload),
     onSuccess: (response) => {
       const updatedSubscription = response.data
-      queryClient.setQueryData<SubscriptionsCache>(['subscriptions'], (current) => {
+      queryClient.setQueryData<SubscriptionsCache>(queryKeys.subscriptions(), (current) => {
         return updateSubscriptionsCache(current, updatedSubscription.id, {
           device_type: updatedSubscription.device_type,
         })
       })
       setAssignmentDeviceType(normalizeDeviceType(updatedSubscription.device_type))
       toast.success(t('devices.toast.assignmentUpdated'))
-      queryClient.invalidateQueries({ queryKey: ['subscriptions'] })
-      queryClient.invalidateQueries({ queryKey: ['devices', selectedSubscription?.id] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.devices(selectedSubscription?.id) })
     },
     onError: (error: unknown) => {
-      toast.error(extractErrorDetail(error) || t('devices.toast.assignmentFailed'))
+      toast.error(getApiErrorMessage(error) || t('devices.toast.assignmentFailed'))
     },
   })
 
@@ -224,7 +219,7 @@ export function DevicesPage() {
       api.devices.generate(payload),
     onSuccess: (response) => {
       if (selectedSubscription) {
-        queryClient.setQueryData<SubscriptionsCache>(['subscriptions'], (current) =>
+        queryClient.setQueryData<SubscriptionsCache>(queryKeys.subscriptions(), (current) =>
           updateSubscriptionsCache(current, selectedSubscription.id, {
             device_type: normalizeDeviceType(response.data.device_type),
           })
@@ -232,10 +227,10 @@ export function DevicesPage() {
       }
       setGeneratedLink(response.data.connection_url)
       toast.success(t('devices.toast.linkRegenerated'))
-      queryClient.invalidateQueries({ queryKey: ['devices', selectedSubscription?.id] })
+      queryClient.invalidateQueries({ queryKey: queryKeys.devices(selectedSubscription?.id) })
     },
     onError: (error: unknown) => {
-      toast.error(extractErrorDetail(error) || t('devices.toast.linkRegenerateFailed'))
+      toast.error(getApiErrorMessage(error) || t('devices.toast.linkRegenerateFailed'))
     },
   })
 
@@ -248,7 +243,7 @@ export function DevicesPage() {
       refetchDevices()
     },
     onError: (error: unknown) => {
-      toast.error(extractErrorDetail(error) || t('devices.toast.deviceRevokeFailed'))
+      toast.error(getApiErrorMessage(error) || t('devices.toast.deviceRevokeFailed'))
     },
   })
 

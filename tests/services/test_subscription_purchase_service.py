@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
-from src.core.enums import ArchivedPlanRenewMode, PlanAvailability
+from src.core.enums import ArchivedPlanRenewMode, PlanAvailability, PurchaseChannel
 from src.infrastructure.database.models.dto import PlanDto, UserDto
 from src.services.subscription_purchase import (
     ARCHIVED_PLAN_NOT_PURCHASABLE_CODE,
@@ -108,3 +110,32 @@ def test_get_valid_catalog_purchase_plan_rejects_archived_plan_with_explicit_cod
         }
     else:
         raise AssertionError("Expected archived plan purchase to be rejected")
+
+
+def test_sanitize_redirect_urls_for_telegram_defers_bot_link_validation() -> None:
+    settings_service = SimpleNamespace(get=AsyncMock())
+    service = SubscriptionPurchaseService(
+        config=cast(Any, object()),
+        plan_service=cast(Any, object()),
+        pricing_service=cast(Any, object()),
+        purchase_access_service=cast(Any, object()),
+        subscription_service=cast(Any, object()),
+        subscription_purchase_policy_service=cast(Any, object()),
+        settings_service=settings_service,
+        payment_gateway_service=cast(Any, object()),
+        partner_service=cast(Any, object()),
+        market_quote_service=cast(Any, object()),
+    )
+    request = SubscriptionPurchaseRequest(
+        channel=PurchaseChannel.TELEGRAM,
+        success_redirect_url="https://t.me/example_bot?startapp=payment-success",
+        fail_redirect_url="https://t.me/example_bot?startapp=payment-failed",
+    )
+
+    success_redirect_url, fail_redirect_url = run_async(
+        service._sanitize_redirect_urls(request=request)
+    )
+
+    assert success_redirect_url == "https://t.me/example_bot?startapp=payment-success"
+    assert fail_redirect_url == "https://t.me/example_bot?startapp=payment-failed"
+    settings_service.get.assert_not_called()

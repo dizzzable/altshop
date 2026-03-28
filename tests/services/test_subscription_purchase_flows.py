@@ -13,6 +13,7 @@ from src.core.enums import (
     PurchaseType,
     TransactionStatus,
 )
+from src.core.exceptions import SubscriptionPurchaseError
 from src.infrastructure.database.models.dto import (
     PaymentGatewayDto,
     PlanSnapshotDto,
@@ -21,8 +22,8 @@ from src.infrastructure.database.models.dto import (
     UserDto,
 )
 from src.services.subscription_purchase_flows import (
+    ExternalPurchaseFlow,
     PartnerBalancePurchaseFlow,
-    PurchaseFlowError,
 )
 
 
@@ -96,7 +97,7 @@ def test_partner_balance_flow_marks_transaction_failed_when_balance_is_insuffici
                 device_types=None,
             )
         )
-    except PurchaseFlowError as error:
+    except SubscriptionPurchaseError as error:
         assert error.status_code == 400
         assert error.detail["code"] == "INSUFFICIENT_PARTNER_BALANCE"
     else:
@@ -147,7 +148,7 @@ def test_partner_balance_flow_refunds_balance_when_downstream_processing_fails()
                 device_types=None,
             )
         )
-    except PurchaseFlowError as error:
+    except SubscriptionPurchaseError as error:
         assert error.status_code == 500
         assert error.detail == "Failed to process partner balance payment"
     else:
@@ -157,3 +158,36 @@ def test_partner_balance_flow_refunds_balance_when_downstream_processing_fails()
         user_telegram_id=777,
         amount_kopecks=1250,
     )
+
+
+def test_external_purchase_flow_hides_internal_payment_creation_errors() -> None:
+    payment_gateway_service = SimpleNamespace(
+        create_payment=AsyncMock(side_effect=RuntimeError("secret provider detail")),
+    )
+    flow = ExternalPurchaseFlow(
+        config=SimpleNamespace(),
+        payment_gateway_service=payment_gateway_service,
+    )
+
+    try:
+        run_async(
+            flow.handle(
+                current_user=build_user(),
+                purchase_type=PurchaseType.NEW,
+                channel=PurchaseChannel.TELEGRAM,
+                gateway_type=PaymentGatewayType.PLATEGA,
+                final_price=PriceDetailsDto(final_amount=Decimal("10")),
+                payment_asset=None,
+                plan_snapshot=PlanSnapshotDto.test(),
+                renew_subscription_id=None,
+                renew_subscription_ids=None,
+                device_types=None,
+                success_redirect_url=None,
+                fail_redirect_url=None,
+            )
+        )
+    except SubscriptionPurchaseError as error:
+        assert error.status_code == 500
+        assert error.detail == "Failed to create payment"
+    else:
+        raise AssertionError("Expected external payment creation failure to be sanitized")

@@ -5,11 +5,24 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .user import User
 
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ARRAY, JSON, BigInteger, Boolean, Enum, ForeignKey, Integer, String
+from sqlalchemy import (
+    ARRAY,
+    JSON,
+    BigInteger,
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+)
 from sqlalchemy import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import text
 
 from src.core.enums import (
     CryptoAsset,
@@ -27,6 +40,14 @@ from .timestamp import TimestampMixin
 
 class Transaction(BaseSql, TimestampMixin):
     __tablename__ = "transactions"
+    __table_args__ = (
+        Index(
+            "ix_transactions_user_telegram_id_created_at_desc",
+            "user_telegram_id",
+            text("created_at DESC"),
+        ),
+        Index("ix_transactions_status", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     payment_id: Mapped[UUID] = mapped_column(PG_UUID, nullable=False, unique=True)
@@ -95,5 +116,21 @@ class Transaction(BaseSql, TimestampMixin):
     renew_subscription_ids: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
     # Список типов устройств для новых подписок (хранится как массив строк)
     device_types: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    discount_consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    test_notification_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    subscription_notification_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    subscription_purchase_enqueued_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     user: Mapped["User"] = relationship("User", foreign_keys=[user_telegram_id], lazy="selectin")

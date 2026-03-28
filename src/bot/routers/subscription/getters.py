@@ -26,6 +26,7 @@ from src.core.enums import (
     SubscriptionStatus,
 )
 from src.core.utils.adapter import DialogDataAdapter
+from src.core.utils.bot_menu import resolve_bot_menu_url
 from src.core.utils.formatters import (
     i18n_format_days,
     i18n_format_device_limit,
@@ -83,11 +84,14 @@ def _format_subscription_title(plan_name: str, device_type: DeviceType | None) -
     return f"{emoji} {device_name} - {plan_name}"
 
 
-def _resolve_mini_app_entry_url(config: AppConfig) -> str | None:
-    mini_app_url = config.bot.mini_app_url
-    if isinstance(mini_app_url, str) and mini_app_url.strip():
-        return mini_app_url.rstrip("/")
-    return None
+async def _resolve_mini_app_entry_state(
+    *,
+    config: AppConfig,
+    settings_service: SettingsService,
+) -> tuple[str | None, bool]:
+    settings = await settings_service.get()
+    mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=config)
+    return mini_app_url, bool(mini_app_url)
 
 
 def _resolve_available_currency(
@@ -228,6 +232,7 @@ async def subscription_details_getter(
     i18n: FromDishka[TranslatorRunner],
     subscription_service: FromDishka[SubscriptionService],
     plan_service: FromDishka[PlanService],
+    settings_service: FromDishka[SettingsService],
     subscription_purchase_service: FromDishka[SubscriptionPurchaseService],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -264,8 +269,10 @@ async def subscription_details_getter(
             subscription=subscription,
         )
         can_renew = action_policy.can_renew and not subscription.is_unlimited
-    mini_app_url = _resolve_mini_app_entry_url(config)
-    is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
+    mini_app_url, is_app_enabled = await _resolve_mini_app_entry_state(
+        config=config,
+        settings_service=settings_service,
+    )
 
     return {
         "subscription_index": subscription_index,
@@ -872,12 +879,15 @@ async def getter_connect(
     dialog_manager: DialogManager,
     config: AppConfig,
     user: UserDto,
+    settings_service: FromDishka[SettingsService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     if not user.current_subscription:
         raise ValueError(f"User '{user.telegram_id}' has no active subscription after purchase")
-    mini_app_url = _resolve_mini_app_entry_url(config)
-    is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
+    mini_app_url, is_app_enabled = await _resolve_mini_app_entry_state(
+        config=config,
+        settings_service=settings_service,
+    )
 
     return {
         "is_app": is_app_enabled,
@@ -891,6 +901,7 @@ async def success_payment_getter(
     dialog_manager: DialogManager,
     config: AppConfig,
     user: UserDto,
+    settings_service: FromDishka[SettingsService],
     subscription_service: FromDishka[SubscriptionService],
     **kwargs: Any,
 ) -> dict[str, Any]:
@@ -907,8 +918,10 @@ async def success_payment_getter(
         s for s in all_subscriptions if s.status not in (SubscriptionStatus.DELETED,)
     ]
     subscriptions_count = len(active_subscriptions)
-    mini_app_url = _resolve_mini_app_entry_url(config)
-    is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
+    mini_app_url, is_app_enabled = await _resolve_mini_app_entry_state(
+        config=config,
+        settings_service=settings_service,
+    )
 
     return {
         "purchase_type": purchase_type,

@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException, Response
 
 import src.api.endpoints.web_auth as web_auth_module
+import src.api.services.web_auth_flows as web_auth_flows
 from src.api.contracts.web_auth import (
     ForgotPasswordRequest,
     ForgotPasswordTelegramRequest,
@@ -346,6 +347,9 @@ def test_telegram_link_request_endpoint_returns_localized_contract() -> None:
         )
     )
     settings_service = make_settings_service()
+    web_access_guard_service = SimpleNamespace(
+        get_verification_bot_link=AsyncMock(return_value="https://t.me/example_bot")
+    )
 
     result = call_endpoint(
         web_auth_module.request_telegram_link_code,
@@ -355,6 +359,7 @@ def test_telegram_link_request_endpoint_returns_localized_contract() -> None:
         web_account=web_account,
         telegram_link_service=telegram_link_service,
         settings_service=settings_service,
+        web_access_guard_service=web_access_guard_service,
         config=config,
         redis_client=make_redis(),
     )
@@ -362,6 +367,64 @@ def test_telegram_link_request_endpoint_returns_localized_contract() -> None:
     assert result.delivered is True
     assert result.expires_in_seconds == 600
     assert result.message == "Verification code sent to Telegram"
+    assert result.verification_bot_link == "https://t.me/example_bot"
+
+
+def test_telegram_link_request_endpoint_exposes_bot_link_when_delivery_fails() -> None:
+    config = make_config()
+    request = make_request(config=config, headers={"X-Web-Locale": "en"})
+    current_user = make_user(language=Locale.EN)
+    web_account = make_web_account(user_telegram_id=current_user.telegram_id)
+    telegram_link_service = SimpleNamespace(
+        request_code=AsyncMock(
+            return_value=SimpleNamespace(delivered=False, expires_in_seconds=600)
+        )
+    )
+    settings_service = make_settings_service()
+    web_access_guard_service = SimpleNamespace(
+        get_verification_bot_link=AsyncMock(return_value="https://t.me/example_bot")
+    )
+
+    result = call_endpoint(
+        web_auth_module.request_telegram_link_code,
+        payload=TelegramLinkRequestPayload(telegram_id=555001),
+        request=request,
+        current_user=current_user,
+        web_account=web_account,
+        telegram_link_service=telegram_link_service,
+        settings_service=settings_service,
+        web_access_guard_service=web_access_guard_service,
+        config=config,
+        redis_client=make_redis(),
+    )
+
+    assert result.delivered is False
+    assert result.expires_in_seconds == 600
+    assert result.message == "Code generated. Open bot chat, press /start and retry"
+    assert result.verification_bot_link == "https://t.me/example_bot"
+
+
+def test_get_web_branding_exposes_raw_and_telegram_launch_urls() -> None:
+    config = SimpleNamespace(
+        locales=["ru", "en"],
+        default_locale="ru",
+        bot=SimpleNamespace(
+            support_username=None,
+            mini_app_url="https://t.me/example_bot/app?startapp=launch",
+        ),
+    )
+    settings = SettingsDto()
+    settings.bot_menu.mini_app_url = "https://example.com/miniapp"
+    settings_service = SimpleNamespace(get=AsyncMock(return_value=settings))
+
+    result = call_endpoint(
+        web_auth_module.get_web_branding,
+        settings_service=settings_service,
+        config=config,
+    )
+
+    assert result.mini_app_url == "https://example.com/miniapp"
+    assert result.mini_app_launch_url == "https://t.me/example_bot/app?startapp=launch"
 
 
 def test_telegram_link_confirm_endpoint_sets_session_cookies(
@@ -390,7 +453,7 @@ def test_telegram_link_confirm_endpoint_sets_session_cookies(
     notification_service = SimpleNamespace(system_notify=AsyncMock())
     settings_service = make_settings_service()
 
-    monkeypatch.setattr(web_auth_module, "get_user_keyboard", lambda _id: None)
+    monkeypatch.setattr(web_auth_flows, "get_user_keyboard", lambda _id: None)
 
     result = call_endpoint(
         web_auth_module.confirm_telegram_link_code,
@@ -609,3 +672,44 @@ def test_telegram_link_confirm_maps_conflict_errors() -> None:
         )
 
     assert exc_info.value.status_code == 409
+
+
+def test_confirm_telegram_link_flow_returns_message_and_notifies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    linked_user = make_user(telegram_id=555001, username="tg_555001", name="Linked")
+    updated_web_account = make_web_account(
+        user_telegram_id=555001,
+        username="alice",
+        token_version=2,
+    )
+    telegram_link_service = SimpleNamespace(
+        confirm_code=AsyncMock(
+            return_value=SimpleNamespace(
+                web_account=updated_web_account,
+                linked_telegram_id=555001,
+            )
+        )
+    )
+    user_service = SimpleNamespace(get=AsyncMock(return_value=linked_user))
+    notification_service = SimpleNamespace(system_notify=AsyncMock())
+    settings_service = make_settings_service()
+
+    monkeypatch.setattr(web_auth_flows, "get_user_keyboard", lambda _id: None)
+
+    result = run_async(
+        web_auth_flows.confirm_telegram_link(
+            payload=TelegramLinkConfirmPayload(telegram_id=555001, code="1234"),
+            web_account=make_web_account(user_telegram_id=-55, username="alice"),
+            locale="en",
+            telegram_link_service=telegram_link_service,
+            user_service=user_service,
+            notification_service=notification_service,
+            settings_service=settings_service,
+        )
+    )
+
+    assert result.linked_telegram_id == 555001
+    assert result.web_account == updated_web_account
+    assert result.message == "Telegram account linked successfully"
+    notification_service.system_notify.assert_awaited_once()

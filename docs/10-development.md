@@ -1,6 +1,6 @@
 # AltShop Development
 
-Last audited against the live repository: `2026-03-26`
+Last audited against the live repository: `2026-03-28`
 
 ## Sources of truth
 
@@ -86,6 +86,10 @@ Or via `make`:
 ```bash
 make migrate
 ```
+
+Important limitation:
+
+- full-history `alembic upgrade --sql` is currently not supported in this repository because older data migrations such as `0013_create_referrals.py` execute live `SELECT` statements during upgrade. Use a real PostgreSQL instance for migration rehearsal until that historical debt is refactored.
 
 ### 5. Run the backend
 
@@ -176,9 +180,15 @@ uv run alembic -c src/infrastructure/database/alembic.ini upgrade head
 uv run uvicorn src.__main__:application --factory --reload --host 0.0.0.0 --port 5000
 cd web-app && npm ci && npm run dev
 curl -fsS http://127.0.0.1:5000/api/v1/health/livez
-curl -fsS http://127.0.0.1:5000/api/v1/internal/readiness
+curl -fsS http://127.0.0.1:5000/api/v1/internal/readiness | python -m json.tool
 curl -fsS http://127.0.0.1:5000/api/v1/internal/metrics | grep subscription_runtime_refresh_failures_total
 ```
+
+When checking migration state locally, confirm these readiness fields match:
+
+- `checks.schema.status` is `up`
+- `checks.schema.current_revision == checks.schema.expected_revision`
+- HTTP status becomes `503` when PostgreSQL is reachable but the runtime schema is behind the Alembic head
 
 Production-like compose smoke:
 

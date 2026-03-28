@@ -10,6 +10,7 @@ from aiogram import Bot
 from fluentogram import TranslatorHub
 from loguru import logger
 
+from src.api.utils.web_app_urls import build_web_payment_redirect_urls
 from src.bot.keyboards import get_user_keyboard
 from src.core.config import AppConfig
 from src.core.crypto_assets import get_default_payment_asset
@@ -32,6 +33,8 @@ from src.core.utils.formatters import (
 )
 from src.core.utils.message_payload import MessagePayload
 from src.core.utils.mini_app_urls import build_telegram_payment_return_url
+from src.core.utils.time import datetime_now
+from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import (
     PaymentResult,
     PlanSnapshotDto,
@@ -54,6 +57,7 @@ from src.infrastructure.taskiq.tasks.notifications import (
 )
 from src.infrastructure.taskiq.tasks.subscriptions import purchase_subscription_task
 from src.services.partner import PartnerService
+from src.services.payment_redirect_policy import sanitize_payment_redirect_urls_for_channel
 from src.services.payment_webhook_event import PaymentWebhookEventService
 from src.services.referral import ReferralService
 from src.services.settings import SettingsService
@@ -72,6 +76,7 @@ class PaymentCreationUseCase:
         config: AppConfig,
         bot: Bot,
         translator_hub: TranslatorHub,
+        uow: UnitOfWork,
         transaction_service: TransactionService,
         settings_service: SettingsService,
         get_gateway_instance: GatewayInstanceGetter,
@@ -79,6 +84,7 @@ class PaymentCreationUseCase:
         self.config = config
         self.bot = bot
         self.translator_hub = translator_hub
+        self.uow = uow
         self.transaction_service = transaction_service
         self.settings_service = settings_service
         self.get_gateway_instance = get_gateway_instance
@@ -101,15 +107,42 @@ class PaymentCreationUseCase:
         fail_redirect_url: Optional[str] = None,
     ) -> PaymentResult:
         gateway_instance = await self.get_gateway_instance(gateway_type)
-        if channel == PurchaseChannel.TELEGRAM and (
+        mini_app_url: str | None = None
+        bot_username: str | None = None
+        if channel == PurchaseChannel.TELEGRAM:
+            settings = await self.settings_service.get()
+            mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=self.config)
+            bot_username = await self._get_bot_username()
+
+        success_redirect_url, fail_redirect_url = sanitize_payment_redirect_urls_for_channel(
+            channel=channel,
+            config=self.config,
+            success_redirect_url=success_redirect_url,
+            fail_redirect_url=fail_redirect_url,
+            mini_app_url=mini_app_url,
+            bot_username=bot_username,
+        )
+
+        if channel == PurchaseChannel.WEB and (
             success_redirect_url is None or fail_redirect_url is None
         ):
             (
                 default_success_redirect_url,
                 default_fail_redirect_url,
-            ) = await self._resolve_telegram_payment_redirect_urls()
+            ) = build_web_payment_redirect_urls(
+                self.config,
+            )
             success_redirect_url = success_redirect_url or default_success_redirect_url
             fail_redirect_url = fail_redirect_url or default_fail_redirect_url
+        elif channel == PurchaseChannel.TELEGRAM and (
+            success_redirect_url is None or fail_redirect_url is None
+        ):
+            (
+                telegram_success_redirect_url,
+                telegram_fail_redirect_url,
+            ) = await self._resolve_telegram_payment_redirect_urls()
+            success_redirect_url = success_redirect_url or telegram_success_redirect_url
+            fail_redirect_url = fail_redirect_url or telegram_fail_redirect_url
 
         i18n = self.translator_hub.get_translator_by_locale(locale=user.language)
         key, kw = i18n_format_days(plan.duration)
@@ -145,24 +178,29 @@ class PaymentCreationUseCase:
             "device_types": device_types,
         }
 
-        if pricing.is_free:
-            payment_id = uuid.uuid4()
-            transaction = TransactionDto(payment_id=payment_id, **transaction_data)
-            await self.transaction_service.create(user, transaction)
+        payment_id = uuid.uuid4()
+        transaction = TransactionDto(payment_id=payment_id, **transaction_data)
+        await self.transaction_service.create(user, transaction)
+        await self.uow.commit()
 
+        if pricing.is_free:
             logger.info(f"Payment for user '{user.telegram_id}' not created. Pricing is free")
             return PaymentResult(id=payment_id, url=None)
 
         payment = await gateway_instance.handle_create_payment(
             amount=pricing.final_amount,
             details=details,
+            payment_id=payment_id,
             payment_asset=payment_asset,
             success_redirect_url=success_redirect_url,
             fail_redirect_url=fail_redirect_url,
             is_test_payment=False,
         )
-        transaction = TransactionDto(payment_id=payment.id, **transaction_data)
-        await self.transaction_service.create(user, transaction)
+        if payment.id != payment_id:
+            raise ValueError(
+                f"Gateway '{gateway_type.value}' returned unexpected payment id '{payment.id}' "
+                f"for pre-created transaction '{payment_id}'"
+            )
 
         logger.info(
             "Created transaction '{}' for user '{}' gateway='{}' payment_asset='{}'",
@@ -193,15 +231,9 @@ class PaymentCreationUseCase:
 
         test_pricing = PriceDetailsDto()
         test_plan = PlanSnapshotDto.test()
-
-        test_payment = await gateway_instance.handle_create_payment(
-            amount=test_pricing.final_amount,
-            details=test_details,
-            payment_asset=payment_asset,
-            is_test_payment=True,
-        )
+        payment_id = uuid.uuid4()
         test_transaction = TransactionDto(
-            payment_id=test_payment.id,
+            payment_id=payment_id,
             status=TransactionStatus.PENDING,
             purchase_type=PurchaseType.NEW,
             channel=PurchaseChannel.TELEGRAM,
@@ -213,6 +245,20 @@ class PaymentCreationUseCase:
             plan=test_plan,
         )
         await self.transaction_service.create(user, test_transaction)
+        await self.uow.commit()
+
+        test_payment = await gateway_instance.handle_create_payment(
+            amount=test_pricing.final_amount,
+            details=test_details,
+            payment_id=payment_id,
+            payment_asset=payment_asset,
+            is_test_payment=True,
+        )
+        if test_payment.id != payment_id:
+            raise ValueError(
+                f"Gateway '{gateway_type.value}' returned unexpected test payment id "
+                f"'{test_payment.id}' for pre-created transaction '{payment_id}'"
+            )
 
         logger.info(
             "Created test transaction '{}' for user '{}' gateway='{}' payment_asset='{}'",
@@ -234,6 +280,17 @@ class PaymentCreationUseCase:
         settings = await self.settings_service.get()
         mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=self.config)
         bot_username = await self._get_bot_username()
+        return self._build_telegram_payment_redirect_urls(
+            mini_app_url=mini_app_url,
+            bot_username=bot_username,
+        )
+
+    @staticmethod
+    def _build_telegram_payment_redirect_urls(
+        *,
+        mini_app_url: str | None,
+        bot_username: str | None,
+    ) -> tuple[str | None, str | None]:
         return (
             build_telegram_payment_return_url(
                 status="success",
@@ -258,12 +315,14 @@ class PaymentFinalizationUseCase:
     def __init__(
         self,
         *,
+        uow: UnitOfWork,
         transaction_service: TransactionService,
         subscription_service: SubscriptionService,
         referral_service: ReferralService,
         partner_service: PartnerService,
         user_service: UserService,
     ) -> None:
+        self.uow = uow
         self.transaction_service = transaction_service
         self.subscription_service = subscription_service
         self.referral_service = referral_service
@@ -282,29 +341,39 @@ class PaymentFinalizationUseCase:
 
         if transaction.is_completed:
             logger.warning(
-                f"Transaction '{payment_id}' for user "
-                f"'{transaction_user.telegram_id}' already completed"
+                (
+                    "Transaction '{}' for user '{}' already completed; "
+                    "resuming idempotent finalization"
+                ),
+                payment_id,
+                transaction_user.telegram_id,
             )
-            return
-
-        transaction.status = TransactionStatus.COMPLETED
-        await self.transaction_service.update(transaction)
+        else:
+            transaction.status = TransactionStatus.COMPLETED
+            transaction = await self._persist_transaction(transaction)
 
         logger.info(f"Payment succeeded '{payment_id}' for user '{transaction_user.telegram_id}'")
 
         if transaction.is_test:
-            await send_test_transaction_notification_task.kiq(user=transaction_user)
+            transaction = await self._dispatch_transaction_side_effect(
+                transaction=transaction,
+                flag_name="test_notification_sent_at",
+                description="test payment notification",
+                dispatcher=lambda: send_test_transaction_notification_task.kiq(
+                    user=transaction_user
+                ),
+            )
             return
 
-        await self._consume_purchase_discount_if_needed(
+        transaction = await self._consume_purchase_discount_if_needed(
             transaction=transaction,
             payment_id=payment_id,
         )
         subscription, subscriptions_to_renew = await self._resolve_subscriptions_for_purchase(
             transaction=transaction
         )
-        await self._send_subscription_notification(transaction=transaction)
-        await self._enqueue_subscription_purchase(
+        transaction = await self._send_subscription_notification(transaction=transaction)
+        transaction = await self._enqueue_subscription_purchase(
             transaction=transaction,
             subscription=subscription,
             subscriptions_to_renew=subscriptions_to_renew,
@@ -321,9 +390,58 @@ class PaymentFinalizationUseCase:
             logger.critical(f"Transaction user not found for '{payment_id}'")
             raise LookupError(f"Transaction '{payment_id}' is missing user context")
 
+        if transaction.status == TransactionStatus.CANCELED:
+            logger.warning(
+                "Transaction '{}' for user '{}' already canceled",
+                payment_id,
+                transaction.user.telegram_id,
+            )
+            return
+
         transaction.status = TransactionStatus.CANCELED
-        await self.transaction_service.update(transaction)
+        await self._persist_transaction(transaction)
         logger.info(f"Payment canceled '{payment_id}' for user '{transaction.user.telegram_id}'")
+
+    async def _persist_transaction(self, transaction: TransactionDto) -> TransactionDto:
+        updated_transaction = await self.transaction_service.update(transaction)
+        if updated_transaction is None:
+            raise LookupError(f"Transaction '{transaction.payment_id}' not found during update")
+        await self.uow.commit()
+        return updated_transaction
+
+    async def _dispatch_transaction_side_effect(
+        self,
+        *,
+        transaction: TransactionDto,
+        flag_name: str,
+        description: str,
+        dispatcher: Callable[[], Awaitable[None]],
+    ) -> TransactionDto:
+        if getattr(transaction, flag_name) is not None:
+            logger.info(
+                "Skipping '{}' for payment '{}' because '{}' is already set",
+                description,
+                transaction.payment_id,
+                flag_name,
+            )
+            return transaction
+
+        setattr(transaction, flag_name, datetime_now())
+        transaction = await self._persist_transaction(transaction)
+        try:
+            await dispatcher()
+        except Exception:
+            setattr(transaction, flag_name, None)
+            transaction = await self._persist_transaction(transaction)
+            logger.exception(
+                "Failed to dispatch '{}' for payment '{}'; cleared '{}'",
+                description,
+                transaction.payment_id,
+                flag_name,
+            )
+            raise
+
+        return transaction
 
     @staticmethod
     def _get_purchase_notification_key(purchase_type: PurchaseType) -> str:
@@ -451,15 +569,24 @@ class PaymentFinalizationUseCase:
             "plan_duration": i18n_format_days(transaction.plan.duration),
         }
 
-    async def _send_subscription_notification(self, *, transaction: TransactionDto) -> None:
+    async def _send_subscription_notification(
+        self,
+        *,
+        transaction: TransactionDto,
+    ) -> TransactionDto:
         transaction_user = self._require_transaction_user(transaction)
         i18n_key = self._get_purchase_notification_key(transaction.purchase_type)
-        await send_system_notification_task.kiq(
-            ntf_type=SystemNotificationType.SUBSCRIPTION,
-            payload=MessagePayload.not_deleted(
-                i18n_key=i18n_key,
-                i18n_kwargs=self._build_subscription_i18n_kwargs(transaction),
-                reply_markup=get_user_keyboard(transaction_user.telegram_id),
+        return await self._dispatch_transaction_side_effect(
+            transaction=transaction,
+            flag_name="subscription_notification_sent_at",
+            description="subscription notification",
+            dispatcher=lambda: send_system_notification_task.kiq(
+                ntf_type=SystemNotificationType.SUBSCRIPTION,
+                payload=MessagePayload.not_deleted(
+                    i18n_key=i18n_key,
+                    i18n_kwargs=self._build_subscription_i18n_kwargs(transaction),
+                    reply_markup=get_user_keyboard(transaction_user.telegram_id),
+                ),
             ),
         )
 
@@ -469,18 +596,23 @@ class PaymentFinalizationUseCase:
         transaction: TransactionDto,
         subscription: SubscriptionDto | None,
         subscriptions_to_renew: list[SubscriptionDto],
-    ) -> None:
-        await purchase_subscription_task.kiq(
-            transaction,
-            subscription,
-            subscriptions_to_renew=(
-                subscriptions_to_renew if len(subscriptions_to_renew) > 1 else None
+    ) -> TransactionDto:
+        return await self._dispatch_transaction_side_effect(
+            transaction=transaction,
+            flag_name="subscription_purchase_enqueued_at",
+            description="subscription purchase task",
+            dispatcher=lambda: purchase_subscription_task.kiq(
+                transaction,
+                subscription,
+                subscriptions_to_renew=(
+                    subscriptions_to_renew if len(subscriptions_to_renew) > 1 else None
+                ),
             ),
         )
 
     async def _run_post_payment_rewards(self, *, transaction: TransactionDto) -> None:
         transaction_user = self._require_transaction_user(transaction)
-        if transaction.pricing.is_free:
+        if transaction.pricing.is_free or transaction.id is None:
             return
 
         await self.referral_service.assign_referral_rewards(transaction=transaction)
@@ -488,6 +620,7 @@ class PaymentFinalizationUseCase:
             payer_user_id=transaction_user.telegram_id,
             payment_amount=transaction.pricing.final_amount,
             gateway_type=transaction.gateway_type,
+            source_transaction_id=transaction.id,
         )
 
     async def _consume_purchase_discount_if_needed(
@@ -495,13 +628,21 @@ class PaymentFinalizationUseCase:
         *,
         transaction: TransactionDto,
         payment_id: UUID,
-    ) -> None:
+    ) -> TransactionDto:
         transaction_user = self._require_transaction_user(transaction)
+        if (
+            transaction.discount_consumed_at is not None
+            or transaction.pricing.is_free
+            or transaction.id is None
+        ):
+            return transaction
+
         if (
             transaction.pricing.discount_source != DiscountSource.PURCHASE
             or transaction.pricing.discount_percent <= 0
         ):
-            return
+            transaction.discount_consumed_at = datetime_now()
+            return await self._persist_transaction(transaction)
 
         current_user = await self.user_service.get(transaction_user.telegram_id)
         if not current_user:
@@ -509,7 +650,7 @@ class PaymentFinalizationUseCase:
                 "Cannot consume purchase discount: user '{}' not found",
                 transaction_user.telegram_id,
             )
-            return
+            return transaction
 
         current_discount = max(current_user.purchase_discount or 0, 0)
         used_discount = min(max(transaction.pricing.discount_percent, 0), 100)
@@ -520,6 +661,8 @@ class PaymentFinalizationUseCase:
                 user=current_user,
                 discount=new_purchase_discount,
             )
+            transaction.discount_consumed_at = datetime_now()
+            transaction = await self._persist_transaction(transaction)
             logger.info(
                 "Consumed purchase discount for user '{}': {}% -> {}% (used {}% from payment '{}')",
                 current_user.telegram_id,
@@ -528,8 +671,10 @@ class PaymentFinalizationUseCase:
                 used_discount,
                 payment_id,
             )
-            return
+            return transaction
 
+        transaction.discount_consumed_at = datetime_now()
+        transaction = await self._persist_transaction(transaction)
         logger.info(
             "Purchase discount unchanged for user '{}': remains {}% (used {}% from payment '{}')",
             current_user.telegram_id,
@@ -537,6 +682,7 @@ class PaymentFinalizationUseCase:
             used_discount,
             payment_id,
         )
+        return transaction
 
 
 class PlategaRecoveryUseCase:

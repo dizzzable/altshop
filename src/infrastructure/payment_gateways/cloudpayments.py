@@ -55,12 +55,13 @@ class CloudPaymentsGateway(BasePaymentGateway):
         self,
         amount: Decimal,
         details: str,
+        payment_id: UUID | None = None,
         payment_asset: CryptoAsset | None = None,
         success_redirect_url: str | None = None,
         fail_redirect_url: str | None = None,
         is_test_payment: bool = False,
     ) -> PaymentResult:
-        payment_id = uuid.uuid4()
+        payment_id = payment_id or uuid.uuid4()
         payload: dict[str, Any] = {
             "Amount": float(amount),
             "Currency": self.DEFAULT_CURRENCY,

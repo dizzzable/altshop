@@ -36,7 +36,7 @@ class FakeDishkaContainer:
         self.payment_gateway_service = payment_gateway_service
         self.payment_webhook_event_service = payment_webhook_event_service
 
-    async def get(self, type_hint, *, component=None):
+    async def get(self, type_hint, component=None):
         del component
         if type_hint is PaymentGatewayService:
             return self.payment_gateway_service

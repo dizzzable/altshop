@@ -23,11 +23,16 @@ venv/
 ENV/
 env/
 .pytest_cache/
-.pytest-tmp/
+.pytest-tmp*/
 .coverage
 htmlcov/
 .mypy_cache/
 .ruff_cache/
+.tmp/
+plans/
+.agents/
+assets/.altshop_assets_version
+assets/.bak/
 *.log
 logs/
 .env

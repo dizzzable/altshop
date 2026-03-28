@@ -110,6 +110,22 @@ def _get_broadcast_promocode_error_key(promocode: PromocodeDto) -> str | None:
     return None
 
 
+def _build_goto_button(
+    *,
+    button_id: int,
+    config: AppConfig,
+    i18n: TranslatorRunner,
+) -> InlineKeyboardButton:
+    button = goto_buttons[button_id].model_copy(deep=True)
+
+    if button_id == 0:
+        support_text = i18n.get("contact-support-help")
+        support_username = config.bot.support_username.get_secret_value()
+        button.url = format_username_to_url(support_username, support_text)
+
+    return button
+
+
 def _build_broadcast_keyboard(
     dialog_manager: DialogManager,
     config: AppConfig,
@@ -126,12 +142,13 @@ def _build_broadcast_keyboard(
             continue
 
         button_id = int(button["id"])
-        if button_id == 0:
-            support_text = i18n.get("contact-support-help")
-            support_username = config.bot.support_username.get_secret_value()
-            goto_buttons[0].url = format_username_to_url(support_username, support_text)
-
-        builder.row(goto_buttons[button_id])
+        builder.row(
+            _build_goto_button(
+                button_id=button_id,
+                config=config,
+                i18n=i18n,
+            )
+        )
 
     if use_promocode_button and promocode_code:
         promocode_url = _build_promocode_button_url(config, promocode_code)

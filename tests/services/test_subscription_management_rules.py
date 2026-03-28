@@ -77,14 +77,7 @@ def build_subscription_service(*, uow) -> SubscriptionService:
 
 
 def build_plan_service(*, uow) -> PlanService:
-    return PlanService(
-        config=MagicMock(),
-        bot=MagicMock(),
-        redis_client=MagicMock(),
-        redis_repository=MagicMock(),
-        translator_hub=MagicMock(),
-        uow=uow,
-    )
+    return PlanService(uow=uow)
 
 
 def test_has_used_trial_checks_historical_trial_records() -> None:
