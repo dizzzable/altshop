@@ -85,6 +85,7 @@ class WebBrandingResponse(BaseModel):
     support_url: str | None = None
     mini_app_url: str | None = None
     mini_app_launch_url: str | None = None
+    telegram_bot_link: str | None = None
 
 
 class RegistrationAccessRequirementsResponse(BaseModel):
@@ -282,6 +283,7 @@ def _build_web_branding_response(
     config: AppConfig,
     mini_app_url: str | None = None,
     mini_app_launch_url: str | None = None,
+    telegram_bot_link: str | None = None,
 ) -> WebBrandingResponse:
     return WebBrandingResponse(
         project_name=branding.project_name,
@@ -291,6 +293,7 @@ def _build_web_branding_response(
         support_url=_resolve_support_url(config),
         mini_app_url=mini_app_url,
         mini_app_launch_url=mini_app_launch_url,
+        telegram_bot_link=telegram_bot_link,
     )
 
 

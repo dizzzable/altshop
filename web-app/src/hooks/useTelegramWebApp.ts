@@ -52,6 +52,7 @@ interface TelegramWebApp {
   showAlert(message: string, callback?: () => void): void
   showConfirm(message: string, callback?: (confirmed: boolean) => void): void
   openLink?(url: string, options?: Record<string, unknown>): void
+  openInvoice?(url: string, callback?: (status: string) => void): void
   MainButton: MainButton
   BackButton: BackButton
   HapticFeedback: HapticFeedback

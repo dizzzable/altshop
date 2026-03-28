@@ -574,6 +574,7 @@ export interface WebBrandingResponse {
   support_url?: string | null
   mini_app_url?: string | null
   mini_app_launch_url?: string | null
+  telegram_bot_link?: string | null
 }
 
 export interface RegistrationAccessRequirements {

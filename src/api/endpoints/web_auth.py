@@ -348,6 +348,7 @@ async def get_current_user_info(
 @inject
 async def get_web_branding(
     settings_service: FromDishka[SettingsService] = _DISHKA_DEFAULT,
+    web_access_guard_service: FromDishka[WebAccessGuardService] = _DISHKA_DEFAULT,
     config: FromDishka[AppConfig] = _DISHKA_DEFAULT,
 ) -> WebBrandingResponse:
     settings = await settings_service.get()
@@ -356,11 +357,13 @@ async def get_web_branding(
         settings.bot_menu.mini_app_url,
         config.bot.mini_app_url,
     )
+    telegram_bot_link = await web_access_guard_service.get_verification_bot_link()
     return _build_web_branding_response(
         settings.branding,
         config=config,
         mini_app_url=mini_app_url,
         mini_app_launch_url=mini_app_launch_url,
+        telegram_bot_link=telegram_bot_link,
     )
 
 

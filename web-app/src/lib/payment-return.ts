@@ -64,6 +64,7 @@ export function resolveTelegramPaymentReturnUrl(
   status: PaymentReturnStatus,
   options: {
     miniAppLaunchUrl?: string | null
+    telegramBotLink?: string | null
     miniAppUrl?: string | null
   } = {}
 ): string {
@@ -73,6 +74,14 @@ export function resolveTelegramPaymentReturnUrl(
   )
   if (resolvedMiniAppLaunchUrl) {
     return resolvedMiniAppLaunchUrl
+  }
+
+  const resolvedTelegramBotLink = applyPaymentReturnPayload(
+    options.telegramBotLink?.trim() || '',
+    status
+  )
+  if (resolvedTelegramBotLink) {
+    return resolvedTelegramBotLink
   }
 
   const resolvedMiniAppUrl = applyPaymentReturnPayload(options.miniAppUrl?.trim() || '', status)

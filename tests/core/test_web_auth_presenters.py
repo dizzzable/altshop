@@ -21,12 +21,14 @@ def test_build_web_branding_response_includes_runtime_mini_app_url() -> None:
         config=_build_config(),
         mini_app_url="https://example.com/miniapp",
         mini_app_launch_url="https://t.me/example_bot/app",
+        telegram_bot_link="https://t.me/example_bot",
     )
 
     assert response.project_name == "2GET SHOP"
     assert response.web_title == "2GET SHOP - Dashboard"
     assert response.mini_app_url == "https://example.com/miniapp"
     assert response.mini_app_launch_url == "https://t.me/example_bot/app"
+    assert response.telegram_bot_link == "https://t.me/example_bot"
 
 
 def test_render_webapp_entry_html_uses_branding_meta_and_entry_redirect() -> None:

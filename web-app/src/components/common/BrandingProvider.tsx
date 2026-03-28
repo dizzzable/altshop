@@ -11,6 +11,7 @@ type BrandingContextValue = {
   supportUrl: string | null
   miniAppUrl: string | null
   miniAppLaunchUrl: string | null
+  telegramBotLink: string | null
   isLoaded: boolean
 }
 
@@ -22,6 +23,7 @@ const DEFAULT_BRANDING: BrandingContextValue = {
   supportUrl: null,
   miniAppUrl: null,
   miniAppLaunchUrl: null,
+  telegramBotLink: null,
   isLoaded: false,
 }
 
@@ -47,6 +49,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
           supportUrl: data.support_url?.trim() || null,
           miniAppUrl: data.mini_app_url?.trim() || null,
           miniAppLaunchUrl: data.mini_app_launch_url?.trim() || null,
+          telegramBotLink: data.telegram_bot_link?.trim() || null,
           isLoaded: true,
         })
       } catch {
@@ -80,6 +83,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
       supportUrl: branding.supportUrl,
       miniAppUrl: branding.miniAppUrl,
       miniAppLaunchUrl: branding.miniAppLaunchUrl,
+      telegramBotLink: branding.telegramBotLink,
       isLoaded: branding.isLoaded,
     }),
     [
@@ -90,6 +94,7 @@ export function BrandingProvider({ children }: { children: React.ReactNode }) {
       branding.projectName,
       branding.supportedLocales,
       branding.supportUrl,
+      branding.telegramBotLink,
       branding.webTitle,
     ]
   )

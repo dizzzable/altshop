@@ -98,7 +98,7 @@ export function MiniAppLandingPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useI18n()
-  const { projectName, miniAppLaunchUrl } = useBranding()
+  const { projectName, miniAppLaunchUrl, telegramBotLink } = useBranding()
   const { isAuthenticated } = useAuth()
   const [showAuthError] = useState(() => {
     if (typeof window === 'undefined') {
@@ -115,7 +115,10 @@ export function MiniAppLandingPage() {
       return false
     }
   })
-  const deepLink = useMemo(() => resolveMiniAppDeepLink(miniAppLaunchUrl), [miniAppLaunchUrl])
+  const deepLink = useMemo(
+    () => resolveMiniAppDeepLink(miniAppLaunchUrl || telegramBotLink),
+    [miniAppLaunchUrl, telegramBotLink]
+  )
   const { isReady, isInTelegram, initData, launchContext, deviceMode } = useTelegramWebApp()
   const paymentReturnStatus =
     resolvePaymentReturnStatusFromTelegramStartParam(launchContext.startParam)

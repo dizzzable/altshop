@@ -46,6 +46,11 @@ import { getCryptoAssetDisplayName, getCryptoAssetIconPath } from '@/lib/crypto-
 import { getPaymentGatewayDisplayName, getPaymentGatewayIconPath } from '@/lib/payment-gateway-icons'
 import { toast } from 'sonner'
 import { openExternalLink } from '@/lib/openExternalLink'
+import { openTelegramInvoice } from '@/lib/openTelegramInvoice'
+import {
+  prioritizeGatewayPricesForChannel,
+  resolveEffectiveGatewayType,
+} from '@/lib/payment-gateway-selection'
 import { buildExternalPaymentReturnUrl } from '@/lib/payment-return'
 import { savePendingPurchaseContext } from '@/lib/purchase-context'
 import type {
@@ -826,26 +831,25 @@ export function PurchasePage() {
   )
   const availableGatewayPrices = useMemo(
     () =>
-      (selectedDurationData?.prices || []).filter(
-        (price) => paymentSource !== PARTNER_BALANCE_PAYMENT_SOURCE || price.currency === 'RUB'
-      ),
-    [paymentSource, selectedDurationData]
+      prioritizeGatewayPricesForChannel({
+        gatewayPrices: (selectedDurationData?.prices || []).filter(
+          (price) => paymentSource !== PARTNER_BALANCE_PAYMENT_SOURCE || price.currency === 'RUB'
+        ),
+        purchaseChannel,
+      }),
+    [paymentSource, purchaseChannel, selectedDurationData]
   )
   const effectiveSelectedGateway = useMemo(() => {
     if (!selectedDurationData) {
       return undefined
     }
-    if (
-      selectedGateway
-      && availableGatewayPrices.some((price) => price.gateway_type === selectedGateway)
-    ) {
-      return selectedGateway
-    }
-    if (availableGatewayPrices.length === 1) {
-      return availableGatewayPrices[0].gateway_type
-    }
-    return undefined
-  }, [availableGatewayPrices, selectedDurationData, selectedGateway])
+
+    return resolveEffectiveGatewayType({
+      availableGatewayPrices,
+      purchaseChannel,
+      selectedGateway,
+    })
+  }, [availableGatewayPrices, purchaseChannel, selectedDurationData, selectedGateway])
   const selectedPrice = useMemo(
     () => availableGatewayPrices.find((price) => price.gateway_type === effectiveSelectedGateway),
     [availableGatewayPrices, effectiveSelectedGateway]
@@ -1315,7 +1319,21 @@ export function PurchasePage() {
             await new Promise((resolve) => window.setTimeout(resolve, 120))
           }
 
-          const opened = openExternalLink(paymentUrl)
+          const opened =
+            effectiveSelectedGateway === 'TELEGRAM_STARS'
+              ? openTelegramInvoice(paymentUrl, (status) => {
+                  if (status === 'paid') {
+                    toast.success(text.paymentCompleted)
+                    void queryClient.invalidateQueries({ queryKey: queryKeys.subscriptions() })
+                    navigate('/dashboard/subscription')
+                    return
+                  }
+
+                  if (status === 'failed') {
+                    toast.error(text.paymentFailed)
+                  }
+                })
+              : openExternalLink(paymentUrl)
           if (!opened) {
             if (wasCheckoutOpen) {
               setIsCheckoutOpen(true)

@@ -416,15 +416,20 @@ def test_get_web_branding_exposes_raw_and_telegram_launch_urls() -> None:
     settings = SettingsDto()
     settings.bot_menu.mini_app_url = "https://example.com/miniapp"
     settings_service = SimpleNamespace(get=AsyncMock(return_value=settings))
+    web_access_guard_service = SimpleNamespace(
+        get_verification_bot_link=AsyncMock(return_value="https://t.me/example_bot")
+    )
 
     result = call_endpoint(
         web_auth_module.get_web_branding,
         settings_service=settings_service,
+        web_access_guard_service=web_access_guard_service,
         config=config,
     )
 
     assert result.mini_app_url == "https://example.com/miniapp"
     assert result.mini_app_launch_url == "https://t.me/example_bot/app?startapp=launch"
+    assert result.telegram_bot_link == "https://t.me/example_bot"
 
 
 def test_telegram_link_confirm_endpoint_sets_session_cookies(
