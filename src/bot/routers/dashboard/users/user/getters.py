@@ -135,6 +135,16 @@ async def user_getter(
     )
     has_partner_attribution = await partner_service.has_partner_attribution(target_telegram_id)
     can_edit = user.role > target_user.role or user.telegram_id in config.bot.dev_id
+    attach_referrer_reason: str | None = None
+    if not can_edit:
+        attach_referrer_reason = "NO_PERMISSION"
+    elif target_user.telegram_id == user.telegram_id:
+        attach_referrer_reason = "SELF"
+    elif has_referral_attribution:
+        attach_referrer_reason = "REFERRAL_EXISTS"
+    elif has_partner_attribution:
+        attach_referrer_reason = "PARTNER_EXISTS"
+    dialog_manager.dialog_data["attach_referrer_reason"] = attach_referrer_reason
 
     data: dict[str, Any] = {
         "user_id": str(target_user.telegram_id),
@@ -163,12 +173,9 @@ async def user_getter(
         "can_edit": can_edit,
         "has_referral_attribution": has_referral_attribution,
         "has_partner_attribution": has_partner_attribution,
-        "can_attach_referrer": (
-            can_edit
-            and target_user.telegram_id != user.telegram_id
-            and not has_referral_attribution
-            and not has_partner_attribution
-        ),
+        "show_attach_referrer": can_edit,
+        "can_attach_referrer": attach_referrer_reason is None,
+        "attach_referrer_reason": attach_referrer_reason or False,
         "status": None,
         "is_trial": False,
         "has_subscription": bool(visible_subscriptions),

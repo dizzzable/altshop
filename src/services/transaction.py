@@ -36,6 +36,16 @@ class TransactionService(BaseService):
         data = transaction.model_dump(exclude={"user"})
         data["plan"] = transaction.plan.model_dump(mode="json")
         data["pricing"] = transaction.pricing.model_dump(mode="json")
+        if transaction.renew_items is not None:
+            data["renew_items"] = [
+                {
+                    "subscription_id": item.subscription_id,
+                    "renew_mode": item.renew_mode.value,
+                    "plan": item.plan.model_dump(mode="json"),
+                    "pricing": item.pricing.model_dump(mode="json"),
+                }
+                for item in transaction.renew_items
+            ]
 
         db_transaction = Transaction(**data, user_telegram_id=user.telegram_id)
         db_created_transaction = await self.uow.repository.transactions.create(db_transaction)
@@ -99,9 +109,28 @@ class TransactionService(BaseService):
         return TransactionDto.from_model_list(db_transactions)
 
     async def update(self, transaction: TransactionDto) -> Optional[TransactionDto]:
+        updated_data = transaction.changed_data.copy()
+        if "plan" in updated_data:
+            updated_data["plan"] = transaction.plan.model_dump(mode="json")
+        if "pricing" in updated_data:
+            updated_data["pricing"] = transaction.pricing.model_dump(mode="json")
+        if "renew_items" in updated_data:
+            updated_data["renew_items"] = (
+                [
+                    {
+                        "subscription_id": item.subscription_id,
+                        "renew_mode": item.renew_mode.value,
+                        "plan": item.plan.model_dump(mode="json"),
+                        "pricing": item.pricing.model_dump(mode="json"),
+                    }
+                    for item in (transaction.renew_items or [])
+                ]
+                if transaction.renew_items is not None
+                else None
+            )
         db_updated_transaction = await self.uow.repository.transactions.update(
             payment_id=transaction.payment_id,
-            **transaction.changed_data,
+            **updated_data,
         )
 
         if db_updated_transaction:

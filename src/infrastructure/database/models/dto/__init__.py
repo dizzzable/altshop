@@ -45,7 +45,12 @@ from .settings import (
     UserNotificationDto,
 )
 from .subscription import BaseSubscriptionDto, RemnaSubscriptionDto, SubscriptionDto
-from .transaction import BaseTransactionDto, PriceDetailsDto, TransactionDto
+from .transaction import (
+    BaseTransactionDto,
+    PriceDetailsDto,
+    TransactionDto,
+    TransactionRenewItemDto,
+)
 from .user import BaseUserDto, ReferralInviteIndividualSettingsDto, UserDto
 from .user_notification_event import UserNotificationEventDto
 from .web_account import AuthChallengeDto, BaseWebAccountDto, WebAccountDto
@@ -65,6 +70,7 @@ ReferralDto.model_rebuild()
 PartnerDto.model_rebuild()
 PartnerTransactionDto.model_rebuild()
 PartnerReferralDto.model_rebuild()
+TransactionRenewItemDto.model_rebuild()
 
 __all__ = [
     "BaseDto",
@@ -120,6 +126,7 @@ __all__ = [
     "RemnaSubscriptionDto",
     "PriceDetailsDto",
     "TransactionDto",
+    "TransactionRenewItemDto",
     "ReferralInviteIndividualSettingsDto",
     "UserDto",
     "UserNotificationEventDto",

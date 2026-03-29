@@ -50,6 +50,7 @@ from src.infrastructure.database.models.dto import (
     SubscriptionDto,
     TbankGatewaySettingsDto,
     TransactionDto,
+    TransactionRenewItemDto,
     UserDto,
     WataGatewaySettingsDto,
     YookassaGatewaySettingsDto,
@@ -328,6 +329,7 @@ class PaymentGatewayService(BaseService):
         payment_asset: Optional[CryptoAsset] = None,
         renew_subscription_id: Optional[int] = None,
         renew_subscription_ids: Optional[list[int]] = None,
+        renew_items: Optional[list[TransactionRenewItemDto]] = None,
         device_types: Optional[list[DeviceType]] = None,
         channel: PurchaseChannel = PurchaseChannel.TELEGRAM,
         success_redirect_url: Optional[str] = None,
@@ -376,6 +378,7 @@ class PaymentGatewayService(BaseService):
             "plan": plan,
             "renew_subscription_id": renew_subscription_id,
             "renew_subscription_ids": renew_subscription_ids,
+            "renew_items": renew_items,
             "device_types": device_types,
         }
 

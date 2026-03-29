@@ -64,8 +64,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const resolvePostLoginPath = useCallback(() => resolvePostLoginPathWithAccess(deviceMode), [deviceMode])
 
-  const loadUserWithRefresh = useCallback(async (): Promise<User | null> => {
+  const loadUserWithSessionBootstrap = useCallback(async (): Promise<User | null> => {
     try {
+      const { data: sessionStatus } = await api.auth.getSessionStatus()
+      if (!sessionStatus.authenticated) {
+        clearLegacyAuthStorage()
+        return null
+      }
+
+      if (sessionStatus.refresh_required) {
+        await api.auth.refresh()
+      }
+
       const { data } = await api.user.me()
       return data
     } catch {
@@ -82,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let isMounted = true
 
     const bootstrapAuth = async () => {
-      const currentUser = await loadUserWithRefresh()
+      const currentUser = await loadUserWithSessionBootstrap()
       if (!isMounted) {
         return
       }
@@ -96,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => {
       isMounted = false
     }
-  }, [loadUserWithRefresh])
+  }, [loadUserWithSessionBootstrap])
 
   useEffect(() => {
     return () => {
@@ -159,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           clearPendingTrialOnboarding()
         }
 
-        const currentUser = await loadUserWithRefresh()
+        const currentUser = await loadUserWithSessionBootstrap()
         if (!isMountedRef.current) {
           return
         }
@@ -201,7 +211,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isInTelegram,
     isLoading,
     isTelegramReady,
-    loadUserWithRefresh,
+    loadUserWithSessionBootstrap,
     location.pathname,
     location.search,
     navigate,
@@ -231,7 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshUser = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', payload: true })
     try {
-      const currentUser = await loadUserWithRefresh()
+      const currentUser = await loadUserWithSessionBootstrap()
       dispatch({ type: 'SET_USER', payload: currentUser })
     } catch (error) {
       console.error('Failed to refresh user:', error)
@@ -240,7 +250,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false })
     }
-  }, [loadUserWithRefresh])
+  }, [loadUserWithSessionBootstrap])
 
   useEffect(() => {
     const handleAuthCallback = async () => {
@@ -278,7 +288,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           clearPendingTrialOnboarding()
         }
 
-        const currentUser = await loadUserWithRefresh()
+        const currentUser = await loadUserWithSessionBootstrap()
         dispatch({ type: 'SET_USER', payload: currentUser })
 
         if (currentUser) {
@@ -304,7 +314,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     handleAuthCallback()
-  }, [loadUserWithRefresh, navigate, resolvePostLoginPath])
+  }, [loadUserWithSessionBootstrap, navigate, resolvePostLoginPath])
 
   return (
     <AuthContext.Provider

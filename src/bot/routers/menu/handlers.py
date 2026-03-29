@@ -1,7 +1,8 @@
 ﻿from aiogram import F, Router
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import CommandObject, CommandStart
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram_dialog import DialogManager, ShowMode, StartMode
 from aiogram_dialog.widgets.kbd import Button, Select
 from dishka import FromDishka
@@ -10,8 +11,10 @@ from dishka.integrations.aiogram_dialog import inject as dialog_inject
 from fluentogram import TranslatorRunner
 from loguru import logger
 
+from src.api.utils.web_app_urls import build_web_settings_url
 from src.bot.keyboards import CALLBACK_CHANNEL_CONFIRM, CALLBACK_RULES_ACCEPT
 from src.bot.states import MainMenu, UserPartner
+from src.core.config import AppConfig
 from src.core.constants import REFERRAL_PREFIX, USER_KEY
 from src.core.enums import MediaType, PointsExchangeType, PurchaseChannel, ReferralInviteSource
 from src.core.utils.formatters import format_user_log as log
@@ -30,9 +33,82 @@ from src.services.referral_exchange import (
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 from src.services.subscription_trial import SubscriptionTrialService
+from src.services.telegram_link import TelegramLinkError, TelegramLinkService
 from src.services.user import UserService
 
 router = Router(name=__name__)
+
+_TG_LINK_START_PREFIX = "tglink_"
+_TG_LINK_CONFIRM_PREFIX = "tglnk_ok:"
+_TG_LINK_CANCEL_PREFIX = "tglnk_no:"
+
+
+def _is_russian_user(user: UserDto) -> bool:
+    return str(getattr(user.language, "value", user.language) or "").lower().startswith("ru")
+
+
+def _tg_link_copy(user: UserDto, key: str) -> str:
+    is_ru = _is_russian_user(user)
+    translations = {
+        "prompt": (
+            "Подтвердить привязку этого Telegram-аккаунта к веб-профилю?\n\n"
+            "Нажмите «Привязать», чтобы завершить подтверждение."
+            if is_ru
+            else "Link this Telegram account to your web profile?\n\n"
+            "Press “Link account” to finish confirmation."
+        ),
+        "confirm": "Привязать" if is_ru else "Link account",
+        "cancel": "Отмена" if is_ru else "Cancel",
+        "success": (
+            "Telegram-аккаунт успешно привязан. Вернитесь в настройки, профиль уже можно обновить."
+            if is_ru
+            else "Telegram account linked successfully. Return to settings to refresh the profile."
+        ),
+        "cancelled": (
+            "Подтверждение привязки отменено."
+            if is_ru
+            else "Link confirmation was cancelled."
+        ),
+        "invalid": (
+            "Ссылка подтверждения недействительна или уже использована."
+            if is_ru
+            else "Confirmation link is invalid or already used."
+        ),
+        "return": "Открыть настройки" if is_ru else "Open settings",
+    }
+    return translations[key]
+
+
+def _build_tg_link_confirmation_keyboard(user: UserDto, token: str) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=_tg_link_copy(user, "confirm"),
+            callback_data=f"{_TG_LINK_CONFIRM_PREFIX}{token}",
+        ),
+        InlineKeyboardButton(
+            text=_tg_link_copy(user, "cancel"),
+            callback_data=f"{_TG_LINK_CANCEL_PREFIX}{token}",
+        ),
+    )
+    return builder.as_markup()
+
+
+def _build_tg_link_result_keyboard(
+    user: UserDto,
+    return_url: str | None,
+) -> InlineKeyboardMarkup | None:
+    if not return_url:
+        return None
+
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=_tg_link_copy(user, "return"),
+            url=return_url,
+        ),
+    )
+    return builder.as_markup()
 
 
 async def _notify_exchange_error(
@@ -112,6 +188,20 @@ async def on_start_command(
     referral_service: FromDishka[ReferralService],
     user_service: FromDishka[UserService],
 ) -> None:
+    del is_new_user
+
+    if command.args and command.args.startswith(_TG_LINK_START_PREFIX):
+        token = command.args.removeprefix(_TG_LINK_START_PREFIX).strip()
+        if not token:
+            await message.answer(_tg_link_copy(user, "invalid"))
+            return
+
+        await message.answer(
+            _tg_link_copy(user, "prompt"),
+            reply_markup=_build_tg_link_confirmation_keyboard(user, token),
+        )
+        return
+
     if command.args and command.args.startswith(REFERRAL_PREFIX) and not user.is_invited_user:
         referral_code = command.args
         logger.info(f"Start with referral code: '{referral_code}'")
@@ -122,6 +212,70 @@ async def on_start_command(
         )
 
     await on_start_dialog(user, dialog_manager, user_service)
+
+
+@router.callback_query(F.data.startswith(_TG_LINK_CONFIRM_PREFIX))
+@aiogram_inject
+async def on_telegram_link_confirm_click(
+    callback: CallbackQuery,
+    user: UserDto,
+    telegram_link_service: FromDishka[TelegramLinkService],
+    config: FromDishka[AppConfig],
+) -> None:
+    token = str(callback.data or "").removeprefix(_TG_LINK_CONFIRM_PREFIX).strip()
+    try:
+        await telegram_link_service.confirm_token(
+            telegram_id=user.telegram_id,
+            token=token,
+        )
+    except TelegramLinkError:
+        await callback.message.edit_text(
+            _tg_link_copy(user, "invalid"),
+            reply_markup=_build_tg_link_result_keyboard(
+                user,
+                build_web_settings_url(
+                    config,
+                    telegram_link="invalid",
+                    telegram_id=user.telegram_id,
+                ),
+            ),
+        )
+        await callback.answer()
+        return
+
+    await callback.message.edit_text(
+        _tg_link_copy(user, "success"),
+        reply_markup=_build_tg_link_result_keyboard(
+            user,
+            build_web_settings_url(
+                config,
+                telegram_link="success",
+                telegram_id=user.telegram_id,
+            ),
+        ),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(_TG_LINK_CANCEL_PREFIX))
+@aiogram_inject
+async def on_telegram_link_cancel_click(
+    callback: CallbackQuery,
+    user: UserDto,
+    config: FromDishka[AppConfig],
+) -> None:
+    await callback.message.edit_text(
+        _tg_link_copy(user, "cancelled"),
+        reply_markup=_build_tg_link_result_keyboard(
+            user,
+            build_web_settings_url(
+                config,
+                telegram_link="cancelled",
+                telegram_id=user.telegram_id,
+            ),
+        ),
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == CALLBACK_RULES_ACCEPT)

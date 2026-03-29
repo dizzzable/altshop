@@ -23,6 +23,14 @@ class TransactionPricingSnapshot:
 
 
 @dataclass(slots=True, frozen=True)
+class TransactionRenewItemSnapshot:
+    subscription_id: int
+    renew_mode: str
+    plan: dict[str, Any]
+    pricing: TransactionPricingSnapshot
+
+
+@dataclass(slots=True, frozen=True)
 class TransactionHistoryItemSnapshot:
     payment_id: str
     user_telegram_id: int
@@ -36,6 +44,7 @@ class TransactionHistoryItemSnapshot:
     plan: dict[str, Any]
     renew_subscription_id: int | None
     renew_subscription_ids: list[int] | None
+    renew_items: list[TransactionRenewItemSnapshot] | None
     device_types: list[str] | None
     is_test: bool
     created_at: str
@@ -219,6 +228,23 @@ class UserActivityPortalService:
             plan=transaction.plan.model_dump(mode="json"),
             renew_subscription_id=transaction.renew_subscription_id,
             renew_subscription_ids=transaction.renew_subscription_ids,
+            renew_items=(
+                [
+                    TransactionRenewItemSnapshot(
+                        subscription_id=item.subscription_id,
+                        renew_mode=_serialize_enum_value(item.renew_mode) or "",
+                        plan=item.plan.model_dump(mode="json"),
+                        pricing=TransactionPricingSnapshot(
+                            original_amount=float(item.pricing.original_amount),
+                            discount_percent=item.pricing.discount_percent,
+                            final_amount=float(item.pricing.final_amount),
+                        ),
+                    )
+                    for item in transaction.renew_items
+                ]
+                if transaction.renew_items is not None
+                else None
+            ),
             device_types=(
                 [
                     _serialize_enum_value(device_type) or ""

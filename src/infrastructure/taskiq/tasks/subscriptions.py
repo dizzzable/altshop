@@ -297,15 +297,15 @@ async def _create_new_or_additional_subscriptions(
 async def _renew_one_subscription(
     *,
     subscription: SubscriptionDto,
-    transaction: TransactionDto,
+    target_plan: PlanSnapshotDto,
     user: UserDto,
     remnawave_service: RemnawaveService,
     subscription_service: SubscriptionService,
 ) -> None:
     old_expire = subscription.expire_at
-    new_expire = subscription.expire_at + timedelta(days=transaction.plan.duration)
+    new_expire = subscription.expire_at + timedelta(days=target_plan.duration)
     subscription.expire_at = new_expire
-    subscription.plan.duration = transaction.plan.duration
+    subscription.plan.duration = target_plan.duration
 
     updated_user = await remnawave_service.updated_user(
         user=user,
@@ -363,14 +363,14 @@ def _apply_plan_snapshot_to_subscription(
 async def _replace_plan_on_renew(
     *,
     subscription: SubscriptionDto,
-    transaction: TransactionDto,
+    target_plan: PlanSnapshotDto,
     user: UserDto,
     remnawave_service: RemnawaveService,
     subscription_service: SubscriptionService,
 ) -> None:
     old_expire = subscription.expire_at
-    subscription.expire_at = subscription.expire_at + timedelta(days=transaction.plan.duration)
-    _apply_plan_snapshot_to_subscription(subscription=subscription, plan=transaction.plan)
+    subscription.expire_at = subscription.expire_at + timedelta(days=target_plan.duration)
+    _apply_plan_snapshot_to_subscription(subscription=subscription, plan=target_plan)
 
     updated_user = await remnawave_service.updated_user(
         user=user,
@@ -388,6 +388,41 @@ async def _replace_plan_on_renew(
     logger.info(
         f"Renewed archived subscription '{subscription.id}' with replacement plan "
         f"for user '{user.telegram_id}': {old_expire} -> {subscription.expire_at}"
+    )
+
+
+async def _apply_renew_item(
+    *,
+    subscription: SubscriptionDto,
+    target_plan: PlanSnapshotDto,
+    user: UserDto,
+    remnawave_service: RemnawaveService,
+    subscription_service: SubscriptionService,
+) -> None:
+    if not _uses_same_plan(subscription=subscription, plan=target_plan):
+        logger.info(
+            f"RENEWAL WITH REPLACEMENT: Updating subscription '{subscription.id}' "
+            f"for user '{user.telegram_id}' to plan '{target_plan.name}'"
+        )
+        await _replace_plan_on_renew(
+            subscription=subscription,
+            target_plan=target_plan,
+            user=user,
+            remnawave_service=remnawave_service,
+            subscription_service=subscription_service,
+        )
+        return
+
+    logger.info(
+        f"RENEWAL WITH SAME PLAN: Renewing subscription '{subscription.id}' "
+        f"for user '{user.telegram_id}'"
+    )
+    await _renew_one_subscription(
+        subscription=subscription,
+        target_plan=target_plan,
+        user=user,
+        remnawave_service=remnawave_service,
+        subscription_service=subscription_service,
     )
 
 
@@ -437,37 +472,24 @@ async def _renew_multiple_subscriptions(
     user: UserDto,
     remnawave_service: RemnawaveService,
     subscription_service: SubscriptionService,
-    plan_service: PlanService,
 ) -> None:
     logger.info(
         f"MULTIPLE RENEWAL: Renewing {len(subscriptions_to_renew)} subscriptions "
         f"for user '{user.telegram_id}': {[s.id for s in subscriptions_to_renew]}"
     )
-
-    available_plans = await plan_service.get_available_plans(user)
+    renew_items_by_subscription_id = {
+        item.subscription_id: item
+        for item in (transaction.renew_items or [])
+    }
     for sub in subscriptions_to_renew:
-        matched_plan = sub.find_matching_plan(available_plans)
-        logger.info(
-            f"Renewing subscription '{sub.id}' (plan: {sub.plan.name}, "
-            f"matched_plan: {matched_plan.name if matched_plan else 'None'})"
-        )
-
-        old_expire = sub.expire_at
-        new_expire = sub.expire_at + timedelta(days=transaction.plan.duration)
-        sub.expire_at = new_expire
-        sub.plan.duration = transaction.plan.duration
-
-        updated_user = await remnawave_service.updated_user(
-            user=user,
-            uuid=sub.user_remna_id,
+        renew_item = renew_items_by_subscription_id.get(sub.id or 0)
+        target_plan = renew_item.plan if renew_item else transaction.plan
+        await _apply_renew_item(
             subscription=sub,
-        )
-
-        sub.expire_at = updated_user.expire_at  # type: ignore[assignment]
-        await subscription_service.update(sub)
-        logger.info(
-            f"Renewed subscription '{sub.id}' for user '{user.telegram_id}': "
-            f"{old_expire} -> {sub.expire_at} (plan: {sub.plan.name})"
+            target_plan=target_plan,
+            user=user,
+            remnawave_service=remnawave_service,
+            subscription_service=subscription_service,
         )
 
 
@@ -488,34 +510,15 @@ async def _process_renew_purchase(
             user=user,
             remnawave_service=remnawave_service,
             subscription_service=subscription_service,
-            plan_service=plan_service,
         )
         return
 
     if not subscription:
         raise ValueError(f"No subscription found for renewal for user '{user.telegram_id}'")
-
-    if not _uses_same_plan(subscription=subscription, plan=transaction.plan):
-        logger.info(
-            f"SINGLE RENEWAL WITH REPLACEMENT: Updating subscription '{subscription.id}' "
-            f"for user '{user.telegram_id}' to plan '{transaction.plan.name}'"
-        )
-        await _replace_plan_on_renew(
-            subscription=subscription,
-            transaction=transaction,
-            user=user,
-            remnawave_service=remnawave_service,
-            subscription_service=subscription_service,
-        )
-        return
-
-    logger.info(
-        f"SINGLE RENEWAL: Renewing subscription '{subscription.id}' "
-        f"for user '{user.telegram_id}'"
-    )
-    await _renew_one_subscription(
+    target_plan = transaction.renew_items[0].plan if transaction.renew_items else transaction.plan
+    await _apply_renew_item(
         subscription=subscription,
-        transaction=transaction,
+        target_plan=target_plan,
         user=user,
         remnawave_service=remnawave_service,
         subscription_service=subscription_service,

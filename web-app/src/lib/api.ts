@@ -35,6 +35,7 @@ import type {
   UnreadCountResponse,
   MarkReadResponse,
   AuthSessionResponse,
+  AuthSessionStatusResponse,
   TelegramLinkConfirmResponse,
   TelegramLinkRequestResponse,
   TelegramLinkStatusResponse,
@@ -362,6 +363,7 @@ export const api = {
       referralCode?: string
     }) => apiClient.post<AuthSessionResponse>('/auth/telegram', data),
     refresh: () => apiClient.post<AuthSessionResponse>('/auth/refresh', {}),
+    getSessionStatus: () => apiClient.get<AuthSessionStatusResponse>('/auth/session-status'),
     logout: () => apiClient.post('/auth/logout'),
     me: () => apiClient.get<User>('/auth/me'),
     getBranding: () => apiClient.get<WebBrandingResponse>('/auth/branding'),

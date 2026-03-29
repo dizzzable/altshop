@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from src.core.config import AppConfig
 from src.core.constants import REFERRAL_PREFIX
@@ -27,3 +27,21 @@ def build_web_payment_redirect_urls(config: AppConfig) -> tuple[str, str]:
     success_url = f"{web_base_url}/dashboard/subscription?payment=success"
     fail_url = f"{web_base_url}/dashboard/subscription/purchase?payment=failed"
     return success_url, fail_url
+
+
+def build_web_settings_url(
+    config: AppConfig,
+    *,
+    telegram_link: str | None = None,
+    telegram_id: int | None = None,
+) -> str:
+    web_base_url = build_web_app_base_url(config)
+    params: dict[str, str] = {}
+    if telegram_link:
+        params["telegram_link"] = telegram_link
+    if telegram_id is not None:
+        params["telegram_id"] = str(telegram_id)
+
+    query = urlencode(params)
+    settings_url = f"{web_base_url}/dashboard/settings"
+    return f"{settings_url}?{query}" if query else settings_url

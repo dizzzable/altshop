@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 import time
-from typing import Any, Literal, Optional, cast
+from typing import Any, Callable, Literal, Optional, cast
 from urllib.parse import parse_qsl
 from uuid import uuid4
 
@@ -45,6 +45,7 @@ from src.api.dependencies.web_auth import (
 from src.api.presenters.web_auth import (
     AccessStatusResponse,
     AuthMeResponse,
+    AuthSessionStatusResponse,
     LogoutResponse,
     MessageResponse,
     RegistrationAccessRequirementsResponse,
@@ -62,6 +63,7 @@ from src.api.presenters.web_auth import (
 )
 from src.api.utils.request_ip import resolve_client_ip
 from src.api.utils.web_auth_transport import (
+    ACCESS_TOKEN_COOKIE_NAME,
     REFRESH_TOKEN_COOKIE_NAME,
     build_session_response,
     clear_auth_cookies,
@@ -76,6 +78,7 @@ from src.core.enums import ReferralInviteSource, SystemNotificationType
 from src.core.security.jwt_handler import (
     create_access_token,
     create_refresh_token,
+    verify_access_token,
     verify_refresh_token,
 )
 from src.core.utils.bot_menu import resolve_bot_menu_url
@@ -381,6 +384,33 @@ def _request_ip(request: Request) -> str:
 def _resolve_web_auth_message(key: str, locale: Literal["ru", "en"]) -> str:
     values = WEB_AUTH_MESSAGES.get(key, {})
     return values.get(locale) or values.get("ru") or ""
+
+
+async def _has_valid_cookie_session(
+    *,
+    request: Request,
+    cookie_name: str,
+    token_verifier: Callable[[str], dict[str, Any] | None],
+    web_account_service: WebAccountService,
+) -> bool:
+    token_value = request.cookies.get(cookie_name)
+    if not token_value:
+        return False
+
+    token_payload = token_verifier(token_value)
+    if not token_payload:
+        return False
+
+    try:
+        user_id, token_version = parse_token_subject_and_version(token_payload)
+    except (TypeError, ValueError):
+        return False
+
+    if not user_id:
+        return False
+
+    web_account = await web_account_service.get_by_user_telegram_id(user_id)
+    return bool(web_account and web_account.token_version == token_version)
 
 
 @router.post("/register", response_model=SessionResponse)
@@ -849,6 +879,31 @@ async def refresh_token(
     )
 
 
+@router.get("/session-status", response_model=AuthSessionStatusResponse)
+@inject
+async def get_session_status(
+    request: Request,
+    web_account_service: FromDishka[WebAccountService],
+) -> AuthSessionStatusResponse:
+    if await _has_valid_cookie_session(
+        request=request,
+        cookie_name=ACCESS_TOKEN_COOKIE_NAME,
+        token_verifier=verify_access_token,
+        web_account_service=web_account_service,
+    ):
+        return AuthSessionStatusResponse(authenticated=True, refresh_required=False)
+
+    if await _has_valid_cookie_session(
+        request=request,
+        cookie_name=REFRESH_TOKEN_COOKIE_NAME,
+        token_verifier=verify_refresh_token,
+        web_account_service=web_account_service,
+    ):
+        return AuthSessionStatusResponse(authenticated=True, refresh_required=True)
+
+    return AuthSessionStatusResponse(authenticated=False, refresh_required=False)
+
+
 @router.post("/logout", response_model=LogoutResponse)
 @inject
 async def logout(
@@ -956,6 +1011,7 @@ async def request_telegram_link_code(
         message=message,
         delivered=result.delivered,
         expires_in_seconds=result.expires_in_seconds,
+        bot_confirm_url=result.bot_confirm_url,
     )
 
 

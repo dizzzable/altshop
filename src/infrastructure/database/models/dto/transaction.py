@@ -22,6 +22,7 @@ from src.core.enums import (
     PaymentGatewayType,
     PurchaseChannel,
     PurchaseType,
+    SubscriptionRenewMode,
     TransactionStatus,
 )
 
@@ -37,6 +38,13 @@ class PriceDetailsDto(TrackableDto):
     @property
     def is_free(self) -> bool:
         return self.final_amount == 0
+
+
+class TransactionRenewItemDto(TrackableDto):
+    subscription_id: int
+    renew_mode: SubscriptionRenewMode
+    plan: "PlanSnapshotDto"
+    pricing: PriceDetailsDto
 
 
 class BaseTransactionDto(TrackableDto):
@@ -59,6 +67,8 @@ class BaseTransactionDto(TrackableDto):
     renew_subscription_id: Optional[int] = None
     # Список ID подписок для множественного продления
     renew_subscription_ids: Optional[list[int]] = None
+    # Снимок каждой продлеваемой подписки с целевым планом и ценой
+    renew_items: Optional[list[TransactionRenewItemDto]] = None
     # Список типов устройств для новых подписок
     device_types: Optional[list[DeviceType]] = None
 

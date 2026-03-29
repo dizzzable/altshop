@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -28,9 +29,11 @@ class DummyUow:
         self.repository = SimpleNamespace(
             web_accounts=SimpleNamespace(update=AsyncMock()),
             users=SimpleNamespace(
+                get=AsyncMock(return_value=None),
                 reassign_telegram_id_references=AsyncMock(),
                 delete=AsyncMock(),
             ),
+            auth_challenges=SimpleNamespace(update=AsyncMock()),
         )
         self.commit = AsyncMock()
 
@@ -166,6 +169,111 @@ def test_telegram_link_keeps_existing_web_login() -> None:
         link_prompt_snooze_until=None,
     )
     uow.commit.assert_awaited_once()
+
+
+def test_telegram_link_request_returns_bot_confirm_url() -> None:
+    uow = DummyUow()
+    challenge_service = SimpleNamespace(
+        create=AsyncMock(
+            return_value=SimpleNamespace(
+                challenge=SimpleNamespace(id=1, meta=None),
+                code="123456",
+                token="challenge-token",
+            )
+        )
+    )
+    settings_service = SimpleNamespace(
+        get_branding_settings=AsyncMock(
+            return_value=SimpleNamespace(
+                project_name="AltShop",
+                verification=SimpleNamespace(telegram_template=SimpleNamespace()),
+            )
+        ),
+        resolve_localized_branding_text=(
+            lambda localized_text, language=None: "{project_name} {code}"
+        ),
+        render_branding_text=lambda template, placeholders: "AltShop 123456",
+    )
+    bot = SimpleNamespace(
+        send_message=AsyncMock(return_value=SimpleNamespace(message_id=777)),
+        get_me=AsyncMock(return_value=SimpleNamespace(username="altshop_bot")),
+    )
+    service = TelegramLinkService(
+        uow=uow,
+        challenge_service=challenge_service,
+        bot=bot,
+        settings_service=settings_service,
+    )
+    web_account = WebAccountDto(
+        id=77,
+        user_telegram_id=-555,
+        username="alice",
+        password_hash="hash",
+    )
+
+    result = run_async(
+        service.request_code(
+            web_account=web_account,
+            telegram_id=412289221,
+            ttl_seconds=600,
+            attempts=5,
+        )
+    )
+
+    assert result.bot_confirm_url == "https://t.me/altshop_bot?start=tglink_challenge-token"
+    challenge_service.create.assert_awaited_once()
+    assert challenge_service.create.await_args.kwargs["include_token"] is True
+    bot.send_message.assert_awaited_once()
+
+
+def test_telegram_link_confirm_token_consumes_challenge_for_matching_destination() -> None:
+    uow = DummyUow()
+    challenge = SimpleNamespace(
+        web_account_id=77,
+        meta=None,
+        destination="412289221",
+        id=1,
+        purpose="TG_LINK",
+        channel="TELEGRAM",
+        expires_at=datetime.now(timezone.utc),
+        attempts_left=5,
+    )
+    challenge_service = SimpleNamespace(
+        verify_token=AsyncMock(return_value=SimpleNamespace(ok=True, challenge=challenge))
+    )
+    service = TelegramLinkService(
+        uow=uow,
+        challenge_service=challenge_service,
+        bot=SimpleNamespace(),
+        settings_service=SimpleNamespace(),
+    )
+    updated_account = WebAccountDto(
+        id=77,
+        user_telegram_id=412289221,
+        username="alice",
+        password_hash="hash",
+        token_version=5,
+    )
+    service._safe_auto_link = AsyncMock(return_value=updated_account)
+    service._delete_verification_message = AsyncMock()
+
+    result = run_async(
+        service.confirm_token(
+            telegram_id=412289221,
+            token="challenge-token",
+        )
+    )
+
+    assert result.linked_telegram_id == 412289221
+    service._safe_auto_link.assert_awaited_once_with(
+        web_account_id=77,
+        telegram_id=412289221,
+    )
+    challenge_service.verify_token.assert_awaited_once_with(
+        purpose="TG_LINK",
+        token="challenge-token",
+        destination="412289221",
+    )
 
 
 def test_web_login_contract_normalizes_supported_values() -> None:

@@ -104,6 +104,7 @@ from .handlers import (
     on_purchase_discount_input,
     on_purchase_discount_select,
     on_referral_attach_confirm,
+    on_referral_attach_open,
     on_referral_attach_result_select,
     on_referral_attach_search,
     on_referral_invite_initial_slots_input,
@@ -250,11 +251,11 @@ user = Window(
         ),
     ),
     Row(
-        SwitchTo(
+        Button(
             text=I18nFormat("btn-user-attach-referrer"),
             id="attach_referrer",
-            state=DashboardUser.REFERRAL_ATTACH_SEARCH,
-            when=F["can_attach_referrer"],
+            on_click=on_referral_attach_open,
+            when=F["show_attach_referrer"],
         ),
     ),
     Row(

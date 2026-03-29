@@ -371,6 +371,10 @@ ntf-user-sync-failed = <i>❌ Не удалось синхронизироват
 ntf-user-sync-success = <i>✅ Синхронизация пользователя выполнена.</i>
 ntf-user-referral-attach-success = <i>✅ Реферер <b>{ $referrer_name }</b> закреплен. Обработано исторических платежей: <b>{ $payments }</b>.</i>
 ntf-user-referral-attach-failed = <i>❌ Не удалось закрепить реферера: { $error }</i>
+ntf-user-referral-attach-unavailable-no-permission = <i>❌ Недостаточно прав, чтобы закрепить реферера для этого пользователя.</i>
+ntf-user-referral-attach-unavailable-self = <i>❌ Нельзя назначить пользователя реферером самому себе.</i>
+ntf-user-referral-attach-unavailable-referral-exists = <i>❌ У пользователя уже есть реферальная привязка.</i>
+ntf-user-referral-attach-unavailable-partner-exists = <i>❌ У пользователя уже есть партнерская привязка.</i>
 
 ntf-user-invalid-expire-time = <i>❌ Невозможно { $operation ->
     [ADD] продлить подписку на указанное количество дней

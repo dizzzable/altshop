@@ -16,10 +16,12 @@ from src.core.enums import (
     CryptoAsset,
     Currency,
     DeviceType,
+    DiscountSource,
     PaymentGatewayType,
     PaymentSource,
     PurchaseChannel,
     PurchaseType,
+    SubscriptionRenewMode,
     SubscriptionStatus,
     TransactionStatus,
 )
@@ -33,6 +35,7 @@ from src.infrastructure.database.models.dto import (
     PriceDetailsDto,
     SubscriptionDto,
     TransactionDto,
+    TransactionRenewItemDto,
     UserDto,
 )
 
@@ -94,6 +97,7 @@ class SubscriptionPurchaseResult:
     url: str | None
     status: str
     message: str
+    renew_items: tuple[TransactionRenewItemDto, ...] = ()
 
 
 @dataclass(slots=True, frozen=True)
@@ -110,12 +114,22 @@ class SubscriptionPurchaseQuoteResult:
     quote_source: str
     quote_expires_at: str
     quote_provider_count: int
+    renew_items: tuple[TransactionRenewItemDto, ...] = ()
+
+
+@dataclass(slots=True, frozen=True)
+class ResolvedRenewItemContext:
+    subscription_id: int
+    source_subscription: SubscriptionDto
+    renew_mode: SubscriptionRenewMode
+    target_plan: PlanDto
 
 
 @dataclass(slots=True, frozen=True)
 class ValidatedPurchaseContext:
     plan: PlanDto
     source_subscription: SubscriptionDto | None = None
+    renew_items: tuple[ResolvedRenewItemContext, ...] = ()
 
 
 class SubscriptionPurchaseService:
@@ -174,10 +188,10 @@ class SubscriptionPurchaseService:
             request=request,
             gateway_type=gateway_type,
         )
-        settlement_pricing = await self._calculate_settlement_pricing(
+        settlement_pricing, renew_items = await self._calculate_settlement_pricing(
             request=request,
             current_user=current_user,
-            plan=plan,
+            validated_context=validated_context,
             duration=duration,
             gateway=gateway,
             effective_multiplier=effective_multiplier,
@@ -216,6 +230,7 @@ class SubscriptionPurchaseService:
             quote_source=final_display_quote.quote_source,
             quote_expires_at=final_display_quote.quote_expires_at,
             quote_provider_count=final_display_quote.quote_provider_count,
+            renew_items=renew_items,
         )
 
     async def _execute_without_access_assert(
@@ -239,10 +254,10 @@ class SubscriptionPurchaseService:
             request=request,
             gateway_type=gateway_type,
         )
-        final_price = await self._calculate_settlement_pricing(
+        final_price, renew_items = await self._calculate_settlement_pricing(
             request=request,
             current_user=current_user,
-            plan=plan,
+            validated_context=validated_context,
             duration=duration,
             gateway=gateway,
             effective_multiplier=effective_multiplier,
@@ -253,7 +268,11 @@ class SubscriptionPurchaseService:
             effective_subscription_count=effective_subscription_count,
         )
 
-        plan_snapshot = PlanSnapshotDto.from_plan(plan, duration_days)
+        plan_snapshot = (
+            renew_items[0].plan.model_copy(deep=True)
+            if renew_items
+            else PlanSnapshotDto.from_plan(plan, duration_days)
+        )
         device_types = self._resolve_purchase_device_types(
             request=request,
             effective_subscription_count=effective_subscription_count,
@@ -268,6 +287,7 @@ class SubscriptionPurchaseService:
                 final_price=final_price,
                 payment_asset=payment_asset,
                 plan_snapshot=plan_snapshot,
+                renew_items=renew_items,
                 device_types=device_types,
             )
 
@@ -278,6 +298,7 @@ class SubscriptionPurchaseService:
             final_price=final_price,
             payment_asset=payment_asset,
             plan_snapshot=plan_snapshot,
+            renew_items=renew_items,
             device_types=device_types,
         )
 
@@ -450,16 +471,15 @@ class SubscriptionPurchaseService:
     ) -> ValidatedPurchaseContext:
         renew_ids = self._collect_renew_ids(request)
         if len(renew_ids) > 1:
-            await self._validate_multi_renew_selection(
-                current_user=current_user,
-                renew_ids=renew_ids,
-            )
-            plan = await self._get_valid_multi_renew_display_plan(
+            renew_items = await self._build_multi_renew_item_contexts(
                 request=request,
                 current_user=current_user,
                 renew_ids=renew_ids,
             )
-            return ValidatedPurchaseContext(plan=plan)
+            return ValidatedPurchaseContext(
+                plan=renew_items[0].target_plan,
+                renew_items=renew_items,
+            )
 
         source_subscription = await self._get_single_owned_subscription(
             request=request,
@@ -481,6 +501,14 @@ class SubscriptionPurchaseService:
         return ValidatedPurchaseContext(
             plan=selected_plan,
             source_subscription=source_subscription,
+            renew_items=(
+                ResolvedRenewItemContext(
+                    subscription_id=source_subscription.id or 0,
+                    source_subscription=source_subscription,
+                    renew_mode=selection.renew_mode or SubscriptionRenewMode.STANDARD,
+                    target_plan=selected_plan,
+                ),
+            ),
         )
 
     async def _validate_upgrade_purchase_context(
@@ -544,12 +572,15 @@ class SubscriptionPurchaseService:
             )
         return subscription
 
-    async def _validate_multi_renew_selection(
+    async def _build_multi_renew_item_contexts(
         self,
         *,
+        request: SubscriptionPurchaseRequest,
         current_user: UserDto,
         renew_ids: list[int],
-    ) -> None:
+    ) -> tuple[ResolvedRenewItemContext, ...]:
+        renew_items: list[ResolvedRenewItemContext] = []
+
         for renew_id in renew_ids:
             renew_subscription = await self.subscription_service.get(renew_id)
             if not renew_subscription:
@@ -563,6 +594,10 @@ class SubscriptionPurchaseService:
                     detail=f"Access denied to subscription {renew_id}",
                 )
 
+            selection = await self.subscription_purchase_policy_service.build_selection(
+                current_user=current_user,
+                subscription=renew_subscription,
+            )
             action_policy = await self.subscription_purchase_policy_service.get_action_policy(
                 current_user=current_user,
                 subscription=renew_subscription,
@@ -573,40 +608,25 @@ class SubscriptionPurchaseService:
                     detail=f"Subscription {renew_id} is not available for multi-renew",
                 )
 
-    async def _get_valid_multi_renew_display_plan(
-        self,
-        *,
-        request: SubscriptionPurchaseRequest,
-        current_user: UserDto,
-        renew_ids: list[int],
-    ) -> PlanDto:
-        if request.plan_id:
-            return await self._get_valid_catalog_purchase_plan(
+            candidates = self.subscription_purchase_policy_service.get_purchase_candidates(
+                selection=selection,
+                purchase_type=PurchaseType.RENEW,
+            )
+            selected_plan = self._select_plan_from_candidates(
                 request=request,
-                current_user=current_user,
+                purchase_type=PurchaseType.RENEW,
+                candidates=candidates,
+            )
+            renew_items.append(
+                ResolvedRenewItemContext(
+                    subscription_id=renew_id,
+                    source_subscription=renew_subscription,
+                    renew_mode=selection.renew_mode or SubscriptionRenewMode.STANDARD,
+                    target_plan=selected_plan,
+                )
             )
 
-        first_subscription = await self.subscription_service.get(renew_ids[0])
-        if not first_subscription:
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.NOT_FOUND,
-                detail=f"Subscription {renew_ids[0]} not found",
-            )
-
-        source_plan_id = getattr(first_subscription.plan, "id", None)
-        if not source_plan_id or source_plan_id <= 0:
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail="Source plan is not available for multi-renew",
-            )
-
-        source_plan = await self.plan_service.get(source_plan_id)
-        if not source_plan:
-            raise SubscriptionPurchaseError(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail="Source plan is not available for multi-renew",
-            )
-        return source_plan
+        return tuple(renew_items)
 
     @staticmethod
     def _select_plan_from_candidates(
@@ -840,92 +860,75 @@ class SubscriptionPurchaseService:
         *,
         request: SubscriptionPurchaseRequest,
         current_user: UserDto,
-        plan: PlanDto,
+        validated_context: ValidatedPurchaseContext,
         duration: PlanDurationDto,
         gateway: PaymentGatewayDto,
         effective_multiplier: int,
-    ) -> PriceDetailsDto:
-        renew_ids = self._collect_renew_ids(request)
-        if request.purchase_type == PurchaseType.RENEW and len(renew_ids) > 1:
-            total_base_price = await self._calculate_multi_renew_base_price(
+    ) -> tuple[PriceDetailsDto, tuple[TransactionRenewItemDto, ...]]:
+        if request.purchase_type == PurchaseType.RENEW and validated_context.renew_items:
+            renew_items, total_base_price = self._build_renew_transaction_items(
+                renew_item_contexts=validated_context.renew_items,
                 duration_days=duration.days,
                 gateway=gateway,
-                renew_ids=renew_ids,
             )
-            return self.pricing_service.calculate(
+            settlement_pricing = self.pricing_service.calculate(
                 user=current_user,
                 price=total_base_price,
                 currency=gateway.currency,
             )
+            return settlement_pricing, renew_items
 
         price_obj = self._resolve_gateway_price(duration=duration, gateway=gateway)
-        return self._calculate_final_purchase_price(
+        settlement_pricing = self._calculate_final_purchase_price(
             current_user=current_user,
             gateway=gateway,
             price_obj=price_obj,
             effective_multiplier=effective_multiplier,
         )
+        return settlement_pricing, ()
 
-    async def _calculate_multi_renew_base_price(
+    def _build_renew_transaction_items(
         self,
         *,
         duration_days: int,
         gateway: PaymentGatewayDto,
-        renew_ids: list[int],
-    ) -> Decimal:
+        renew_item_contexts: tuple[ResolvedRenewItemContext, ...],
+    ) -> tuple[tuple[TransactionRenewItemDto, ...], Decimal]:
+        renew_items: list[TransactionRenewItemDto] = []
         total_price = Decimal("0")
 
-        for renew_id in renew_ids:
-            renew_subscription = await self.subscription_service.get(renew_id)
-            if not renew_subscription:
-                raise SubscriptionPurchaseError(
-                    status_code=HTTPStatus.NOT_FOUND,
-                    detail=f"Subscription {renew_id} not found",
-                )
-
-            source_plan_id = getattr(renew_subscription.plan, "id", None)
-            if not source_plan_id or source_plan_id <= 0:
-                raise SubscriptionPurchaseError(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    detail=f"Source plan is unavailable for subscription {renew_id}",
-                )
-
-            matched_plan = await self.plan_service.get(source_plan_id)
-            if not matched_plan:
-                raise SubscriptionPurchaseError(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    detail=f"Source plan is unavailable for subscription {renew_id}",
-                )
-
-            renew_duration = matched_plan.get_duration(duration_days)
+        for renew_item_context in renew_item_contexts:
+            renew_duration = renew_item_context.target_plan.get_duration(duration_days)
             if not renew_duration:
                 raise SubscriptionPurchaseError(
                     status_code=HTTPStatus.BAD_REQUEST,
                     detail=(
-                        f"Duration {duration_days} days not available for subscription {renew_id}"
+                        f"Duration {duration_days} days not available for subscription "
+                        f"{renew_item_context.subscription_id}"
                     ),
                 )
 
-            renew_price = next(
-                (
-                    price.price
-                    for price in renew_duration.prices
-                    if price.currency == gateway.currency
-                ),
-                None,
+            renew_price = self._resolve_gateway_price(duration=renew_duration, gateway=gateway)
+            item_amount = Decimal(renew_price.price)
+            total_price += item_amount
+            renew_items.append(
+                TransactionRenewItemDto(
+                    subscription_id=renew_item_context.subscription_id,
+                    renew_mode=renew_item_context.renew_mode,
+                    plan=PlanSnapshotDto.from_plan(
+                        renew_item_context.target_plan,
+                        duration_days,
+                    ),
+                    pricing=PriceDetailsDto(
+                        original_amount=item_amount,
+                        discount_percent=0,
+                        discount_source=DiscountSource.NONE,
+                        final_amount=item_amount,
+                    ),
+                )
             )
-            if renew_price is None:
-                raise SubscriptionPurchaseError(
-                    status_code=HTTPStatus.BAD_REQUEST,
-                    detail=(
-                        f"Price not found for gateway currency {gateway.currency.value} "
-                        f"on subscription {renew_id}"
-                    ),
-                )
 
-            total_price += Decimal(renew_price)
-
-        return total_price
+        return tuple(renew_items), total_price
 
     async def _build_display_quote(
         self,
@@ -1181,6 +1184,7 @@ class SubscriptionPurchaseService:
         final_price: PriceDetailsDto,
         payment_asset: CryptoAsset | None,
         plan_snapshot: PlanSnapshotDto,
+        renew_items: tuple[TransactionRenewItemDto, ...],
         device_types: list[DeviceType] | None,
     ) -> None:
         transaction = TransactionDto(
@@ -1195,6 +1199,7 @@ class SubscriptionPurchaseService:
             plan=plan_snapshot,
             renew_subscription_id=request.renew_subscription_id,
             renew_subscription_ids=list(request.renew_subscription_ids or ()),
+            renew_items=list(renew_items) or None,
             device_types=device_types,
         )
         await self.payment_gateway_service.transaction_service.create(current_user, transaction)
@@ -1235,6 +1240,7 @@ class SubscriptionPurchaseService:
         final_price: PriceDetailsDto,
         payment_asset: CryptoAsset | None,
         plan_snapshot: PlanSnapshotDto,
+        renew_items: tuple[TransactionRenewItemDto, ...],
         device_types: list[DeviceType] | None,
     ) -> SubscriptionPurchaseResult:
         await self._assert_partner_balance_purchase_allowed(
@@ -1257,6 +1263,7 @@ class SubscriptionPurchaseService:
                 final_price=final_price,
                 payment_asset=payment_asset,
                 plan_snapshot=plan_snapshot,
+                renew_items=renew_items,
                 device_types=device_types,
             )
 
@@ -1273,6 +1280,7 @@ class SubscriptionPurchaseService:
                 url=None,
                 status=TransactionStatus.COMPLETED.value,
                 message="Payment completed from partner balance",
+                renew_items=renew_items,
             )
         except SubscriptionPurchaseError:
             raise
@@ -1305,6 +1313,7 @@ class SubscriptionPurchaseService:
         final_price: PriceDetailsDto,
         payment_asset: CryptoAsset | None,
         plan_snapshot: PlanSnapshotDto,
+        renew_items: tuple[TransactionRenewItemDto, ...],
         device_types: list[DeviceType] | None,
     ) -> SubscriptionPurchaseResult:
         success_redirect_url: str | None = request.success_redirect_url
@@ -1324,6 +1333,7 @@ class SubscriptionPurchaseService:
                 payment_asset=payment_asset,
                 renew_subscription_id=request.renew_subscription_id,
                 renew_subscription_ids=list(request.renew_subscription_ids or ()) or None,
+                renew_items=list(renew_items) or None,
                 device_types=device_types,
                 channel=request.channel,
                 success_redirect_url=success_redirect_url,
@@ -1357,6 +1367,7 @@ class SubscriptionPurchaseService:
             url=payment_result.url,
             status="PENDING",
             message="Payment initiated successfully",
+            renew_items=renew_items,
         )
 
     @staticmethod

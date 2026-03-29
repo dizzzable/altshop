@@ -20,6 +20,11 @@ class SessionResponse(BaseModel):
     auth_source: str | None = None
 
 
+class AuthSessionStatusResponse(BaseModel):
+    authenticated: bool
+    refresh_required: bool = False
+
+
 class LogoutResponse(BaseModel):
     message: str = "Logged out successfully"
 
@@ -69,6 +74,7 @@ class TelegramLinkRequestResponse(BaseModel):
     message: str
     delivered: bool
     expires_in_seconds: int
+    bot_confirm_url: str | None = None
 
 
 class TelegramLinkConfirmResponse(BaseModel):
@@ -330,6 +336,7 @@ def _render_webapp_entry_html(
 __all__ = [
     "AccessStatusResponse",
     "AuthMeResponse",
+    "AuthSessionStatusResponse",
     "LogoutResponse",
     "MessageResponse",
     "RegistrationAccessRequirementsResponse",

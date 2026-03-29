@@ -8,6 +8,7 @@ from aiogram import Bot
 from loguru import logger
 from sqlalchemy.exc import IntegrityError
 
+from src.core.constants import T_ME
 from src.core.enums import Locale, UserRole
 from src.infrastructure.database.models.dto import AuthChallengeDto, WebAccountDto
 from src.infrastructure.database.models.sql import User, WebAccount
@@ -33,6 +34,7 @@ class TelegramLinkRequestResult:
     delivered: bool
     expires_in_seconds: int
     destination: int
+    bot_confirm_url: str | None = None
 
 
 @dataclass
@@ -70,7 +72,7 @@ class TelegramLinkService:
             ttl_seconds=ttl_seconds,
             attempts=attempts,
             include_code=True,
-            include_token=False,
+            include_token=True,
             meta={"telegram_id": telegram_id},
         )
 
@@ -122,6 +124,7 @@ class TelegramLinkService:
             delivered=delivered,
             expires_in_seconds=ttl_seconds,
             destination=telegram_id,
+            bot_confirm_url=await self._build_bot_confirm_url(challenge.token),
         )
 
     async def confirm_code(
@@ -150,6 +153,36 @@ class TelegramLinkService:
 
         account = await self._safe_auto_link(
             web_account_id=web_account.id or 0,
+            telegram_id=telegram_id,
+        )
+        await self._delete_verification_message(
+            challenge=verification.challenge,
+            fallback_chat_id=telegram_id,
+        )
+        return TelegramLinkConfirmResult(
+            web_account=account,
+            linked_telegram_id=telegram_id,
+        )
+
+    async def confirm_token(
+        self,
+        *,
+        telegram_id: int,
+        token: str,
+    ) -> TelegramLinkConfirmResult:
+        verification = await self.challenge_service.verify_token(
+            purpose=ChallengePurpose.TG_LINK,
+            token=token.strip(),
+            destination=str(telegram_id),
+        )
+        if not verification.ok or verification.challenge is None:
+            raise TelegramLinkError(
+                code="INVALID_OR_EXPIRED_CODE",
+                message="Invalid or expired code.",
+            )
+
+        account = await self._safe_auto_link(
+            web_account_id=verification.challenge.web_account_id,
             telegram_id=telegram_id,
         )
         await self._delete_verification_message(
@@ -205,6 +238,23 @@ class TelegramLinkService:
             logger.debug(
                 f"Failed to delete verification message '{message_id}' for chat '{chat_id}': {exc}"
             )
+
+    async def _build_bot_confirm_url(self, token: str | None) -> str | None:
+        normalized_token = str(token or "").strip()
+        if not normalized_token:
+            return None
+
+        try:
+            bot_info = await self.bot.get_me()
+        except Exception as exc:
+            logger.warning(f"Failed to resolve Telegram link bot username: {exc}")
+            return None
+
+        username = (bot_info.username or "").strip().lstrip("@")
+        if not username:
+            return None
+
+        return f"{T_ME}{username}?start=tglink_{normalized_token}"
 
     async def _safe_auto_link(
         self,

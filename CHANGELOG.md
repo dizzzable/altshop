@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.14] - 2026-03-29
+
+### Changed
+
+- bulk renew checkout now carries per-subscription renew items, so one purchase can correctly mix standard renewals with archived `SELF_RENEW` and archived `REPLACE_ON_RENEW` flows while preserving a single shared payment
+- Telegram account linking now has a second confirmation path through the bot itself: the web settings screen can open a one-tap `Link / Cancel` confirmation, and the bot returns the user back to `/dashboard/settings` with a clear result state
+- the admin user card now keeps `Attach referrer` visible for editable users and explains why the action is unavailable instead of hiding the control entirely
+
+### Fixed
+
+- archived subscriptions can once again be renewed from both the web app and Telegram Mini App, including mixed bulk-renew selections where each subscription needs its own renew policy and target plan
+- web auth bootstrap no longer starts with the noisy expected `401 -> refresh -> 401` pattern on cold loads without a valid session, thanks to a silent session-status probe used before `me` and refresh calls
+- Telegram link confirmation from the bot no longer bounces users back into an `Invalid or expired code` state in settings during the normal confirm flow
+
 ## [1.2.13] - 2026-03-27
 
 ### Changed

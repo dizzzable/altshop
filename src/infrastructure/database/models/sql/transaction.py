@@ -93,6 +93,7 @@ class Transaction(BaseSql, TimestampMixin):
     renew_subscription_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Список ID подписок для множественного продления
     renew_subscription_ids: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
+    renew_items: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)
     # Список типов устройств для новых подписок (хранится как массив строк)
     device_types: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
 

@@ -149,6 +149,7 @@ export function SettingsPage() {
 
   const [isTelegramRequestLoading, setIsTelegramRequestLoading] = useState(false)
   const [isTelegramConfirmLoading, setIsTelegramConfirmLoading] = useState(false)
+  const [isTelegramBotConfirmLoading, setIsTelegramBotConfirmLoading] = useState(false)
   const [isEmailSaveLoading, setIsEmailSaveLoading] = useState(false)
   const [isEmailVerifyLoading, setIsEmailVerifyLoading] = useState(false)
   const [isEmailResendLoading, setIsEmailResendLoading] = useState(false)
@@ -271,6 +272,50 @@ export function SettingsPage() {
     }
   }, [params, setParams, telegramId, t])
 
+  useEffect(() => {
+    const telegramLinkStatus = params.get('telegram_link')
+    if (!telegramLinkStatus) {
+      return
+    }
+
+    let isCancelled = false
+    const nextParams = new URLSearchParams(params)
+    nextParams.delete('telegram_link')
+
+    const run = async () => {
+      if (telegramLinkStatus === 'success') {
+        try {
+          await Promise.all([refreshUser(), refetch(), refetchAccessStatus()])
+          if (!isCancelled) {
+            setError(null)
+            setMessage(t('settings.message.telegramLinkedViaBot'))
+          }
+        } catch (err: unknown) {
+          if (!isCancelled) {
+            setError(getErrorMessage(err, requestFailedMessage))
+          }
+        }
+      } else if (!isCancelled) {
+        if (telegramLinkStatus === 'cancelled') {
+          setError(null)
+          setMessage(t('settings.message.telegramLinkCancelled'))
+        } else {
+          setMessage(null)
+          setError(t('settings.message.telegramLinkInvalid'))
+        }
+      }
+
+      if (!isCancelled) {
+        setParams(nextParams, { replace: true })
+      }
+    }
+
+    void run()
+    return () => {
+      isCancelled = true
+    }
+  }, [params, refetch, refetchAccessStatus, refreshUser, requestFailedMessage, setParams, t])
+
   const isLoading = authLoading || profileLoading || accessStatusLoading
 
   if (isLoading) {
@@ -360,6 +405,31 @@ export function SettingsPage() {
       setError(getErrorMessage(err, requestFailedMessage))
     } finally {
       setIsTelegramConfirmLoading(false)
+    }
+  }
+
+  const handleTelegramBotConfirm = async () => {
+    setError(null)
+    setMessage(null)
+    if (!telegramId.trim() || !/^\d+$/.test(telegramId.trim())) {
+      setError(t('settings.validation.telegramId'))
+      return
+    }
+
+    setIsTelegramBotConfirmLoading(true)
+    try {
+      const { data } = await api.auth.requestTelegramLinkCode({ telegram_id: Number(telegramId.trim()) })
+      if (!data.bot_confirm_url) {
+        setError(t('settings.validation.telegramBotConfirmUnavailable'))
+        return
+      }
+
+      setMessage(data.message)
+      window.location.href = data.bot_confirm_url
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, requestFailedMessage))
+    } finally {
+      setIsTelegramBotConfirmLoading(false)
     }
   }
 
@@ -850,7 +920,7 @@ export function SettingsPage() {
           />
         </div>
       </div>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-3">
         <Button
           size="sm"
           variant="outline"
@@ -862,7 +932,18 @@ export function SettingsPage() {
         <Button size="sm" onClick={handleTelegramConfirm} disabled={isTelegramConfirmLoading}>
           {isTelegramConfirmLoading ? t('settings.section.confirming') : t('settings.section.confirmLink')}
         </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={handleTelegramBotConfirm}
+          disabled={isTelegramBotConfirmLoading}
+        >
+          {isTelegramBotConfirmLoading
+            ? t('settings.section.openingTelegram')
+            : t('settings.section.confirmInTelegram')}
+        </Button>
       </div>
+      <p className="text-xs text-slate-400">{t('settings.section.confirmInTelegramHint')}</p>
       <div className="flex flex-wrap gap-3 text-xs">
         {accessStatus?.verification_bot_link && (
           <a

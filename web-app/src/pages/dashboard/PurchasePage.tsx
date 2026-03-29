@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { resolveAccessCapabilities } from '@/lib/access-capabilities'
@@ -481,6 +481,137 @@ function sortDurations(durations: PlanDuration[]): PlanDuration[] {
   })
 }
 
+function intersectArrays<T extends string>(items: T[][]): T[] {
+  if (!items.length) {
+    return []
+  }
+
+  return items.reduce<T[]>((common, current) => common.filter((item) => current.includes(item)), [
+    ...items[0],
+  ])
+}
+
+function isDefined<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined
+}
+
+function buildBulkRenewSyntheticPlan({
+  plans,
+  title,
+  description,
+}: {
+  plans: Plan[]
+  title: string
+  description: string
+}): Plan | null {
+  if (!plans.length) {
+    return null
+  }
+
+  const commonDurationDays = intersectArrays(
+    plans.map((plan) => plan.durations.map((duration) => String(duration.days)))
+  ).map((value) => Number(value))
+
+  if (!commonDurationDays.length) {
+    return null
+  }
+
+  const durations = sortDurations(
+    commonDurationDays
+      .map((days, durationIndex): PlanDuration | null => {
+        const durationEntries = plans
+          .map((plan) => plan.durations.find((duration) => duration.days === days))
+          .filter(isDefined)
+
+        if (durationEntries.length !== plans.length) {
+          return null
+        }
+
+        const commonGatewayTypes = intersectArrays(
+          durationEntries.map((duration) => duration.prices.map((price) => price.gateway_type))
+        )
+
+        const prices = commonGatewayTypes
+          .map((gatewayType, priceIndex): PlanPrice | null => {
+            const matchedPrices = durationEntries
+              .map((duration) =>
+                duration.prices.find((price) => price.gateway_type === gatewayType)
+              )
+              .filter(isDefined)
+
+            if (!matchedPrices.length || matchedPrices.length !== plans.length) {
+              return null
+            }
+
+            const price = matchedPrices.reduce((sum, item) => sum + Number(item.price), 0)
+            const originalPrice = matchedPrices.reduce(
+              (sum, item) => sum + Number(item.original_price),
+              0
+            )
+            const supportedPaymentAssets = intersectArrays(
+              matchedPrices.map((item) => [...(item.supported_payment_assets ?? [])])
+            )
+
+            return {
+              id: -1000 - durationIndex * 100 - priceIndex,
+              duration_id: -100 - durationIndex,
+              gateway_type: gatewayType,
+              price,
+              original_price: originalPrice,
+              currency: matchedPrices[0].currency,
+              discount_percent:
+                originalPrice > 0
+                  ? Math.max(0, Math.round(((originalPrice - price) / originalPrice) * 100))
+                  : 0,
+              discount_source: matchedPrices.every(
+                (item) => item.discount_source === matchedPrices[0].discount_source
+              )
+                ? matchedPrices[0].discount_source
+                : 'NONE',
+              discount: Math.max(0, Math.round(originalPrice - price)),
+              supported_payment_assets: supportedPaymentAssets,
+            }
+          })
+          .filter(isDefined)
+
+        if (!prices.length) {
+          return null
+        }
+
+        return {
+          id: -100 - durationIndex,
+          plan_id: -1,
+          days,
+          prices,
+        }
+      })
+      .filter(isDefined)
+  )
+
+  if (!durations.length) {
+    return null
+  }
+
+  return {
+    id: -1,
+    name: title,
+    description,
+    tag: null,
+    type: plans[0]?.type ?? 'UNLIMITED',
+    availability: 'ALL',
+    traffic_limit: plans[0]?.traffic_limit ?? -1,
+    device_limit: plans[0]?.device_limit ?? -1,
+    order_index: -1,
+    is_active: true,
+    allowed_user_ids: [],
+    internal_squads: [],
+    external_squad: null,
+    durations,
+    created_at: '',
+    updated_at: '',
+  }
+}
+
 function getPreferredDurationPrice(
   duration: PlanDuration,
   preferredCurrency: string | undefined
@@ -678,6 +809,7 @@ export function PurchasePage() {
   )
   const singleRenewId = renewTargets.length === 1 ? renewTargets[0] : null
   const singleSubscriptionTargetId = upgradeSubscriptionId ?? singleRenewId
+  const isBulkRenewFlow = !isUpgradeFlow && renewTargets.length > 1
 
   const [selectedPlan, setSelectedPlan] = useState<number | null>(null)
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null)
@@ -720,6 +852,15 @@ export function PurchasePage() {
         .then((response) => response.data),
     enabled: isSingleSubscriptionFlow,
   })
+  const bulkPurchaseOptionQueries = useQueries({
+    queries: isBulkRenewFlow
+      ? renewTargets.map((subscriptionId) => ({
+        queryKey: ['subscription-purchase-options', subscriptionId, 'RENEW', purchaseChannel],
+        queryFn: () =>
+          api.subscription.purchaseOptions(subscriptionId, 'RENEW', purchaseChannel).then((response) => response.data),
+      }))
+      : [],
+  })
 
   const { data: subscriptions = [] } = useSubscriptionsQuery()
   const { data: userProfile } = useQuery<User>({
@@ -759,6 +900,47 @@ export function PurchasePage() {
     () => subscriptions.filter((subscription) => renewTargets.includes(subscription.id)),
     [renewTargets, subscriptions]
   )
+  const bulkPurchaseOptions = useMemo(
+    () =>
+      bulkPurchaseOptionQueries
+        .map((query) => query.data)
+        .filter((option): option is SubscriptionPurchaseOptionsResponse => Boolean(option)),
+    [bulkPurchaseOptionQueries]
+  )
+  const bulkPurchaseOptionsMap = useMemo(
+    () =>
+      new Map(
+        bulkPurchaseOptions.map((option) => [option.subscription_id, option] as const)
+      ),
+    [bulkPurchaseOptions]
+  )
+  const bulkRenewTargetPlans = useMemo(
+    () =>
+      renewTargets
+        .map((subscriptionId) => bulkPurchaseOptionsMap.get(subscriptionId)?.plans?.[0] ?? null)
+        .filter((plan): plan is Plan => Boolean(plan)),
+    [bulkPurchaseOptionsMap, renewTargets]
+  )
+  const bulkRenewSyntheticPlan = useMemo(
+    () =>
+      isBulkRenewFlow
+        ? buildBulkRenewSyntheticPlan({
+          plans: bulkRenewTargetPlans,
+          title: text.titleRenew,
+          description: text.selectionLocked,
+        })
+        : null,
+    [bulkRenewTargetPlans, isBulkRenewFlow, text.selectionLocked, text.titleRenew]
+  )
+  const bulkRenewDisplayItems = useMemo(
+    () =>
+      renewSubscriptions.map((subscription) => ({
+        subscription,
+        option: bulkPurchaseOptionsMap.get(subscription.id) ?? null,
+        targetPlan: bulkPurchaseOptionsMap.get(subscription.id)?.plans?.[0] ?? null,
+      })),
+    [bulkPurchaseOptionsMap, renewSubscriptions]
+  )
   const sourceSubscription = useMemo(
     () =>
       singleSubscriptionTargetId !== null
@@ -767,12 +949,28 @@ export function PurchasePage() {
     [singleSubscriptionTargetId, subscriptions]
   )
   const availablePlans = useMemo(
-    () => (isSingleSubscriptionFlow ? (singlePurchaseOptions?.plans ?? []) : catalogPlans),
-    [catalogPlans, isSingleSubscriptionFlow, singlePurchaseOptions?.plans]
+    () =>
+      isBulkRenewFlow
+        ? (bulkRenewSyntheticPlan ? [bulkRenewSyntheticPlan] : [])
+        : isSingleSubscriptionFlow
+          ? (singlePurchaseOptions?.plans ?? [])
+          : catalogPlans,
+    [bulkRenewSyntheticPlan, catalogPlans, isBulkRenewFlow, isSingleSubscriptionFlow, singlePurchaseOptions?.plans]
   )
-  const isLoading = isSingleSubscriptionFlow ? isPurchaseOptionsLoading : isCatalogPlansLoading
+  const isBulkPurchaseOptionsLoading = isBulkRenewFlow && bulkPurchaseOptionQueries.some((query) => query.isLoading)
+  const isLoading = isBulkRenewFlow
+    ? isBulkPurchaseOptionsLoading
+    : isSingleSubscriptionFlow
+      ? isPurchaseOptionsLoading
+      : isCatalogPlansLoading
   const defaultFlowPlanId =
-    (isSingleSubscriptionFlow ? availablePlans[0]?.id : renewSubscriptions[0]?.plan?.id) ?? null
+    (
+      isBulkRenewFlow
+        ? bulkRenewSyntheticPlan?.id
+        : isSingleSubscriptionFlow
+          ? availablePlans[0]?.id
+          : renewSubscriptions[0]?.plan?.id
+    ) ?? null
   const effectivePlanId = useMemo(() => {
     if (selectedPlan !== null && availablePlans.some((plan) => plan.id === selectedPlan)) {
       return selectedPlan
@@ -959,7 +1157,7 @@ export function PurchasePage() {
       ? text.noRubGateway
       : text.noWebGateway
   const purchaseQuoteEnabled = Boolean(
-    effectivePlanId !== null
+    (isBulkRenewFlow || effectivePlanId !== null)
       && effectiveSelectedDuration !== null
       && effectiveSelectedGateway
       && canPurchase
@@ -992,7 +1190,7 @@ export function PurchasePage() {
         purchase_type: purchaseType,
         channel: purchaseChannel,
         payment_source: paymentSource,
-        plan_id: effectivePlanId ?? undefined,
+        plan_id: isBulkRenewFlow ? undefined : effectivePlanId ?? undefined,
         duration_days: effectiveSelectedDuration ?? undefined,
         gateway_type: effectiveSelectedGateway,
         payment_asset: effectiveSelectedPaymentAsset,
@@ -1031,7 +1229,7 @@ export function PurchasePage() {
     if (exceedsPredictedLimit) {
       return 'LIMIT_WOULD_BE_EXCEEDED'
     }
-    if (effectivePlanId === null) {
+    if (!isBulkRenewFlow && effectivePlanId === null) {
       return 'MISSING_PLAN'
     }
     if (effectiveSelectedDuration === null) {
@@ -1052,6 +1250,7 @@ export function PurchasePage() {
     return null
   }, [
     effectivePlanId,
+    isBulkRenewFlow,
     exceedsPredictedLimit,
     isNewPurchaseFlow,
     isPurchasing,
@@ -1116,7 +1315,7 @@ export function PurchasePage() {
   ])
   const showLimitWarning = submitBlockReason === 'LIMIT_REACHED' || submitBlockReason === 'LIMIT_WOULD_BE_EXCEEDED'
   const canOpenCheckout = Boolean(
-    effectivePlanId !== null &&
+    (isBulkRenewFlow || effectivePlanId !== null) &&
       effectiveSelectedDuration !== null &&
       canPurchase &&
       !purchaseBlockedByLimit &&
@@ -1124,11 +1323,25 @@ export function PurchasePage() {
       (!isNewPurchaseFlow || selectedDeviceType)
   )
   const canSubmit = submitBlockReason === null
-  const purchaseWarningMessage =
-    resolvePurchaseWarning(singlePurchaseOptions?.warning_code, text)
-    ?? singlePurchaseOptions?.warning_message
-    ?? null
-  const isPlanSelectionLocked = Boolean(singlePurchaseOptions?.selection_locked)
+  const bulkPurchaseWarning = useMemo(() => {
+    const warningOption = bulkPurchaseOptions.find(
+      (option) => option.warning_code || option.warning_message
+    )
+    if (!warningOption) {
+      return null
+    }
+    return (
+      resolvePurchaseWarning(warningOption.warning_code, text)
+      ?? warningOption.warning_message
+      ?? null
+    )
+  }, [bulkPurchaseOptions, text])
+  const purchaseWarningMessage = isBulkRenewFlow
+    ? bulkPurchaseWarning
+    : resolvePurchaseWarning(singlePurchaseOptions?.warning_code, text)
+      ?? singlePurchaseOptions?.warning_message
+      ?? null
+  const isPlanSelectionLocked = isBulkRenewFlow || Boolean(singlePurchaseOptions?.selection_locked)
   const pageTitle = isUpgradeFlow
     ? text.titleUpgrade
     : isRenewFlow
@@ -1224,7 +1437,7 @@ export function PurchasePage() {
       return
     }
 
-    if (effectivePlanId === null) {
+    if (!isBulkRenewFlow && effectivePlanId === null) {
       toast.error(text.selectPlanError)
       return
     }
@@ -1261,7 +1474,7 @@ export function PurchasePage() {
       const basePayload = {
         channel: purchaseChannel,
         payment_source: paymentSource,
-        plan_id: effectivePlanId,
+        plan_id: isBulkRenewFlow ? undefined : effectivePlanId ?? undefined,
         duration_days: effectiveSelectedDuration,
         gateway_type: effectiveSelectedGateway,
         payment_asset: effectiveSelectedPaymentAsset,
@@ -1302,7 +1515,7 @@ export function PurchasePage() {
           startedAt: new Date().toISOString(),
           purchaseType,
           renewIds: upgradeSubscriptionId ? [upgradeSubscriptionId] : renewTargets,
-          planId: effectivePlanId,
+          planId: isBulkRenewFlow ? null : effectivePlanId ?? null,
           durationDays: effectiveSelectedDuration,
         })
 
@@ -1724,67 +1937,92 @@ export function PurchasePage() {
             <CardDescription>{selectPlanDescription}</CardDescription>
           </CardHeader>
           <CardContent>
-            <RadioGroup
-              value={effectivePlanId !== null ? effectivePlanId.toString() : ''}
-              onValueChange={(value) => {
-                if (isPlanSelectionLocked) {
-                  return
-                }
-                setSelectedPlan(Number(value))
-                setSelectedDuration(null)
-                setSelectedGateway(undefined)
-                setSelectedPaymentAsset(undefined)
-              }}
-              className="grid gap-4 md:grid-cols-2"
-            >
-              {availablePlans.map((plan) => (
-                <label
-                  key={plan.id}
-                  htmlFor={`plan-${plan.id}`}
-                  className={cn(
-                    'flex flex-col gap-4 rounded-lg border p-4 transition-all',
-                    isPlanSelectionLocked ? 'cursor-default' : 'cursor-pointer',
-                    effectivePlanId === plan.id
-                      ? 'border-primary/35 bg-primary/10 ring-1 ring-primary/40'
-                      : 'hover:bg-muted/30'
-                  )}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <RadioGroupItem value={plan.id.toString()} id={`plan-${plan.id}`} />
-                      <span className="font-medium">{plan.name}</span>
-                    </div>
-                    {effectivePlanId === plan.id && <Check className="h-5 w-5 text-primary" />}
-                  </div>
-
-                  <div className="text-sm text-muted-foreground">
-                    {plan.description || text.noDescription}
-                  </div>
-
-                  <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
-                    <p className="mb-2 text-[11px] uppercase tracking-wide text-slate-400">
-                      {text.includes}
-                    </p>
-                    <div className="flex flex-wrap gap-2 text-xs">
-                      <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-slate-200">
-                        {text.type}: {formatPlanType(plan.type)}
-                      </span>
-                      <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-slate-200">
-                        {text.traffic}: {formatTrafficLimit(plan.traffic_limit, text)}
-                      </span>
-                      <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-slate-200">
-                        {text.devices}: {formatDeviceLimit(plan.device_limit, text)}
-                      </span>
-                      {plan.tag && (
-                        <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-slate-200">
-                          {text.tag}: {plan.tag}
+            {isBulkRenewFlow ? (
+              <div className="space-y-3">
+                {bulkRenewDisplayItems.map(({ subscription, targetPlan, option }) => (
+                  <div
+                    key={subscription.id}
+                    className="rounded-lg border border-white/10 bg-white/[0.03] p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-slate-100">{subscription.plan.name}</p>
+                        <p className="text-sm text-slate-400">
+                          {targetPlan?.name ?? text.noPlansDesc}
+                        </p>
+                      </div>
+                      {option?.renew_mode && (
+                        <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-wide text-slate-300">
+                          {option.renew_mode}
                         </span>
                       )}
                     </div>
                   </div>
-                </label>
-              ))}
-            </RadioGroup>
+                ))}
+              </div>
+            ) : (
+              <RadioGroup
+                value={effectivePlanId !== null ? effectivePlanId.toString() : ''}
+                onValueChange={(value) => {
+                  if (isPlanSelectionLocked) {
+                    return
+                  }
+                  setSelectedPlan(Number(value))
+                  setSelectedDuration(null)
+                  setSelectedGateway(undefined)
+                  setSelectedPaymentAsset(undefined)
+                }}
+                className="grid gap-4 md:grid-cols-2"
+              >
+                {availablePlans.map((plan) => (
+                  <label
+                    key={plan.id}
+                    htmlFor={`plan-${plan.id}`}
+                    className={cn(
+                      'flex flex-col gap-4 rounded-lg border p-4 transition-all',
+                      isPlanSelectionLocked ? 'cursor-default' : 'cursor-pointer',
+                      effectivePlanId === plan.id
+                        ? 'border-primary/35 bg-primary/10 ring-1 ring-primary/40'
+                        : 'hover:bg-muted/30'
+                    )}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center gap-2">
+                        <RadioGroupItem value={plan.id.toString()} id={`plan-${plan.id}`} />
+                        <span className="font-medium">{plan.name}</span>
+                      </div>
+                      {effectivePlanId === plan.id && <Check className="h-5 w-5 text-primary" />}
+                    </div>
+
+                    <div className="text-sm text-muted-foreground">
+                      {plan.description || text.noDescription}
+                    </div>
+
+                    <div className="rounded-md border border-white/10 bg-white/[0.03] p-3">
+                      <p className="mb-2 text-[11px] uppercase tracking-wide text-slate-400">
+                        {text.includes}
+                      </p>
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-slate-200">
+                          {text.type}: {formatPlanType(plan.type)}
+                        </span>
+                        <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-slate-200">
+                          {text.traffic}: {formatTrafficLimit(plan.traffic_limit, text)}
+                        </span>
+                        <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-slate-200">
+                          {text.devices}: {formatDeviceLimit(plan.device_limit, text)}
+                        </span>
+                        {plan.tag && (
+                          <span className="rounded-full border border-white/12 bg-white/[0.03] px-2.5 py-1 text-slate-200">
+                            {text.tag}: {plan.tag}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </RadioGroup>
+            )}
           </CardContent>
         </Card>
 

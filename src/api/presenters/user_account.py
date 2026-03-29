@@ -175,10 +175,18 @@ class TransactionHistoryItemResponse(BaseModel):
     plan: dict
     renew_subscription_id: int | None = None
     renew_subscription_ids: list[int] | None = None
+    renew_items: list["TransactionRenewItemResponse"] | None = None
     device_types: list[str] | None = None
     is_test: bool
     created_at: str
     updated_at: str
+
+
+class TransactionRenewItemResponse(BaseModel):
+    subscription_id: int
+    renew_mode: str
+    plan: dict
+    pricing: TransactionPricingResponse
 
 
 class TransactionHistoryResponse(BaseModel):
@@ -224,6 +232,7 @@ class PurchaseResponse(BaseModel):
     url: str | None = None
     status: str
     message: str
+    renew_items: list[TransactionRenewItemResponse] | None = None
 
 
 class PurchaseQuoteResponse(BaseModel):
@@ -239,6 +248,7 @@ class PurchaseQuoteResponse(BaseModel):
     quote_source: str
     quote_expires_at: str
     quote_provider_count: int
+    renew_items: list[TransactionRenewItemResponse] | None = None
 
 
 class SubscriptionPurchaseOptionsResponse(BaseModel):
@@ -486,6 +496,20 @@ def _build_transaction_history_response(
                 plan=item.plan,
                 renew_subscription_id=item.renew_subscription_id,
                 renew_subscription_ids=item.renew_subscription_ids,
+                renew_items=[
+                    TransactionRenewItemResponse(
+                        subscription_id=renew_item.subscription_id,
+                        renew_mode=renew_item.renew_mode,
+                        plan=renew_item.plan,
+                        pricing=TransactionPricingResponse(
+                            original_amount=renew_item.pricing.original_amount,
+                            discount_percent=renew_item.pricing.discount_percent,
+                            final_amount=renew_item.pricing.final_amount,
+                        ),
+                    )
+                    for renew_item in (item.renew_items or [])
+                ]
+                or None,
                 device_types=item.device_types,
                 is_test=item.is_test,
                 created_at=item.created_at,
@@ -579,6 +603,20 @@ def _build_purchase_response(result: SubscriptionPurchaseResult) -> PurchaseResp
         url=result.url,
         status=result.status,
         message=result.message,
+        renew_items=[
+            TransactionRenewItemResponse(
+                subscription_id=item.subscription_id,
+                renew_mode=item.renew_mode.value,
+                plan=item.plan.model_dump(mode="json"),
+                pricing=TransactionPricingResponse(
+                    original_amount=float(item.pricing.original_amount),
+                    discount_percent=item.pricing.discount_percent,
+                    final_amount=float(item.pricing.final_amount),
+                ),
+            )
+            for item in result.renew_items
+        ]
+        or None,
     )
 
 
@@ -598,6 +636,20 @@ def _build_purchase_quote_response(
         quote_source=result.quote_source,
         quote_expires_at=result.quote_expires_at,
         quote_provider_count=result.quote_provider_count,
+        renew_items=[
+            TransactionRenewItemResponse(
+                subscription_id=item.subscription_id,
+                renew_mode=item.renew_mode.value,
+                plan=item.plan.model_dump(mode="json"),
+                pricing=TransactionPricingResponse(
+                    original_amount=float(item.pricing.original_amount),
+                    discount_percent=item.pricing.discount_percent,
+                    final_amount=float(item.pricing.final_amount),
+                ),
+            )
+            for item in result.renew_items
+        ]
+        or None,
     )
 
 

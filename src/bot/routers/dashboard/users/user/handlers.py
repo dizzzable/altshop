@@ -2456,6 +2456,33 @@ async def on_max_subscriptions_input(
 
 
 @inject
+async def on_referral_attach_open(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    reason = dialog_manager.dialog_data.get("attach_referrer_reason")
+
+    if not reason:
+        await dialog_manager.switch_to(state=DashboardUser.REFERRAL_ATTACH_SEARCH)
+        return
+
+    reason_key = {
+        "NO_PERMISSION": "ntf-user-referral-attach-unavailable-no-permission",
+        "SELF": "ntf-user-referral-attach-unavailable-self",
+        "REFERRAL_EXISTS": "ntf-user-referral-attach-unavailable-referral-exists",
+        "PARTNER_EXISTS": "ntf-user-referral-attach-unavailable-partner-exists",
+    }.get(str(reason), "ntf-user-referral-attach-unavailable-no-permission")
+
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(i18n_key=reason_key),
+    )
+
+
+@inject
 async def on_referral_attach_search(
     message: Message,
     widget: MessageInput,

@@ -84,8 +84,17 @@ class SubscriptionPurchasePolicyService:
             can_multi_renew=(
                 subscription.status != SubscriptionStatus.DELETED
                 and not subscription.is_trial
-                and selection.renew_mode
-                in {SubscriptionRenewMode.STANDARD, SubscriptionRenewMode.SELF_RENEW}
+                and selection.renew_mode is not None
+                and (
+                    selection.renew_mode in {
+                        SubscriptionRenewMode.STANDARD,
+                        SubscriptionRenewMode.SELF_RENEW,
+                    }
+                    or (
+                        selection.renew_mode == SubscriptionRenewMode.REPLACE_ON_RENEW
+                        and len(selection.renew_plans) == 1
+                    )
+                )
                 and bool(selection.renew_plans)
             ),
             renew_mode=selection.renew_mode,

@@ -199,6 +199,7 @@ export interface PurchaseResponse {
   url?: string | null
   status: string
   message: string
+  renew_items?: TransactionRenewItem[] | null
 }
 
 export interface PurchaseQuoteResponse {
@@ -214,6 +215,7 @@ export interface PurchaseQuoteResponse {
   quote_source: string
   quote_expires_at: string
   quote_provider_count: number
+  renew_items?: TransactionRenewItem[] | null
 }
 
 export interface SubscriptionPurchaseOptionsResponse {
@@ -248,6 +250,7 @@ export interface Transaction {
   plan: PlanSnapshot
   renew_subscription_id: number | null
   renew_subscription_ids: number[] | null
+  renew_items?: TransactionRenewItem[] | null
   device_types: DeviceType[] | null
   is_test: boolean
   created_at: string
@@ -267,6 +270,13 @@ export interface PriceDetails {
   original_amount: number
   discount_percent: number
   final_amount: number
+}
+
+export interface TransactionRenewItem {
+  subscription_id: number
+  renew_mode: SubscriptionRenewMode
+  plan: PlanSnapshot
+  pricing: PriceDetails
 }
 
 // Referral types
@@ -546,6 +556,11 @@ export interface AuthSessionResponse {
   auth_source?: string | null
 }
 
+export interface AuthSessionStatusResponse {
+  authenticated: boolean
+  refresh_required: boolean
+}
+
 export interface PasswordChangeResponse {
   message: string
 }
@@ -554,6 +569,7 @@ export interface TelegramLinkRequestResponse {
   message: string
   delivered: boolean
   expires_in_seconds: number
+  bot_confirm_url?: string | null
 }
 
 export interface TelegramLinkConfirmResponse {

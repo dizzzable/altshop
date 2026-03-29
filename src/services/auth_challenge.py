@@ -175,6 +175,7 @@ class AuthChallengeService:
         purpose: str,
         token: str,
         web_account_id: Optional[int] = None,
+        destination: Optional[str] = None,
     ) -> ChallengeVerifyResult:
         now = datetime_now()
         token_hash = self._hash_secret(token)
@@ -191,6 +192,11 @@ class AuthChallengeService:
                 )
 
             if web_account_id is not None and challenge.web_account_id != web_account_id:
+                return ChallengeVerifyResult(
+                    ok=False, reason=ChallengeErrorReason.INVALID_OR_EXPIRED
+                )
+
+            if destination is not None and challenge.destination != destination:
                 return ChallengeVerifyResult(
                     ok=False, reason=ChallengeErrorReason.INVALID_OR_EXPIRED
                 )

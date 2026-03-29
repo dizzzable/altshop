@@ -346,6 +346,10 @@ ntf-user-sync-failed = <i>❌ Failed to synchronize user.</i>
 ntf-user-sync-success = <i>✅ User synchronization completed.</i>
 ntf-user-referral-attach-success = <i>✅ Referrer <b>{ $referrer_name }</b> attached. Historical payments processed: <b>{ $payments }</b>.</i>
 ntf-user-referral-attach-failed = <i>❌ Failed to attach referrer: { $error }</i>
+ntf-user-referral-attach-unavailable-no-permission = <i>❌ You do not have permission to attach a referrer for this user.</i>
+ntf-user-referral-attach-unavailable-self = <i>❌ You cannot assign the user as their own referrer.</i>
+ntf-user-referral-attach-unavailable-referral-exists = <i>❌ This user already has referral attribution.</i>
+ntf-user-referral-attach-unavailable-partner-exists = <i>❌ This user already has partner attribution.</i>
 
 ntf-user-invalid-expire-time = <i>❌ Unable to { $operation ->
     [ADD] extend subscription by the specified number of days
