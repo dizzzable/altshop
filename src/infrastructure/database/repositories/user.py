@@ -188,6 +188,100 @@ class UserRepository(BaseRepository):
             params,
         )
 
+        # Merge source/target attribution rows before moving the "referred" side so the
+        # unique referred_telegram_id constraint is preserved and the earliest referral wins.
+        await self.session.execute(
+            text(
+                """
+                WITH source_ref AS (
+                    SELECT id, created_at
+                    FROM referrals
+                    WHERE referred_telegram_id = :source
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT 1
+                ),
+                target_ref AS (
+                    SELECT id, created_at
+                    FROM referrals
+                    WHERE referred_telegram_id = :target
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT 1
+                ),
+                decision AS (
+                    SELECT
+                        CASE
+                            WHEN s.id IS NULL THEN t.id
+                            WHEN t.id IS NULL THEN s.id
+                            WHEN s.created_at < t.created_at
+                                OR (s.created_at = t.created_at AND s.id < t.id)
+                                THEN s.id
+                            ELSE t.id
+                        END AS keep_id,
+                        CASE
+                            WHEN s.id IS NULL OR t.id IS NULL THEN NULL
+                            WHEN s.created_at < t.created_at
+                                OR (s.created_at = t.created_at AND s.id < t.id)
+                                THEN t.id
+                            ELSE s.id
+                        END AS drop_id
+                    FROM source_ref s
+                    FULL OUTER JOIN target_ref t ON TRUE
+                )
+                UPDATE referral_rewards rr
+                SET referral_id = d.keep_id
+                FROM decision d
+                WHERE d.drop_id IS NOT NULL
+                  AND rr.referral_id = d.drop_id
+                """
+            ),
+            params,
+        )
+        await self.session.execute(
+            text(
+                """
+                WITH source_ref AS (
+                    SELECT id, created_at
+                    FROM referrals
+                    WHERE referred_telegram_id = :source
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT 1
+                ),
+                target_ref AS (
+                    SELECT id, created_at
+                    FROM referrals
+                    WHERE referred_telegram_id = :target
+                    ORDER BY created_at ASC, id ASC
+                    LIMIT 1
+                ),
+                decision AS (
+                    SELECT
+                        CASE
+                            WHEN s.id IS NULL THEN t.id
+                            WHEN t.id IS NULL THEN s.id
+                            WHEN s.created_at < t.created_at
+                                OR (s.created_at = t.created_at AND s.id < t.id)
+                                THEN s.id
+                            ELSE t.id
+                        END AS keep_id,
+                        CASE
+                            WHEN s.id IS NULL OR t.id IS NULL THEN NULL
+                            WHEN s.created_at < t.created_at
+                                OR (s.created_at = t.created_at AND s.id < t.id)
+                                THEN t.id
+                            ELSE s.id
+                        END AS drop_id
+                    FROM source_ref s
+                    FULL OUTER JOIN target_ref t ON TRUE
+                )
+                DELETE FROM referrals r
+                USING decision d
+                WHERE d.drop_id IS NOT NULL
+                  AND r.id = d.drop_id
+                """
+            ),
+            params,
+        )
+
         # Move "referred" side and keep first-touch attribution by earliest created_at.
         await self.session.execute(
             text(

@@ -4,6 +4,7 @@ from urllib.parse import quote, urlencode
 
 from src.core.config import AppConfig
 from src.core.constants import REFERRAL_PREFIX
+from src.core.utils.web_app_urls import to_webapp_base_url
 
 
 def build_web_app_base_url(config: AppConfig) -> str:
@@ -27,6 +28,14 @@ def build_web_payment_redirect_urls(config: AppConfig) -> tuple[str, str]:
     success_url = f"{web_base_url}/dashboard/subscription?payment=success"
     fail_url = f"{web_base_url}/dashboard/subscription/purchase?payment=failed"
     return success_url, fail_url
+
+
+def build_web_app_route_url(raw_url: str, route_path: str) -> str:
+    web_base_url = to_webapp_base_url(raw_url).rstrip("/")
+    normalized_route = route_path.strip()
+    if not normalized_route:
+        return web_base_url
+    return f"{web_base_url}/{normalized_route.lstrip('/')}"
 
 
 def build_web_settings_url(

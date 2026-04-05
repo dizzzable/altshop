@@ -299,6 +299,9 @@ export function SettingsPage() {
         if (telegramLinkStatus === 'cancelled') {
           setError(null)
           setMessage(t('settings.message.telegramLinkCancelled'))
+        } else if (telegramLinkStatus === 'merge_conflict') {
+          setMessage(null)
+          setError(t('settings.message.telegramLinkMergeConflict'))
         } else {
           setMessage(null)
           setError(t('settings.message.telegramLinkInvalid'))

@@ -15,6 +15,7 @@ from src.core.constants import API_V1, PAYMENTS_WEBHOOK_PATH
 from src.core.enums import PaymentGatewayType
 from src.core.observability import emit_counter
 from src.core.utils.message_payload import MessagePayload
+from src.infrastructure.payment_gateways.platega import PlategaWebhookResolutionError
 from src.infrastructure.payment_gateways.yoomoney import (
     YoomoneyGateway,
     parse_yoomoney_redirect_token,
@@ -168,6 +169,14 @@ async def payments_webhook(
     except PermissionError as e:
         logger.warning(f"Permission denied for webhook: '{gateway_type}' - {e}")
         return Response(status_code=status.HTTP_403_FORBIDDEN)
+
+    except PlategaWebhookResolutionError as exception:
+        logger.warning(
+            "Platega webhook resolution failed for gateway='{}': {}",
+            gateway_type,
+            exception,
+        )
+        return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
 
     except Exception as exception:
         logger.exception(f"Error processing webhook for '{gateway_type}': {exception}")

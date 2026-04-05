@@ -13,6 +13,7 @@ from src.infrastructure.database.models.dto import PaymentGatewayDto, PlategaGat
 from src.infrastructure.database.models.sql import PaymentWebhookEvent
 from src.infrastructure.payment_gateways.platega import (
     PlategaGateway,
+    PlategaTransactionAccessDeniedError,
     PlategaTransactionNotFoundError,
     PlategaWebhookResolutionError,
 )
@@ -125,6 +126,21 @@ def test_platega_webhook_raises_resolution_error_for_invalid_payload_uuid() -> N
         assert "internal payment UUID" in str(exception)
     else:
         raise AssertionError("Expected Platega webhook resolution to fail for invalid payload")
+
+
+def test_platega_resolution_wraps_forbidden_lookup_as_compact_error() -> None:
+    external_transaction_id = uuid4()
+    gateway = build_platega_gateway()
+    gateway.get_transaction = AsyncMock(  # type: ignore[method-assign]
+        side_effect=PlategaTransactionAccessDeniedError("forbidden")
+    )
+
+    try:
+        run_async(gateway.resolve_internal_payment_id(external_transaction_id))
+    except PlategaWebhookResolutionError as exception:
+        assert "lookup forbidden" in str(exception).lower()
+    else:
+        raise AssertionError("Expected forbidden Platega lookup to raise resolution error")
 
 
 def test_handle_payment_succeeded_raises_when_transaction_is_missing() -> None:

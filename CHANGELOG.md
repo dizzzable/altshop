@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.15] - 2026-04-05
+
+### Changed
+
+- the mobile subscription details sheet now shows `Upgrade` as a full action button with both icon and label, matching the rest of the expanded quick actions
+- Telegram renewal notifications now become Mini App-aware: in mini app mode they open the Mini App directly on the subscriptions page, while non-miniapp setups keep the bot renew fallback
+- startup Remnawave connectivity checks now fall back to a raw `/system/stats` health probe when the SDK model drifts from the panel response shape
+
+### Fixed
+
+- Telegram renew flows no longer lose `purchase_type` mid-dialog, and payment quote cache data is now kept JSON-safe so aiogram-dialog storage does not crash on `TransactionRenewItemDto`
+- Telegram account linking no longer blows up on duplicate referral attribution merges; conflicting referral rows are reconciled and remaining merge failures return a controlled link error instead of a raw SQL exception
+- Platega webhook transaction lookups now treat remote `403` resolution failures as a dedicated compact error path instead of cascading into noisy nested tracebacks
+
 ## [1.2.14] - 2026-03-29
 
 ### Changed

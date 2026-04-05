@@ -236,6 +236,8 @@ export const ruDictionary: Dictionary = {
     'settings.message.telegramLinkedViaBot': 'Telegram успешно подтверждён через бота.',
     'settings.message.telegramLinkCancelled': 'Подтверждение привязки отменено.',
     'settings.message.telegramLinkInvalid': 'Ссылка подтверждения уже недействительна или была использована.',
+    'settings.message.telegramLinkMergeConflict':
+      'Автоматически завершить привязку не удалось. Откройте настройки и повторите привязку через веб-профиль.',
     'settings.partnerBalanceCurrency.label': 'Валюта партнёрского баланса',
     'settings.partnerBalanceCurrency.placeholderAuto': 'Авто',
     'settings.partnerBalanceCurrency.optionAuto': 'Авто ({currency})',

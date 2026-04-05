@@ -236,6 +236,8 @@ export const enDictionary: Dictionary = {
     'settings.message.telegramLinkedViaBot': 'Telegram was linked successfully through the bot.',
     'settings.message.telegramLinkCancelled': 'Telegram link confirmation was cancelled.',
     'settings.message.telegramLinkInvalid': 'Confirmation link is invalid or has already been used.',
+    'settings.message.telegramLinkMergeConflict':
+      'Automatic linking could not be completed. Open settings and retry the link flow from the web profile.',
     'settings.partnerBalanceCurrency.label': 'Partner balance currency',
     'settings.partnerBalanceCurrency.placeholderAuto': 'Auto',
     'settings.partnerBalanceCurrency.optionAuto': 'Auto ({currency})',

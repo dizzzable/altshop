@@ -32,6 +32,10 @@ class PlategaTransactionNotFoundError(RuntimeError):
     """Raised when Platega no longer has the requested transaction."""
 
 
+class PlategaTransactionAccessDeniedError(RuntimeError):
+    """Raised when Platega rejects transaction lookup for the current credentials."""
+
+
 class PlategaGateway(BasePaymentGateway):
     """Platega payment gateway."""
 
@@ -194,6 +198,14 @@ class PlategaGateway(BasePaymentGateway):
                 raise PlategaTransactionNotFoundError(
                     f"Platega transaction '{transaction_id}' was not found"
                 ) from exception
+            if exception.response.status_code == 403:
+                logger.warning(
+                    "Platega transaction lookup was forbidden for external_transaction_id='{}'",
+                    transaction_id,
+                )
+                raise PlategaTransactionAccessDeniedError(
+                    f"Platega transaction lookup forbidden for '{transaction_id}'"
+                ) from exception
 
             logger.error(
                 "Failed to get Platega transaction info for external_transaction_id='{}': {}",
@@ -212,6 +224,22 @@ class PlategaGateway(BasePaymentGateway):
     async def resolve_internal_payment_id(self, external_transaction_id: UUID | str) -> UUID:
         try:
             transaction_details = await self.get_transaction(str(external_transaction_id))
+        except PlategaTransactionAccessDeniedError as exception:
+            emit_counter(
+                "payment_gateway_platega_resolution_failures_total",
+                reason="transaction_lookup_forbidden",
+            )
+            raise PlategaWebhookResolutionError(
+                "Platega transaction lookup forbidden for webhook resolution"
+            ) from exception
+        except PlategaTransactionNotFoundError as exception:
+            emit_counter(
+                "payment_gateway_platega_resolution_failures_total",
+                reason="transaction_lookup_missing",
+            )
+            raise PlategaWebhookResolutionError(
+                "Platega transaction not found during webhook resolution"
+            ) from exception
         except Exception as exception:
             emit_counter(
                 "payment_gateway_platega_resolution_failures_total",

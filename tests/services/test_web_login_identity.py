@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 
 from src.api.contracts.web_auth import RegisterRequest, WebAccountBootstrapRequest
 from src.api.presenters.user_account import _build_user_profile_response
@@ -274,6 +275,35 @@ def test_telegram_link_confirm_token_consumes_challenge_for_matching_destination
         token="challenge-token",
         destination="412289221",
     )
+
+
+def test_telegram_link_wraps_integrity_error_during_reference_merge() -> None:
+    uow = DummyUow()
+    service = TelegramLinkService(
+        uow=uow,
+        challenge_service=SimpleNamespace(),
+        bot=SimpleNamespace(),
+        settings_service=SimpleNamespace(),
+    )
+    current_account = SimpleNamespace(id=77, user_telegram_id=-555, token_version=4)
+    source_user = SimpleNamespace(telegram_id=-555)
+    target_user = SimpleNamespace(telegram_id=412289221)
+    service._get_web_account_or_error = AsyncMock(return_value=current_account)
+    service._handle_already_linked_account = AsyncMock(return_value=None)
+    service._assert_telegram_not_linked_elsewhere = AsyncMock()
+    service._get_source_user_or_error = AsyncMock(return_value=source_user)
+    service._get_or_create_target_user = AsyncMock(return_value=target_user)
+    service._assert_merge_allowed = AsyncMock(return_value=True)
+    service._merge_user_values = AsyncMock()
+    uow.repository.users.reassign_telegram_id_references = AsyncMock(
+        side_effect=IntegrityError("UPDATE", {}, Exception("duplicate referral"))
+    )
+
+    with pytest.raises(ValueError) as exception_info:
+        run_async(service._safe_auto_link(web_account_id=77, telegram_id=412289221))
+
+    error = exception_info.value
+    assert getattr(error, "code", None) == "MANUAL_MERGE_REQUIRED"
 
 
 def test_web_login_contract_normalizes_supported_values() -> None:

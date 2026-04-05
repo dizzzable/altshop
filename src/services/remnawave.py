@@ -112,12 +112,51 @@ class RemnawaveService(BaseService):
         self.settings_service = settings_service
 
     async def try_connection(self) -> None:
-        response = await self.remnawave.system.get_stats()
+        try:
+            response = await self.remnawave.system.get_stats()
+        except ValidationError as exception:
+            logger.warning(
+                "Remnawave SDK validation failed for /system/stats, "
+                "falling back to raw health check: {}",
+                exception,
+            )
+            await self._try_connection_raw()
+            return
 
         if not isinstance(response, GetStatsResponseDto):
             if isinstance(response, (bytes, bytearray)):
                 response = response.decode(errors="ignore")
-            raise ValueError(f"Invalid response from Remnawave panel: {response}")
+            logger.warning(
+                "Unexpected Remnawave /system/stats response type '{}', "
+                "falling back to raw health check",
+                type(response).__name__,
+            )
+            await self._try_connection_raw()
+
+    def _build_raw_api_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {
+            "Authorization": f"Bearer {self.config.remnawave.token.get_secret_value()}",
+            "X-Api-Key": self.config.remnawave.caddy_token.get_secret_value(),
+        }
+
+        if not self.config.remnawave.is_external:
+            headers["x-forwarded-proto"] = "https"
+            headers["x-forwarded-for"] = "127.0.0.1"
+
+        return headers
+
+    def _build_raw_api_base_url(self) -> str:
+        return f"{self.config.remnawave.url.get_secret_value()}/api"
+
+    async def _try_connection_raw(self) -> None:
+        async with AsyncClient(
+            base_url=self._build_raw_api_base_url(),
+            headers=self._build_raw_api_headers(),
+            cookies=self.config.remnawave.cookies,
+            timeout=Timeout(15.0, connect=5.0),
+        ) as client:
+            response = await client.get("/system/stats")
+            response.raise_for_status()
 
     @staticmethod
     def _normalize_platform_to_device_type(platform: str | None) -> DeviceType:

@@ -74,6 +74,13 @@ def _tg_link_copy(user: UserDto, key: str) -> str:
             if is_ru
             else "Confirmation link is invalid or already used."
         ),
+        "merge_conflict": (
+            "Автоматически завершить привязку не удалось. "
+            "Откройте настройки и повторите привязку через веб-профиль."
+            if is_ru
+            else "Automatic linking could not be completed. "
+            "Open settings and retry the link flow from the web profile."
+        ),
         "return": "Открыть настройки" if is_ru else "Open settings",
     }
     return translations[key]
@@ -228,14 +235,20 @@ async def on_telegram_link_confirm_click(
             telegram_id=user.telegram_id,
             token=token,
         )
-    except TelegramLinkError:
+    except TelegramLinkError as exception:
+        result_key = (
+            "merge_conflict"
+            if exception.code in {"MANUAL_MERGE_REQUIRED", "LINK_UPDATE_FAILED"}
+            else "invalid"
+        )
+        result_marker = "merge_conflict" if result_key == "merge_conflict" else "invalid"
         await callback.message.edit_text(
-            _tg_link_copy(user, "invalid"),
+            _tg_link_copy(user, result_key),
             reply_markup=_build_tg_link_result_keyboard(
                 user,
                 build_web_settings_url(
                     config,
-                    telegram_link="invalid",
+                    telegram_link=result_marker,
                     telegram_id=user.telegram_id,
                 ),
             ),

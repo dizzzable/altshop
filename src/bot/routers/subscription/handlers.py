@@ -1,5 +1,4 @@
 import traceback
-from dataclasses import asdict
 from decimal import Decimal
 from typing import Optional, TypedDict, cast
 from uuid import UUID
@@ -89,6 +88,23 @@ class CachedPaymentData(TypedDict):
     payment_id: str
     payment_url: Optional[str]
     final_quote: dict[str, object]
+
+
+def _serialize_final_quote(quote: object) -> dict[str, object]:
+    return {
+        "price": cast(object, getattr(quote, "price")),
+        "original_price": cast(object, getattr(quote, "original_price")),
+        "currency": cast(object, getattr(quote, "currency")),
+        "settlement_price": cast(object, getattr(quote, "settlement_price")),
+        "settlement_original_price": cast(object, getattr(quote, "settlement_original_price")),
+        "settlement_currency": cast(object, getattr(quote, "settlement_currency")),
+        "discount_percent": cast(object, getattr(quote, "discount_percent")),
+        "discount_source": cast(object, getattr(quote, "discount_source")),
+        "payment_asset": cast(object, getattr(quote, "payment_asset")),
+        "quote_source": cast(object, getattr(quote, "quote_source")),
+        "quote_expires_at": cast(object, getattr(quote, "quote_expires_at")),
+        "quote_provider_count": cast(object, getattr(quote, "quote_provider_count")),
+    }
 
 
 def _resolve_available_currency(
@@ -226,13 +242,44 @@ async def _notify_user(
 def _get_purchase_state(
     dialog_manager: DialogManager,
 ) -> tuple[PurchaseType, int | None, list[int] | None]:
-    return (
-        normalize_purchase_type(
-            cast(PurchaseType | str, dialog_manager.dialog_data["purchase_type"])
-        ),
-        cast(Optional[int], dialog_manager.dialog_data.get("renew_subscription_id")),
-        cast(Optional[list[int]], dialog_manager.dialog_data.get("renew_subscription_ids")),
+    renew_subscription_id = cast(
+        Optional[int],
+        dialog_manager.dialog_data.get("renew_subscription_id"),
     )
+    renew_subscription_ids = cast(
+        Optional[list[int]],
+        dialog_manager.dialog_data.get("renew_subscription_ids"),
+    )
+    inferred_purchase_type = (
+        PurchaseType.RENEW
+        if collect_renew_ids(
+            renew_subscription_id=renew_subscription_id,
+            renew_subscription_ids=renew_subscription_ids,
+        )
+        else PurchaseType.NEW
+    )
+    raw_purchase_type = dialog_manager.dialog_data.get("purchase_type")
+
+    try:
+        purchase_type = normalize_purchase_type(
+            cast(PurchaseType | str, raw_purchase_type or inferred_purchase_type)
+        )
+    except Exception:
+        purchase_type = inferred_purchase_type
+        logger.warning(
+            "Recovered invalid purchase_type from dialog state. inferred='{}' raw='{}'",
+            purchase_type.value,
+            raw_purchase_type,
+        )
+    else:
+        if raw_purchase_type is None:
+            logger.warning(
+                "Recovered missing purchase_type from dialog state. inferred='{}'",
+                purchase_type.value,
+            )
+
+    dialog_manager.dialog_data["purchase_type"] = purchase_type
+    return purchase_type, renew_subscription_id, renew_subscription_ids
 
 
 async def _get_settings_service(dialog_manager: DialogManager) -> SettingsService:
@@ -403,6 +450,7 @@ def _select_single_renewable_subscription(
 ) -> None:
     _clear_allowed_purchase_plan_ids(dialog_manager)
     adapter.save(matched_plan)
+    dialog_manager.dialog_data["purchase_type"] = PurchaseType.RENEW
     dialog_manager.dialog_data["only_single_plan"] = True
     dialog_manager.dialog_data["renew_subscription_id"] = subscription.id
     dialog_manager.dialog_data["renew_subscription_ids"] = None
@@ -416,6 +464,7 @@ def _prepare_renew_selection(
     *,
     single_select_mode: bool,
 ) -> None:
+    dialog_manager.dialog_data["purchase_type"] = PurchaseType.RENEW
     dialog_manager.dialog_data[SELECTED_SUBSCRIPTIONS_FOR_RENEW_KEY] = []
     dialog_manager.dialog_data["renew_subscription_ids"] = None
     dialog_manager.dialog_data["renew_subscription_id"] = None
@@ -1174,7 +1223,7 @@ async def _create_payment_and_get_data(
     return CachedPaymentData(
         payment_id=result.transaction_id,
         payment_url=result.payment_url,
-        final_quote=asdict(quote),
+        final_quote=_serialize_final_quote(quote),
     )
 
 
@@ -2033,6 +2082,7 @@ async def on_confirm_renew_selection(
         return
 
     logger.info(f"{log(user)} Confirmed renewal for subscriptions: {selected_subscriptions}")
+    dialog_manager.dialog_data["purchase_type"] = PurchaseType.RENEW
 
     # Получаем все выбранные подписки и их планы
     subscriptions_with_plans = []

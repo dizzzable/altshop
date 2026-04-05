@@ -286,10 +286,24 @@ class TelegramLinkService:
             )
 
             if source_user.telegram_id != target_user.telegram_id and source_has_data:
-                await self.uow.repository.users.reassign_telegram_id_references(
-                    source_telegram_id=source_user.telegram_id,
-                    target_telegram_id=target_user.telegram_id,
-                )
+                try:
+                    await self.uow.repository.users.reassign_telegram_id_references(
+                        source_telegram_id=source_user.telegram_id,
+                        target_telegram_id=target_user.telegram_id,
+                    )
+                except IntegrityError as exception:
+                    logger.warning(
+                        "Automatic Telegram link merge failed for source='{}' target='{}': {}",
+                        source_user.telegram_id,
+                        target_user.telegram_id,
+                        exception,
+                    )
+                    raise TelegramLinkError(
+                        code="MANUAL_MERGE_REQUIRED",
+                        message=(
+                            "Automatic merge failed because referral attribution already exists."
+                        ),
+                    ) from exception
 
             await self._merge_user_values(
                 source_user_telegram_id=source_user.telegram_id,

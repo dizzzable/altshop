@@ -1,6 +1,6 @@
 from typing import Final
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram_dialog import StartMode
 from aiogram_dialog.widgets.kbd import Row, Start, Url, WebApp
@@ -73,12 +73,21 @@ main_menu_button = (
 )
 
 
-def get_renew_keyboard() -> InlineKeyboardMarkup:
+def get_renew_keyboard(
+    *,
+    web_app_url: str | None = None,
+    use_web_app: bool = False,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(
             text="btn-goto-subscription-renew",
-            callback_data=f"{GOTO_PREFIX}{PURCHASE_PREFIX}{PurchaseType.RENEW}",
+            web_app=WebAppInfo(url=web_app_url) if use_web_app and web_app_url else None,
+            callback_data=(
+                None
+                if use_web_app and web_app_url
+                else f"{GOTO_PREFIX}{PURCHASE_PREFIX}{PurchaseType.RENEW}"
+            ),
         ),
     )
     return builder.as_markup()

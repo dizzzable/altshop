@@ -1549,12 +1549,11 @@ function MobileSubscriptionDetailsContent({
         {showUpgrade && (
           <Button
             variant="outline"
-            size="icon"
             className="border-white/15 bg-white/5 text-slate-100 hover:bg-white/10"
-            aria-label={t('subscription.card.upgrade')}
             onClick={() => onUpgrade(subscription.id)}
           >
-            <ArrowUpCircle className="h-4 w-4" />
+            <ArrowUpCircle className="mr-1.5 h-4 w-4" />
+            {t('subscription.card.upgrade')}
           </Button>
         )}
         <Button variant="outline" onClick={() => onManageDevices(subscription.id)}>
