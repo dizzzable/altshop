@@ -63,6 +63,7 @@ class TelegramLinkService:
         telegram_id: int,
         ttl_seconds: int,
         attempts: int,
+        return_to_miniapp: bool = False,
     ) -> TelegramLinkRequestResult:
         challenge = await self.challenge_service.create(
             web_account_id=web_account.id or 0,
@@ -73,7 +74,10 @@ class TelegramLinkService:
             attempts=attempts,
             include_code=True,
             include_token=True,
-            meta={"telegram_id": telegram_id},
+            meta={
+                "telegram_id": telegram_id,
+                "return_to_miniapp": return_to_miniapp,
+            },
         )
 
         delivered = True
@@ -124,7 +128,10 @@ class TelegramLinkService:
             delivered=delivered,
             expires_in_seconds=ttl_seconds,
             destination=telegram_id,
-            bot_confirm_url=await self._build_bot_confirm_url(challenge.token),
+            bot_confirm_url=await self._build_bot_confirm_url(
+                challenge.token,
+                return_to_miniapp=return_to_miniapp,
+            ),
         )
 
     async def confirm_code(
@@ -239,7 +246,12 @@ class TelegramLinkService:
                 f"Failed to delete verification message '{message_id}' for chat '{chat_id}': {exc}"
             )
 
-    async def _build_bot_confirm_url(self, token: str | None) -> str | None:
+    async def _build_bot_confirm_url(
+        self,
+        token: str | None,
+        *,
+        return_to_miniapp: bool,
+    ) -> str | None:
         normalized_token = str(token or "").strip()
         if not normalized_token:
             return None
@@ -254,7 +266,8 @@ class TelegramLinkService:
         if not username:
             return None
 
-        return f"{T_ME}{username}?start=tglink_{normalized_token}"
+        start_prefix = "tglinkapp_" if return_to_miniapp else "tglink_"
+        return f"{T_ME}{username}?start={start_prefix}{normalized_token}"
 
     async def _safe_auto_link(
         self,

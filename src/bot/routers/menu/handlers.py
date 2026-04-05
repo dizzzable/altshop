@@ -1,7 +1,13 @@
 ﻿from aiogram import F, Router
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.filters import CommandObject, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    WebAppInfo,
+)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram_dialog import DialogManager, ShowMode, StartMode
 from aiogram_dialog.widgets.kbd import Button, Select
@@ -11,12 +17,13 @@ from dishka.integrations.aiogram_dialog import inject as dialog_inject
 from fluentogram import TranslatorRunner
 from loguru import logger
 
-from src.api.utils.web_app_urls import build_web_settings_url
+from src.api.utils.web_app_urls import build_web_app_route_url, build_web_settings_url
 from src.bot.keyboards import CALLBACK_CHANNEL_CONFIRM, CALLBACK_RULES_ACCEPT
 from src.bot.states import MainMenu, UserPartner
 from src.core.config import AppConfig
 from src.core.constants import REFERRAL_PREFIX, USER_KEY
 from src.core.enums import MediaType, PointsExchangeType, PurchaseChannel, ReferralInviteSource
+from src.core.utils.bot_menu import resolve_bot_menu_url
 from src.core.utils.formatters import format_user_log as log
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.database.models.dto import UserDto
@@ -39,8 +46,11 @@ from src.services.user import UserService
 router = Router(name=__name__)
 
 _TG_LINK_START_PREFIX = "tglink_"
+_TG_LINK_START_MINIAPP_PREFIX = "tglinkapp_"
 _TG_LINK_CONFIRM_PREFIX = "tglnk_ok:"
+_TG_LINK_CONFIRM_MINIAPP_PREFIX = "tglnk_ok_app:"
 _TG_LINK_CANCEL_PREFIX = "tglnk_no:"
+_TG_LINK_CANCEL_MINIAPP_PREFIX = "tglnk_no_app:"
 
 
 def _is_russian_user(user: UserDto) -> bool:
@@ -86,16 +96,67 @@ def _tg_link_copy(user: UserDto, key: str) -> str:
     return translations[key]
 
 
-def _build_tg_link_confirmation_keyboard(user: UserDto, token: str) -> InlineKeyboardMarkup:
+def _extract_tg_link_token_and_mode(value: str) -> tuple[str, bool]:
+    if value.startswith(_TG_LINK_START_MINIAPP_PREFIX):
+        return value.removeprefix(_TG_LINK_START_MINIAPP_PREFIX).strip(), True
+    if value.startswith(_TG_LINK_CONFIRM_MINIAPP_PREFIX):
+        return value.removeprefix(_TG_LINK_CONFIRM_MINIAPP_PREFIX).strip(), True
+    if value.startswith(_TG_LINK_CANCEL_MINIAPP_PREFIX):
+        return value.removeprefix(_TG_LINK_CANCEL_MINIAPP_PREFIX).strip(), True
+    if value.startswith(_TG_LINK_START_PREFIX):
+        return value.removeprefix(_TG_LINK_START_PREFIX).strip(), False
+    if value.startswith(_TG_LINK_CONFIRM_PREFIX):
+        return value.removeprefix(_TG_LINK_CONFIRM_PREFIX).strip(), False
+    if value.startswith(_TG_LINK_CANCEL_PREFIX):
+        return value.removeprefix(_TG_LINK_CANCEL_PREFIX).strip(), False
+    return value.strip(), False
+
+
+async def _build_telegram_link_return_url(
+    config: AppConfig,
+    settings_service: SettingsService,
+    *,
+    telegram_link: str,
+    telegram_id: int,
+    return_to_miniapp: bool,
+) -> str:
+    if return_to_miniapp:
+        settings = await settings_service.get()
+        mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=config)
+        if mini_app_url:
+            return build_web_app_route_url(
+                mini_app_url,
+                f"/dashboard/settings?telegram_link={telegram_link}&telegram_id={telegram_id}",
+            )
+
+    return build_web_settings_url(
+        config,
+        telegram_link=telegram_link,
+        telegram_id=telegram_id,
+    )
+
+
+def _build_tg_link_confirmation_keyboard(
+    user: UserDto,
+    token: str,
+    *,
+    return_to_miniapp: bool,
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
+    confirm_prefix = (
+        _TG_LINK_CONFIRM_MINIAPP_PREFIX if return_to_miniapp else _TG_LINK_CONFIRM_PREFIX
+    )
+    cancel_prefix = (
+        _TG_LINK_CANCEL_MINIAPP_PREFIX if return_to_miniapp else _TG_LINK_CANCEL_PREFIX
+    )
     builder.row(
         InlineKeyboardButton(
             text=_tg_link_copy(user, "confirm"),
-            callback_data=f"{_TG_LINK_CONFIRM_PREFIX}{token}",
+            callback_data=f"{confirm_prefix}{token}",
         ),
         InlineKeyboardButton(
             text=_tg_link_copy(user, "cancel"),
-            callback_data=f"{_TG_LINK_CANCEL_PREFIX}{token}",
+            callback_data=f"{cancel_prefix}{token}",
         ),
     )
     return builder.as_markup()
@@ -104,6 +165,8 @@ def _build_tg_link_confirmation_keyboard(user: UserDto, token: str) -> InlineKey
 def _build_tg_link_result_keyboard(
     user: UserDto,
     return_url: str | None,
+    *,
+    return_to_miniapp: bool = False,
 ) -> InlineKeyboardMarkup | None:
     if not return_url:
         return None
@@ -112,7 +175,8 @@ def _build_tg_link_result_keyboard(
     builder.row(
         InlineKeyboardButton(
             text=_tg_link_copy(user, "return"),
-            url=return_url,
+            web_app=WebAppInfo(url=return_url) if return_to_miniapp else None,
+            url=None if return_to_miniapp else return_url,
         ),
     )
     return builder.as_markup()
@@ -197,15 +261,22 @@ async def on_start_command(
 ) -> None:
     del is_new_user
 
-    if command.args and command.args.startswith(_TG_LINK_START_PREFIX):
-        token = command.args.removeprefix(_TG_LINK_START_PREFIX).strip()
+    if command.args and (
+        command.args.startswith(_TG_LINK_START_PREFIX)
+        or command.args.startswith(_TG_LINK_START_MINIAPP_PREFIX)
+    ):
+        token, return_to_miniapp = _extract_tg_link_token_and_mode(command.args)
         if not token:
             await message.answer(_tg_link_copy(user, "invalid"))
             return
 
         await message.answer(
             _tg_link_copy(user, "prompt"),
-            reply_markup=_build_tg_link_confirmation_keyboard(user, token),
+            reply_markup=_build_tg_link_confirmation_keyboard(
+                user,
+                token,
+                return_to_miniapp=return_to_miniapp,
+            ),
         )
         return
 
@@ -221,15 +292,16 @@ async def on_start_command(
     await on_start_dialog(user, dialog_manager, user_service)
 
 
-@router.callback_query(F.data.startswith(_TG_LINK_CONFIRM_PREFIX))
+@router.callback_query(F.data.startswith("tglnk_ok"))
 @aiogram_inject
 async def on_telegram_link_confirm_click(
     callback: CallbackQuery,
     user: UserDto,
     telegram_link_service: FromDishka[TelegramLinkService],
     config: FromDishka[AppConfig],
+    settings_service: FromDishka[SettingsService],
 ) -> None:
-    token = str(callback.data or "").removeprefix(_TG_LINK_CONFIRM_PREFIX).strip()
+    token, return_to_miniapp = _extract_tg_link_token_and_mode(str(callback.data or ""))
     try:
         await telegram_link_service.confirm_token(
             telegram_id=user.telegram_id,
@@ -246,11 +318,14 @@ async def on_telegram_link_confirm_click(
             _tg_link_copy(user, result_key),
             reply_markup=_build_tg_link_result_keyboard(
                 user,
-                build_web_settings_url(
+                await _build_telegram_link_return_url(
                     config,
+                    settings_service,
                     telegram_link=result_marker,
                     telegram_id=user.telegram_id,
+                    return_to_miniapp=return_to_miniapp,
                 ),
+                return_to_miniapp=return_to_miniapp,
             ),
         )
         await callback.answer()
@@ -260,32 +335,40 @@ async def on_telegram_link_confirm_click(
         _tg_link_copy(user, "success"),
         reply_markup=_build_tg_link_result_keyboard(
             user,
-            build_web_settings_url(
+            await _build_telegram_link_return_url(
                 config,
+                settings_service,
                 telegram_link="success",
                 telegram_id=user.telegram_id,
+                return_to_miniapp=return_to_miniapp,
             ),
+            return_to_miniapp=return_to_miniapp,
         ),
     )
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith(_TG_LINK_CANCEL_PREFIX))
+@router.callback_query(F.data.startswith("tglnk_no"))
 @aiogram_inject
 async def on_telegram_link_cancel_click(
     callback: CallbackQuery,
     user: UserDto,
     config: FromDishka[AppConfig],
+    settings_service: FromDishka[SettingsService],
 ) -> None:
+    _token, return_to_miniapp = _extract_tg_link_token_and_mode(str(callback.data or ""))
     await callback.message.edit_text(
         _tg_link_copy(user, "cancelled"),
         reply_markup=_build_tg_link_result_keyboard(
             user,
-            build_web_settings_url(
+            await _build_telegram_link_return_url(
                 config,
+                settings_service,
                 telegram_link="cancelled",
                 telegram_id=user.telegram_id,
+                return_to_miniapp=return_to_miniapp,
             ),
+            return_to_miniapp=return_to_miniapp,
         ),
     )
     await callback.answer()

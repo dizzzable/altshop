@@ -71,6 +71,29 @@ def _resolve_panel_profile_name(remna_user: Any) -> str | bool:
     return str(username)
 
 
+def _resolve_panel_telegram_id_from_dialog(dialog_manager: DialogManager, target_user: UserDto) -> int:
+    raw_value = dialog_manager.dialog_data.get("panel_telegram_id")
+    if isinstance(raw_value, int):
+        return raw_value
+    if isinstance(raw_value, str) and raw_value.lstrip("-").isdigit():
+        return int(raw_value)
+    return target_user.telegram_id
+
+
+async def _resolve_subscription_owner(
+    *,
+    dialog_manager: DialogManager,
+    target_user: UserDto,
+    user_service: UserService,
+) -> UserDto:
+    panel_telegram_id = _resolve_panel_telegram_id_from_dialog(dialog_manager, target_user)
+    if panel_telegram_id == target_user.telegram_id:
+        return target_user
+
+    subscription_owner = await user_service.get(telegram_id=panel_telegram_id)
+    return subscription_owner or target_user
+
+
 def _resolve_identity_kind(
     target_user: UserDto,
     *,
@@ -123,17 +146,24 @@ async def user_getter(
     public_username = target_user.username or None
     panel_telegram_id = linked_telegram_id or target_user.telegram_id
     dialog_manager.dialog_data["panel_telegram_id"] = panel_telegram_id
+    subscription_owner = await _resolve_subscription_owner(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        user_service=user_service,
+    )
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     current_subscription_id = (
-        target_user.current_subscription.id if target_user.current_subscription else None
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None
     )
     visible_subscriptions, selected_subscription = resolve_selected_subscription(
         dialog_manager,
         all_subscriptions,
         current_subscription_id,
     )
-    subscription = target_user.current_subscription or selected_subscription
+    subscription = subscription_owner.current_subscription or selected_subscription
     subscriptions_count = len(visible_subscriptions)
 
     # Проверяем партнерский статус
@@ -329,9 +359,16 @@ async def subscriptions_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_subscription_owner(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        user_service=user_service,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     current_subscription_id = (
-        target_user.current_subscription.id if target_user.current_subscription else None
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None
     )
     visible_subscriptions, _ = resolve_selected_subscription(
         dialog_manager,
@@ -376,9 +413,16 @@ async def subscription_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_subscription_owner(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        user_service=user_service,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     current_subscription_id = (
-        target_user.current_subscription.id if target_user.current_subscription else None
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None
     )
     visible_subscriptions, subscription = resolve_selected_subscription(
         dialog_manager,
@@ -466,11 +510,18 @@ async def devices_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_subscription_owner(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        user_service=user_service,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     visible_subscriptions, subscription = resolve_selected_subscription(
         dialog_manager,
         all_subscriptions,
-        target_user.current_subscription.id if target_user.current_subscription else None,
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None,
     )
 
     if not subscription:
@@ -576,11 +627,18 @@ async def squads_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_subscription_owner(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        user_service=user_service,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     _, subscription = resolve_selected_subscription(
         dialog_manager,
         all_subscriptions,
-        target_user.current_subscription.id if target_user.current_subscription else None,
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None,
     )
 
     if not subscription:
@@ -621,11 +679,18 @@ async def internal_squads_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_subscription_owner(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        user_service=user_service,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     _, subscription = resolve_selected_subscription(
         dialog_manager,
         all_subscriptions,
-        target_user.current_subscription.id if target_user.current_subscription else None,
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None,
     )
 
     if not subscription:
@@ -662,11 +727,18 @@ async def external_squads_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_subscription_owner(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        user_service=user_service,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     _, subscription = resolve_selected_subscription(
         dialog_manager,
         all_subscriptions,
-        target_user.current_subscription.id if target_user.current_subscription else None,
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None,
     )
 
     if not subscription:
@@ -704,11 +776,18 @@ async def expire_time_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_subscription_owner(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        user_service=user_service,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     _, subscription = resolve_selected_subscription(
         dialog_manager,
         all_subscriptions,
-        target_user.current_subscription.id if target_user.current_subscription else None,
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None,
     )
 
     if not subscription:
@@ -919,9 +998,16 @@ async def assign_plan_getter(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_subscription_owner(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        user_service=user_service,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     current_subscription_id = (
-        target_user.current_subscription.id if target_user.current_subscription else None
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None
     )
     _, subscription = resolve_selected_subscription(
         dialog_manager,

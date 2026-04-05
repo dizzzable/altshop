@@ -1,64 +1,100 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 from uuid import UUID
 
-from src.bot.routers.dashboard.users.user.getters import _resolve_panel_profile_name
 from src.bot.routers.dashboard.users.user.handlers import (
-    _load_and_sync_admin_panel_profiles,
-    _resolve_admin_panel_telegram_id,
+    _get_target_user_subscription_context,
+    _resolve_effective_subscription_owner,
 )
-from src.core.enums import UserRole
-from src.infrastructure.database.models.dto import UserDto
+from src.core.enums import DeviceType, PlanType, SubscriptionStatus, UserRole
+from src.infrastructure.database.models.dto import PlanSnapshotDto, SubscriptionDto, UserDto
 
 
-def run_async(coroutine: Awaitable[object]) -> object:
+def run_async(coroutine):
     return asyncio.run(coroutine)
 
 
-def test_resolve_admin_panel_telegram_id_prefers_dialog_value() -> None:
-    dialog_manager = SimpleNamespace(dialog_data={"panel_telegram_id": "605"})
-    target_user = UserDto(telegram_id=8, name="User", role=UserRole.USER)
-
-    resolved = _resolve_admin_panel_telegram_id(dialog_manager, target_user)
-
-    assert resolved == 605
-
-
-def test_load_and_sync_admin_panel_profiles_uses_single_panel_telegram_id() -> None:
-    remnawave_service = SimpleNamespace(
-        get_users_by_telegram_id=AsyncMock(return_value=[SimpleNamespace(uuid=UUID(int=1))]),
-        sync_profiles_by_telegram_id=AsyncMock(
-            return_value=SimpleNamespace(
-                subscriptions_created=1,
-                subscriptions_updated=0,
-                errors=0,
-            )
+def _build_subscription(subscription_id: int) -> SubscriptionDto:
+    return SubscriptionDto(
+        id=subscription_id,
+        user_remna_id=UUID(f"00000000-0000-0000-0000-00000000000{subscription_id}"),
+        user_telegram_id=605,
+        status=SubscriptionStatus.ACTIVE,
+        traffic_limit=100,
+        device_limit=1,
+        internal_squads=[],
+        external_squad=None,
+        expire_at=datetime.now(timezone.utc) + timedelta(days=30),
+        url=f"https://example.com/{subscription_id}",
+        device_type=DeviceType.OTHER,
+        plan=PlanSnapshotDto(
+            id=1,
+            name="StarterPack",
+            tag="starter",
+            type=PlanType.BOTH,
+            traffic_limit=100,
+            device_limit=1,
+            duration=30,
+            internal_squads=[],
+            external_squad=None,
         ),
     )
 
-    profiles, stats = run_async(
-        _load_and_sync_admin_panel_profiles(
-            panel_telegram_id=605,
-            remnawave_service=remnawave_service,
+
+def test_resolve_effective_subscription_owner_prefers_panel_identity() -> None:
+    target_user = UserDto(telegram_id=8, name="Shadow", role=UserRole.USER)
+    owner_user = UserDto(telegram_id=605, name="Linked", role=UserRole.USER)
+    dialog_manager = SimpleNamespace(dialog_data={"panel_telegram_id": "605"})
+
+    async def get_user(telegram_id: int):
+        if telegram_id == 605:
+            return owner_user
+        return target_user
+
+    user_service = SimpleNamespace(get=get_user)
+
+    resolved = run_async(_resolve_effective_subscription_owner(dialog_manager, user_service, target_user))
+
+    assert resolved.telegram_id == 605
+
+
+def test_target_user_subscription_context_uses_effective_owner_subscriptions() -> None:
+    target_user = UserDto(telegram_id=8, name="Shadow", role=UserRole.USER)
+    owner_user = UserDto(
+        telegram_id=605,
+        name="Linked",
+        role=UserRole.USER,
+        current_subscription=_build_subscription(2),
+    )
+    dialog_manager = SimpleNamespace(
+        dialog_data={"target_telegram_id": 8, "panel_telegram_id": 605},
+    )
+
+    async def get_user(telegram_id: int):
+        if telegram_id == 8:
+            return target_user
+        if telegram_id == 605:
+            return owner_user
+        return None
+
+    async def get_subscriptions(telegram_id: int):
+        assert telegram_id == 605
+        return [_build_subscription(1), _build_subscription(2)]
+
+    user_service = SimpleNamespace(get=get_user)
+    subscription_service = SimpleNamespace(get_all_by_user=get_subscriptions)
+
+    resolved_user, visible_subscriptions, selected_subscription = run_async(
+        _get_target_user_subscription_context(
+            dialog_manager,
+            user_service,
+            subscription_service,
         )
     )
 
-    remnawave_service.get_users_by_telegram_id.assert_awaited_once_with(605)
-    remnawave_service.sync_profiles_by_telegram_id.assert_awaited_once()
-    assert remnawave_service.sync_profiles_by_telegram_id.await_args.kwargs["telegram_id"] == 605
-    assert len(profiles) == 1
-    assert stats is not None
-
-
-def test_resolve_panel_profile_name_returns_username() -> None:
-    remna_user = SimpleNamespace(
-        username="rs_8_sub",
-    )
-
-    result = _resolve_panel_profile_name(remna_user)
-
-    assert result == "rs_8_sub"
+    assert resolved_user.telegram_id == 605
+    assert len(visible_subscriptions) == 2
+    assert selected_subscription.id == 2

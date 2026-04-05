@@ -65,7 +65,7 @@ class TelegramLinkConfirmPayload(BaseModel):
 
 
 class TelegramLinkAutoRequestPayload(BaseModel):
-    pass
+    return_to_miniapp: bool = False
 
 
 class VerifyEmailConfirmRequest(BaseModel):

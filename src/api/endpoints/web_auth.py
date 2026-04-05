@@ -995,6 +995,7 @@ async def request_telegram_link_code(
         telegram_id=payload.telegram_id,
         ttl_seconds=config.web_app.telegram_link_code_ttl_seconds,
         attempts=config.web_app.auth_challenge_attempts,
+        return_to_miniapp=False,
     )
     branding = await settings_service.get_branding_settings()
     message_template = (
@@ -1032,7 +1033,6 @@ async def request_telegram_link_auto_confirm(
     config: FromDishka[AppConfig] = _DISHKA_DEFAULT,
     redis_client: FromDishka[Redis] = _DISHKA_DEFAULT,
 ) -> TelegramLinkRequestResponse:
-    del payload
     await _enforce_rate_limit(
         config, redis_client, f"auth:tg_link:request_auto:{web_account.id}:{_request_ip(request)}"
     )
@@ -1053,6 +1053,7 @@ async def request_telegram_link_auto_confirm(
         telegram_id=trusted_telegram_id,
         ttl_seconds=config.web_app.telegram_link_code_ttl_seconds,
         attempts=config.web_app.auth_challenge_attempts,
+        return_to_miniapp=payload.return_to_miniapp,
     )
     branding = await settings_service.get_branding_settings()
     message_template = (

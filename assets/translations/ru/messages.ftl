@@ -697,7 +697,7 @@ msg-user-subscription-info =
     
     { hdr-subscription }
     <blockquote>
-    - <b>РџСЂРѕС„РёР»СЊ РїР°РЅРµР»Рё</b>: { $profile_name ->
+    • <b>Профиль панели</b>: { $profile_name ->
     [0] { msg-common-empty-value }
     *[other] <code>{ $profile_name }</code>
     }

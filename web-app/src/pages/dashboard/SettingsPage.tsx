@@ -45,6 +45,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
+import { useTelegramWebApp } from '@/hooks/useTelegramWebApp'
 import { cn } from '@/lib/utils'
 import type { BadgeProps } from '@/components/ui/badge'
 import type { Currency, Transaction } from '@/types'
@@ -136,6 +137,7 @@ export function SettingsPage() {
   const { user, refreshUser, logout, isLoading: authLoading } = useAuth()
   const { t, locale, supportedLocales, setLocaleOverride, clearLocaleOverride } = useI18n()
   const useMobileUiV2 = useMobileTelegramUiV2()
+  const { isInTelegram } = useTelegramWebApp()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const requestFailedMessage = t('settings.error.requestFailed')
@@ -423,7 +425,9 @@ export function SettingsPage() {
 
     setIsTelegramBotConfirmLoading(true)
     try {
-      const { data } = await api.auth.requestTelegramLinkAutoConfirm()
+      const { data } = await api.auth.requestTelegramLinkAutoConfirm({
+        return_to_miniapp: authSource === 'telegram-miniapp' && isInTelegram,
+      })
       if (!data.bot_confirm_url) {
         setError(t('settings.validation.telegramBotConfirmUnavailable'))
         return

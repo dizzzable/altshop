@@ -61,6 +61,19 @@ def _resolve_admin_panel_telegram_id(
     return target_user.telegram_id
 
 
+async def _resolve_effective_subscription_owner(
+    dialog_manager: Union[DialogManager, SubManager],
+    user_service: UserService,
+    target_user: UserDto,
+) -> UserDto:
+    panel_telegram_id = _resolve_admin_panel_telegram_id(dialog_manager, target_user)
+    if panel_telegram_id == target_user.telegram_id:
+        return target_user
+
+    subscription_owner = await user_service.get(telegram_id=panel_telegram_id)
+    return subscription_owner or target_user
+
+
 async def _load_and_sync_admin_panel_profiles(
     *,
     panel_telegram_id: int,
@@ -100,17 +113,24 @@ async def _get_target_user_subscription_context(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_effective_subscription_owner(
+        dialog_manager,
+        user_service,
+        target_user,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     visible_subscriptions, subscription = resolve_selected_subscription(
         dialog_manager,
         all_subscriptions,
-        target_user.current_subscription.id if target_user.current_subscription else None,
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None,
     )
 
     if not subscription:
         raise ValueError(f"Selected subscription for user '{target_telegram_id}' not found")
 
-    return target_user, visible_subscriptions, subscription
+    return subscription_owner, visible_subscriptions, subscription
 
 
 @inject
@@ -240,11 +260,18 @@ async def on_current_subscription(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    subscription_owner = await _resolve_effective_subscription_owner(
+        dialog_manager,
+        user_service,
+        target_user,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     visible_subscriptions, selected_subscription = resolve_selected_subscription(
         dialog_manager,
         all_subscriptions,
-        target_user.current_subscription.id if target_user.current_subscription else None,
+        subscription_owner.current_subscription.id
+        if subscription_owner.current_subscription
+        else None,
     )
 
     if not visible_subscriptions or not selected_subscription:
@@ -267,13 +294,23 @@ async def on_user_subscription_select(
     widget: Select[int],
     dialog_manager: DialogManager,
     selected_subscription_id: int,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     logger.info(f"{log(user)} Selected user subscription '{selected_subscription_id}'")
 
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    subscription_owner = await _resolve_effective_subscription_owner(
+        dialog_manager,
+        user_service,
+        target_user,
+    )
+    subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     set_selected_subscription(dialog_manager, selected_subscription_id, subscriptions)
     logger.info(
         f"{log(user)} Opened selected subscription '{selected_subscription_id}' "
@@ -287,10 +324,20 @@ async def on_subscription_back(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
 ) -> None:
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    subscription_owner = await _resolve_effective_subscription_owner(
+        dialog_manager,
+        user_service,
+        target_user,
+    )
+    subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     visible_subscriptions, _ = resolve_selected_subscription(dialog_manager, subscriptions)
 
     if len(visible_subscriptions) > 1:
@@ -1239,13 +1286,23 @@ async def on_assign_plan(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
     plan_service: FromDishka[PlanService],
     notification_service: FromDishka[NotificationService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    subscription_owner = await _resolve_effective_subscription_owner(
+        dialog_manager,
+        user_service,
+        target_user,
+    )
+    all_subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
     visible_subscriptions = get_visible_subscriptions(all_subscriptions)
 
     if not visible_subscriptions:
@@ -1283,11 +1340,21 @@ async def on_assign_plan_subscription_select(
     widget: Select[int],
     dialog_manager: DialogManager,
     selected_subscription_id: int,
+    user_service: FromDishka[UserService],
     subscription_service: FromDishka[SubscriptionService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
-    subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    subscription_owner = await _resolve_effective_subscription_owner(
+        dialog_manager,
+        user_service,
+        target_user,
+    )
+    subscriptions = await subscription_service.get_all_by_user(subscription_owner.telegram_id)
 
     set_selected_subscription(dialog_manager, selected_subscription_id, subscriptions)
     dialog_manager.dialog_data[ASSIGN_PLAN_FROM_MULTI_KEY] = True

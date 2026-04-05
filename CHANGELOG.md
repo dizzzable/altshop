@@ -6,6 +6,19 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.17] - 2026-04-05
+
+### Changed
+
+- the admin user-card sync flow now reads subscriptions through the same effective panel identity that it uses for the sync request, so profile counts and subscription lists stay aligned after a manual sync
+- Mini App-origin Telegram confirmation now returns users directly to Mini App settings instead of falling back to a plain browser route
+
+### Fixed
+
+- manual sync for one concrete admin-card user no longer reports multiple panel profiles while still showing only one subscription in the card and details flow
+- the `Профиль панели` line in bot-side RU subscription details is now valid UTF-8 instead of mojibake
+- Telegram confirmation from Mini App-origin sessions no longer falls into the browser-based settings loop after bot approval
+
 ## [1.2.16] - 2026-04-05
 
 ### Changed
