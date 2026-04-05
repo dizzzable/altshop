@@ -44,5 +44,17 @@ class SubscriptionRepository(BaseRepository):
     async def update(self, subscription_id: int, **data: Any) -> Optional[Subscription]:
         return await self._update(Subscription, Subscription.id == subscription_id, **data)
 
+    async def rebind_user(
+        self,
+        *,
+        subscription_id: int,
+        user_telegram_id: int,
+    ) -> Optional[Subscription]:
+        return await self._update(
+            Subscription,
+            Subscription.id == subscription_id,
+            user_telegram_id=user_telegram_id,
+        )
+
     async def filter_by_plan_id(self, plan_id: int) -> list[Subscription]:
         return await self._get_many(Subscription, Subscription.plan["id"].as_integer() == plan_id)

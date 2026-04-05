@@ -56,7 +56,13 @@ def test_resolve_effective_subscription_owner_prefers_panel_identity() -> None:
 
     user_service = SimpleNamespace(get=get_user)
 
-    resolved = run_async(_resolve_effective_subscription_owner(dialog_manager, user_service, target_user))
+    resolved = run_async(
+        _resolve_effective_subscription_owner(
+            dialog_manager,
+            user_service,
+            target_user,
+        )
+    )
 
     assert resolved.telegram_id == 605
 

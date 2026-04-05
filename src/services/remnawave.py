@@ -1036,6 +1036,37 @@ class RemnawaveService(BaseService):
         await self.subscription_service.update(subscription)
         logger.info(f"Subscription '{subscription.id}' updated for '{user.telegram_id}'")
 
+    async def _rebind_subscription_owner_if_needed(
+        self,
+        *,
+        user: UserDto,
+        subscription: SubscriptionDto,
+    ) -> SubscriptionDto:
+        if subscription.user_telegram_id == user.telegram_id:
+            return subscription
+
+        if subscription.id is None:
+            raise ValueError("Subscription ID is required for ownership rebind")
+
+        logger.info(
+            "Rebinding subscription '{}' from user '{}' to '{}'",
+            subscription.id,
+            subscription.user_telegram_id,
+            user.telegram_id,
+        )
+        rebound_subscription = await self.subscription_service.rebind_user(
+            subscription_id=subscription.id,
+            user_telegram_id=user.telegram_id,
+            previous_user_telegram_id=subscription.user_telegram_id,
+            auto_commit=False,
+        )
+        if rebound_subscription is None:
+            raise ValueError(
+                f"Failed to rebind subscription '{subscription.id}' "
+                f"to user '{user.telegram_id}'"
+            )
+        return rebound_subscription
+
     async def sync_user(
         self,
         remna_user: RemnaUserDto,
@@ -1058,6 +1089,11 @@ class RemnawaveService(BaseService):
 
         user = cast(UserDto, user)
         subscription = await self.subscription_service.get_by_remna_id(remna_user.uuid)
+        if subscription:
+            subscription = await self._rebind_subscription_owner_if_needed(
+                user=user,
+                subscription=subscription,
+            )
         if not subscription and creating and use_current_subscription_fallback:
             subscription = await self.subscription_service.get_current(telegram_id=user.telegram_id)
             if subscription:

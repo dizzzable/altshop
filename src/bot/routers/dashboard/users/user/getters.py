@@ -71,7 +71,10 @@ def _resolve_panel_profile_name(remna_user: Any) -> str | bool:
     return str(username)
 
 
-def _resolve_panel_telegram_id_from_dialog(dialog_manager: DialogManager, target_user: UserDto) -> int:
+def _resolve_panel_telegram_id_from_dialog(
+    dialog_manager: DialogManager,
+    target_user: UserDto,
+) -> int:
     raw_value = dialog_manager.dialog_data.get("panel_telegram_id")
     if isinstance(raw_value, int):
         return raw_value

@@ -35,6 +35,7 @@ class SubscriptionService(BaseService):
         "updated_at",
     }
     _UPDATE_ALLOWED_FIELDS = {
+        "user_telegram_id",
         "status",
         "is_trial",
         "traffic_limit",
@@ -186,6 +187,41 @@ class SubscriptionService(BaseService):
             logger.warning(
                 f"Attempted to update subscription '{subscription.id}', "
                 "but subscription was not found or update failed"
+            )
+
+        return SubscriptionDto.from_model(db_updated_subscription)
+
+    async def rebind_user(
+        self,
+        *,
+        subscription_id: int,
+        user_telegram_id: int,
+        previous_user_telegram_id: int | None = None,
+        auto_commit: bool = True,
+    ) -> Optional[SubscriptionDto]:
+        db_updated_subscription = await self.uow.repository.subscriptions.rebind_user(
+            subscription_id=subscription_id,
+            user_telegram_id=user_telegram_id,
+        )
+
+        if auto_commit:
+            await self.uow.commit()
+
+        if previous_user_telegram_id is not None:
+            await self.user_service.clear_user_cache(previous_user_telegram_id)
+        await self.user_service.clear_user_cache(user_telegram_id)
+
+        if db_updated_subscription:
+            logger.info(
+                "Rebound subscription '{}' to user '{}'",
+                subscription_id,
+                user_telegram_id,
+            )
+        else:
+            logger.warning(
+                "Failed to rebind subscription '{}' to user '{}'",
+                subscription_id,
+                user_telegram_id,
             )
 
         return SubscriptionDto.from_model(db_updated_subscription)

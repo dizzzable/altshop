@@ -6,6 +6,17 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.18] - 2026-04-05
+
+### Changed
+
+- per-user admin sync now reconciles subscription ownership by `user_remna_id`, so existing local subscriptions found under the wrong `user_telegram_id` are rebound to the synced user instead of remaining hidden behind a stale owner link
+
+### Fixed
+
+- manual sync for one user no longer ends in `found 2 / visible 1` when one of the matching Remnawave profiles was already stored locally under another owner
+- admin user card, subscription list, detail view, and plan-assignment picker now all surface the same final subscription set after sync because ownership and visibility are aligned
+
 ## [1.2.17] - 2026-04-05
 
 ### Changed
