@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from src.api.contracts.web_auth import RegisterRequest, WebAccountBootstrapRequest
+from src.api.endpoints.web_auth import _resolve_trusted_telegram_id_for_auto_link
 from src.api.presenters.user_account import _build_user_profile_response
 from src.api.presenters.web_auth import _build_auth_me_response
 from src.bot.routers.dashboard.users.user.getters import _resolve_identity_kind
@@ -312,6 +313,15 @@ def test_web_login_contract_normalizes_supported_values() -> None:
 
     assert register.username == "alice.user_1"
     assert bootstrap.username == "user_01.test"
+
+
+def test_auto_link_uses_trusted_positive_telegram_id_only() -> None:
+    assert _resolve_trusted_telegram_id_for_auto_link(
+        UserDto(telegram_id=412289221, name="TG User")
+    ) == 412289221
+    assert _resolve_trusted_telegram_id_for_auto_link(
+        UserDto(telegram_id=-555, name="Shadow User")
+    ) is None
 
 
 @pytest.mark.parametrize(

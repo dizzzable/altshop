@@ -344,6 +344,15 @@ ntf-user-message-success = <i>✅ Message sent successfully.</i>
 ntf-user-message-not-sent = <i>❌ Failed to send message.</i>
 ntf-user-sync-failed = <i>❌ Failed to synchronize user.</i>
 ntf-user-sync-success = <i>✅ User synchronization completed.</i>
+ntf-user-sync-success-detailed =
+    <i>✅ User synchronization completed.</i>
+
+    <blockquote>
+    • <b>Profiles found</b>: { $found }
+    • <b>Subscriptions created</b>: { $created }
+    • <b>Subscriptions updated</b>: { $updated }
+    • <b>Errors</b>: { $errors }
+    </blockquote>
 ntf-user-referral-attach-success = <i>✅ Referrer <b>{ $referrer_name }</b> attached. Historical payments processed: <b>{ $payments }</b>.</i>
 ntf-user-referral-attach-failed = <i>❌ Failed to attach referrer: { $error }</i>
 ntf-user-referral-attach-unavailable-no-permission = <i>❌ You do not have permission to attach a referrer for this user.</i>

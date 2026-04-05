@@ -377,6 +377,8 @@ export const api = {
       apiClient.post<AccessStatus>('/auth/access/rules/accept'),
     requestTelegramLinkCode: (data: { telegram_id: number }) =>
       apiClient.post<TelegramLinkRequestResponse>('/auth/telegram-link/request', data),
+    requestTelegramLinkAutoConfirm: () =>
+      apiClient.post<TelegramLinkRequestResponse>('/auth/telegram-link/request-auto', {}),
     confirmTelegramLinkCode: (data: { telegram_id: number; code: string }) =>
       apiClient.post<TelegramLinkConfirmResponse>('/auth/telegram-link/confirm', data),
     remindTelegramLinkLater: () =>

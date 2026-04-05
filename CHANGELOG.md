@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.16] - 2026-04-05
+
+### Changed
+
+- the admin user-card sync action now targets one конкретный user end-to-end, uses that user's effective panel Telegram identity, and reports how many panel profiles were found, created, updated, and failed during sync
+- admin subscription details now show the Remnawave panel profile name alongside the technical UUID, with a safe fallback when the panel username is missing
+- web settings now make `Подтвердить в Telegram` the primary Telegram-link CTA for Telegram-authenticated sessions, while keeping the manual `Telegram ID + code` path as a fallback
+
+### Fixed
+
+- admin `Синхронизировать` no longer misses extra Remnawave profiles for linked or web-origin users when those profiles exist under the user's real panel Telegram ID
+- grouped per-user sync now restores a sensible fallback current subscription when the previously selected subscription is no longer valid after sync
+- Telegram-confirm from web no longer requires manually entering a Telegram ID when the current web session already came from Telegram and has a trusted identity
+
 ## [1.2.15] - 2026-04-05
 
 ### Changed

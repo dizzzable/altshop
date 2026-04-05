@@ -64,6 +64,10 @@ class TelegramLinkConfirmPayload(BaseModel):
     code: str = Field(min_length=4, max_length=12)
 
 
+class TelegramLinkAutoRequestPayload(BaseModel):
+    pass
+
+
 class VerifyEmailConfirmRequest(BaseModel):
     code: str | None = None
     token: str | None = None
@@ -123,6 +127,7 @@ __all__ = [
     "ResetPasswordByTelegramCodeRequest",
     "TelegramAuthRequest",
     "TelegramLinkConfirmPayload",
+    "TelegramLinkAutoRequestPayload",
     "TelegramLinkRequestPayload",
     "VerifyEmailConfirmRequest",
     "WebAccountBootstrapRequest",

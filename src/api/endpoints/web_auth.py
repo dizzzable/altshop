@@ -27,6 +27,7 @@ from src.api.contracts.web_auth import (
     ResetPasswordByLinkRequest,
     ResetPasswordByTelegramCodeRequest,
     TelegramAuthRequest,
+    TelegramLinkAutoRequestPayload,
     TelegramLinkConfirmPayload,
     TelegramLinkRequestPayload,
     VerifyEmailConfirmRequest,
@@ -384,6 +385,10 @@ def _request_ip(request: Request) -> str:
 def _resolve_web_auth_message(key: str, locale: Literal["ru", "en"]) -> str:
     values = WEB_AUTH_MESSAGES.get(key, {})
     return values.get(locale) or values.get("ru") or ""
+
+
+def _resolve_trusted_telegram_id_for_auto_link(current_user: UserDto) -> int | None:
+    return current_user.telegram_id if current_user.telegram_id > 0 else None
 
 
 async def _has_valid_cookie_session(
@@ -988,6 +993,64 @@ async def request_telegram_link_code(
     result = await telegram_link_service.request_code(
         web_account=web_account,
         telegram_id=payload.telegram_id,
+        ttl_seconds=config.web_app.telegram_link_code_ttl_seconds,
+        attempts=config.web_app.auth_challenge_attempts,
+    )
+    branding = await settings_service.get_branding_settings()
+    message_template = (
+        settings_service.resolve_localized_branding_text(
+            branding.verification.web_request_delivered,
+            language=locale,
+        )
+        if result.delivered
+        else settings_service.resolve_localized_branding_text(
+            branding.verification.web_request_open_bot,
+            language=locale,
+        )
+    )
+    message = settings_service.render_branding_text(
+        message_template,
+        placeholders={"project_name": branding.project_name},
+    )
+    return TelegramLinkRequestResponse(
+        message=message,
+        delivered=result.delivered,
+        expires_in_seconds=result.expires_in_seconds,
+        bot_confirm_url=result.bot_confirm_url,
+    )
+
+
+@router.post("/telegram-link/request-auto", response_model=TelegramLinkRequestResponse)
+@inject
+async def request_telegram_link_auto_confirm(
+    payload: TelegramLinkAutoRequestPayload,
+    request: Request,
+    current_user: UserDto = Depends(get_current_user),
+    web_account: WebAccountDto = Depends(get_current_web_account),
+    telegram_link_service: FromDishka[TelegramLinkService] = _DISHKA_DEFAULT,
+    settings_service: FromDishka[SettingsService] = _DISHKA_DEFAULT,
+    config: FromDishka[AppConfig] = _DISHKA_DEFAULT,
+    redis_client: FromDishka[Redis] = _DISHKA_DEFAULT,
+) -> TelegramLinkRequestResponse:
+    del payload
+    await _enforce_rate_limit(
+        config, redis_client, f"auth:tg_link:request_auto:{web_account.id}:{_request_ip(request)}"
+    )
+    locale = _resolve_web_request_locale(request, config=config, current_user=current_user)
+
+    trusted_telegram_id = _resolve_trusted_telegram_id_for_auto_link(current_user)
+    if trusted_telegram_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "TRUSTED_TELEGRAM_ID_REQUIRED",
+                "message": "Automatic Telegram confirmation is unavailable for this session.",
+            },
+        )
+
+    result = await telegram_link_service.request_code(
+        web_account=web_account,
+        telegram_id=trusted_telegram_id,
         ttl_seconds=config.web_app.telegram_link_code_ttl_seconds,
         attempts=config.web_app.auth_challenge_attempts,
     )

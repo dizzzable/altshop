@@ -369,6 +369,15 @@ ntf-user-message-success = <i>✅ Сообщение успешно отправ
 ntf-user-message-not-sent = <i>❌ Не удалось отправить сообщение.</i>
 ntf-user-sync-failed = <i>❌ Не удалось синхронизировать пользователя.</i>
 ntf-user-sync-success = <i>✅ Синхронизация пользователя выполнена.</i>
+ntf-user-sync-success-detailed =
+    <i>✅ Синхронизация завершена.</i>
+
+    <blockquote>
+    • <b>Найдено профилей</b>: { $found }
+    • <b>Создано подписок</b>: { $created }
+    • <b>Обновлено подписок</b>: { $updated }
+    • <b>Ошибок</b>: { $errors }
+    </blockquote>
 ntf-user-referral-attach-success = <i>✅ Реферер <b>{ $referrer_name }</b> закреплен. Обработано исторических платежей: <b>{ $payments }</b>.</i>
 ntf-user-referral-attach-failed = <i>❌ Не удалось закрепить реферера: { $error }</i>
 ntf-user-referral-attach-unavailable-no-permission = <i>❌ Недостаточно прав, чтобы закрепить реферера для этого пользователя.</i>

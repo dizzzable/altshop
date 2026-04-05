@@ -768,7 +768,11 @@ class RemnawaveService(BaseService):
         original_current_subscription_id: Optional[int],
         preserve_current: bool,
     ) -> None:
-        if not preserve_current or not original_current_subscription_id:
+        if not preserve_current:
+            return
+
+        if not original_current_subscription_id:
+            await self._set_group_sync_fallback_current_subscription(telegram_id)
             return
 
         original_subscription = await self.subscription_service.get(
@@ -792,6 +796,54 @@ class RemnawaveService(BaseService):
         logger.debug(
             f"Original current subscription '{original_current_subscription_id}' for "
             f"user '{telegram_id}' is no longer valid, skip restore"
+        )
+        await self._set_group_sync_fallback_current_subscription(telegram_id)
+
+    @staticmethod
+    def _pick_group_sync_current_subscription_id(
+        subscriptions: Sequence[SubscriptionDto],
+    ) -> Optional[int]:
+        candidates = [
+            subscription
+            for subscription in subscriptions
+            if subscription.id is not None and subscription.status != SubscriptionStatus.DELETED
+        ]
+        if not candidates:
+            return None
+
+        status_priority = {
+            SubscriptionStatus.ACTIVE: 0,
+            SubscriptionStatus.LIMITED: 1,
+            SubscriptionStatus.EXPIRED: 2,
+            SubscriptionStatus.DISABLED: 3,
+        }
+        candidates.sort(
+            key=lambda subscription: (
+                status_priority.get(subscription.status, 99),
+                -subscription.expire_at.timestamp(),
+                subscription.id or 0,
+            )
+        )
+        return candidates[0].id
+
+    async def _set_group_sync_fallback_current_subscription(self, telegram_id: int) -> None:
+        subscriptions = await self.subscription_service.get_all_by_user(telegram_id)
+        fallback_subscription_id = self._pick_group_sync_current_subscription_id(subscriptions)
+        if fallback_subscription_id is None:
+            await self.user_service.delete_current_subscription(telegram_id)
+            logger.debug(
+                f"No fallback current subscription remains for user '{telegram_id}' "
+                "after grouped sync"
+            )
+            return
+
+        await self.user_service.set_current_subscription(
+            telegram_id=telegram_id,
+            subscription_id=fallback_subscription_id,
+        )
+        logger.info(
+            f"Selected fallback current subscription '{fallback_subscription_id}' "
+            f"for user '{telegram_id}' after grouped sync"
         )
 
     async def sync_profiles_by_telegram_id(

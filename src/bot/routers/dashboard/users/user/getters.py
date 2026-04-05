@@ -64,6 +64,13 @@ def _format_subscription_title(plan_name: str, device_type: Any) -> str:
     return f"{emoji} {device_name} - {plan_name}"
 
 
+def _resolve_panel_profile_name(remna_user: Any) -> str | bool:
+    username = getattr(remna_user, "username", None)
+    if not username:
+        return False
+    return str(username)
+
+
 def _resolve_identity_kind(
     target_user: UserDto,
     *,
@@ -114,6 +121,8 @@ async def user_getter(
     )
     web_login = web_account.username if web_account else None
     public_username = target_user.username or None
+    panel_telegram_id = linked_telegram_id or target_user.telegram_id
+    dialog_manager.dialog_data["panel_telegram_id"] = panel_telegram_id
 
     all_subscriptions = await subscription_service.get_all_by_user(target_telegram_id)
     current_subscription_id = (
@@ -155,6 +164,7 @@ async def user_getter(
         "has_web_login": bool(web_login),
         "linked_telegram_id": str(linked_telegram_id) if linked_telegram_id is not None else False,
         "has_linked_telegram_id": linked_telegram_id is not None,
+        "panel_telegram_id": str(panel_telegram_id),
         "identity_kind": _resolve_identity_kind(
             target_user,
             web_login=web_login,
@@ -404,6 +414,7 @@ async def subscription_getter(
         "subscriptions_count": len(visible_subscriptions),
         "subscription_index": get_subscription_index(subscription.id, visible_subscriptions),
         "is_current_subscription": current_subscription_id == subscription.id,
+        "profile_name": _resolve_panel_profile_name(remna_user),
         "is_trial": subscription.is_trial,
         "is_active": subscription.is_active,
         "has_devices_limit": subscription.has_devices_limit,

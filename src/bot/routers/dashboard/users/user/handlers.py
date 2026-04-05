@@ -1,6 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
-from typing import Union
+from typing import Any, Union
 from uuid import UUID
 
 from aiogram.types import CallbackQuery, Message
@@ -12,8 +12,6 @@ from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
 from loguru import logger
 from remnawave import RemnawaveSDK
-from remnawave.exceptions import NotFoundError
-from remnawave.models import TelegramUserResponseDto
 
 from src.bot.keyboards import get_contact_support_keyboard
 from src.bot.states import DashboardUser
@@ -35,7 +33,7 @@ from src.services.notification import NotificationService
 from src.services.partner import PartnerService
 from src.services.plan import PlanService
 from src.services.referral import ReferralService
-from src.services.remnawave import RemnawaveService
+from src.services.remnawave import PanelSyncStats, RemnawaveService
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 from src.services.transaction import TransactionService
@@ -49,6 +47,35 @@ from .subscription_selection import (
 )
 
 ASSIGN_PLAN_FROM_MULTI_KEY = "assign_plan_from_multi_subscriptions"
+
+
+def _resolve_admin_panel_telegram_id(
+    dialog_manager: DialogManager,
+    target_user: UserDto,
+) -> int:
+    raw_value = dialog_manager.dialog_data.get("panel_telegram_id")
+    if isinstance(raw_value, int):
+        return raw_value
+    if isinstance(raw_value, str) and raw_value.lstrip("-").isdigit():
+        return int(raw_value)
+    return target_user.telegram_id
+
+
+async def _load_and_sync_admin_panel_profiles(
+    *,
+    panel_telegram_id: int,
+    remnawave_service: RemnawaveService,
+) -> tuple[list[Any], PanelSyncStats | None]:
+    profiles: list[Any] = list(await remnawave_service.get_users_by_telegram_id(panel_telegram_id))
+    if not profiles:
+        return profiles, None
+
+    stats = await remnawave_service.sync_profiles_by_telegram_id(
+        telegram_id=panel_telegram_id,
+        remna_users=profiles,
+        preserve_current=True,
+    )
+    return profiles, stats
 
 
 async def start_user_window(
@@ -1131,7 +1158,6 @@ async def on_sync(
     callback: CallbackQuery,
     widget: Button,
     dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
     remnawave_service: FromDishka[RemnawaveService],
     user_service: FromDishka[UserService],
     notification_service: FromDishka[NotificationService],
@@ -1143,36 +1169,37 @@ async def on_sync(
     if not target_user:
         raise ValueError(f"User '{target_telegram_id}' not found")
 
-    try:
-        result = await remnawave.users.get_users_by_telegram_id(telegram_id=str(target_telegram_id))
+    panel_telegram_id = _resolve_admin_panel_telegram_id(dialog_manager, target_user)
 
-        if not isinstance(result, TelegramUserResponseDto):
-            raise ValueError("Unexpected response TelegramUserResponseDto")
-    except NotFoundError:
-        result = None
+    try:
+        profiles, stats = await _load_and_sync_admin_panel_profiles(
+            panel_telegram_id=panel_telegram_id,
+            remnawave_service=remnawave_service,
+        )
     except Exception as exception:
         await notification_service.notify_user(
             user=user,
             payload=MessagePayload(i18n_key="ntf-user-sync-failed"),
         )
         logger.exception(
-            f"Error syncing RemnaUser '{target_user.telegram_id}' exception: {exception}"
+            f"Error syncing RemnaUser '{target_user.telegram_id}' "
+            f"(panel_telegram_id='{panel_telegram_id}') exception: {exception}"
         )
         return
 
-    if not result:
+    if not profiles:
         await notification_service.notify_user(
             user=user,
             payload=MessagePayload(i18n_key="ntf-user-sync-failed"),
         )
         return
 
-    profiles = list(result)
-    stats = await remnawave_service.sync_profiles_by_telegram_id(
-        telegram_id=target_telegram_id,
-        remna_users=profiles,
-        preserve_current=True,
-    )
+    if stats is None:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-user-sync-failed"),
+        )
+        return
     processed_profiles = stats.subscriptions_created + stats.subscriptions_updated
 
     if processed_profiles == 0:
@@ -1188,13 +1215,22 @@ async def on_sync(
 
     logger.info(
         f"{log(user)} Manual sync summary for '{target_telegram_id}': "
+        f"found={len(profiles)}, "
         f"created={stats.subscriptions_created}, "
         f"updated={stats.subscriptions_updated}, "
         f"errors={stats.errors}"
     )
     await notification_service.notify_user(
         user=user,
-        payload=MessagePayload(i18n_key="ntf-user-sync-success"),
+        payload=MessagePayload(
+            i18n_key="ntf-user-sync-success-detailed",
+            i18n_kwargs={
+                "found": len(profiles),
+                "created": stats.subscriptions_created,
+                "updated": stats.subscriptions_updated,
+                "errors": stats.errors,
+            },
+        ),
     )
 
 

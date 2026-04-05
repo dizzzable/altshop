@@ -284,6 +284,8 @@ export const ruDictionary: Dictionary = {
     'settings.section.openingTelegram': 'Открываем Telegram...',
     'settings.section.confirmInTelegramHint':
       'Можно ввести код вручную или сразу подтвердить привязку в боте.',
+    'settings.section.manualConfirmHint':
+      'Если авто-подтверждение не сработает, используйте ручной сценарий ниже.',
     'settings.section.recoveryEmailTitle': 'Почта восстановления',
     'settings.section.recoveryEmailDesc': 'Укажите подтверждённую почту для сброса пароля',
     'settings.section.verification': 'Подтверждение',

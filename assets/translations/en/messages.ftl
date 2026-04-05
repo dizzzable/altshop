@@ -683,6 +683,12 @@ msg-user-subscription-info =
     </blockquote>
     
     { hdr-subscription }
+    <blockquote>
+    - <b>Panel profile</b>: { $profile_name ->
+    [0] { msg-common-empty-value }
+    *[other] <code>{ $profile_name }</code>
+    }
+    </blockquote>
     { frg-subscription-details }
 
     <blockquote>

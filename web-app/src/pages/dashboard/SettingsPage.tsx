@@ -365,6 +365,12 @@ export function SettingsPage() {
   const currentLanguageLabel = isAutoLocale ? t('settings.language.option.auto') : locale.toUpperCase()
   const partnerBalanceCurrencyValue = userProfile?.partner_balance_currency_override ?? 'AUTO'
   const effectivePartnerBalanceCurrency = userProfile?.effective_partner_balance_currency ?? 'RUB'
+  const authSource = typeof window !== 'undefined' ? window.sessionStorage.getItem('auth_source') : null
+  const canAutoConfirmInTelegram = Boolean(
+    (userProfile?.telegram_id ?? 0) > 0
+      && (authSource === 'telegram' || authSource === 'telegram-miniapp')
+      && !isTelegramLinked
+  )
 
   const handleTelegramRequest = async () => {
     setError(null)
@@ -414,14 +420,10 @@ export function SettingsPage() {
   const handleTelegramBotConfirm = async () => {
     setError(null)
     setMessage(null)
-    if (!telegramId.trim() || !/^\d+$/.test(telegramId.trim())) {
-      setError(t('settings.validation.telegramId'))
-      return
-    }
 
     setIsTelegramBotConfirmLoading(true)
     try {
-      const { data } = await api.auth.requestTelegramLinkCode({ telegram_id: Number(telegramId.trim()) })
+      const { data } = await api.auth.requestTelegramLinkAutoConfirm()
       if (!data.bot_confirm_url) {
         setError(t('settings.validation.telegramBotConfirmUnavailable'))
         return
@@ -901,52 +903,77 @@ export function SettingsPage() {
       {accessStatus?.requires_telegram_id && !accessStatus.telegram_linked && (
         <p className="text-xs text-amber-200/90">{t('settings.access.telegramRequiredHint')}</p>
       )}
-      <div className="grid gap-2 sm:grid-cols-2">
-        <div className="grid gap-1.5">
-          <Label htmlFor="telegram-id">{t('settings.section.telegramIdLabel')}</Label>
-          <Input
-            id="telegram-id"
-            className="h-10"
-            placeholder={t('settings.placeholder.telegramId')}
-            value={telegramId}
-            onChange={(e) => setTelegramId(e.target.value)}
-          />
+      {canAutoConfirmInTelegram && (
+        <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+          <Button
+            size="sm"
+            variant="secondary"
+            className="w-full"
+            onClick={handleTelegramBotConfirm}
+            disabled={isTelegramBotConfirmLoading}
+          >
+            {isTelegramBotConfirmLoading
+              ? t('settings.section.openingTelegram')
+              : t('settings.section.confirmInTelegram')}
+          </Button>
+          <p className="text-xs text-slate-400">{t('settings.section.confirmInTelegramHint')}</p>
         </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="telegram-code">{t('settings.section.verificationCode')}</Label>
-          <Input
-            id="telegram-code"
-            className="h-10"
-            placeholder={t('settings.placeholder.code')}
-            value={telegramCode}
-            onChange={(e) => setTelegramCode(e.target.value)}
-          />
+      )}
+      <div className="space-y-2 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+        {canAutoConfirmInTelegram && (
+          <p className="text-xs text-slate-400">{t('settings.section.manualConfirmHint')}</p>
+        )}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid gap-1.5">
+            <Label htmlFor="telegram-id">{t('settings.section.telegramIdLabel')}</Label>
+            <Input
+              id="telegram-id"
+              className="h-10"
+              placeholder={t('settings.placeholder.telegramId')}
+              value={telegramId}
+              onChange={(e) => setTelegramId(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="telegram-code">{t('settings.section.verificationCode')}</Label>
+            <Input
+              id="telegram-code"
+              className="h-10"
+              placeholder={t('settings.placeholder.code')}
+              value={telegramCode}
+              onChange={(e) => setTelegramCode(e.target.value)}
+            />
+          </div>
         </div>
+        <div className={cn('grid gap-2', canAutoConfirmInTelegram ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleTelegramRequest}
+            disabled={isTelegramRequestLoading}
+          >
+            {isTelegramRequestLoading ? t('settings.section.sending') : t('settings.section.requestCode')}
+          </Button>
+          <Button size="sm" onClick={handleTelegramConfirm} disabled={isTelegramConfirmLoading}>
+            {isTelegramConfirmLoading ? t('settings.section.confirming') : t('settings.section.confirmLink')}
+          </Button>
+          {!canAutoConfirmInTelegram && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleTelegramBotConfirm}
+              disabled={isTelegramBotConfirmLoading}
+            >
+              {isTelegramBotConfirmLoading
+                ? t('settings.section.openingTelegram')
+                : t('settings.section.confirmInTelegram')}
+            </Button>
+          )}
+        </div>
+        {!canAutoConfirmInTelegram && (
+          <p className="text-xs text-slate-400">{t('settings.section.confirmInTelegramHint')}</p>
+        )}
       </div>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handleTelegramRequest}
-          disabled={isTelegramRequestLoading}
-        >
-          {isTelegramRequestLoading ? t('settings.section.sending') : t('settings.section.requestCode')}
-        </Button>
-        <Button size="sm" onClick={handleTelegramConfirm} disabled={isTelegramConfirmLoading}>
-          {isTelegramConfirmLoading ? t('settings.section.confirming') : t('settings.section.confirmLink')}
-        </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={handleTelegramBotConfirm}
-          disabled={isTelegramBotConfirmLoading}
-        >
-          {isTelegramBotConfirmLoading
-            ? t('settings.section.openingTelegram')
-            : t('settings.section.confirmInTelegram')}
-        </Button>
-      </div>
-      <p className="text-xs text-slate-400">{t('settings.section.confirmInTelegramHint')}</p>
       <div className="flex flex-wrap gap-3 text-xs">
         {accessStatus?.verification_bot_link && (
           <a

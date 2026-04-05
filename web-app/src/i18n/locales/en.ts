@@ -284,6 +284,8 @@ export const enDictionary: Dictionary = {
     'settings.section.openingTelegram': 'Opening Telegram...',
     'settings.section.confirmInTelegramHint':
       'You can enter the code manually or confirm the link directly in the bot.',
+    'settings.section.manualConfirmHint':
+      'If automatic confirmation is unavailable, use the manual flow below.',
     'settings.section.recoveryEmailTitle': 'Recovery Email',
     'settings.section.recoveryEmailDesc': 'Set verified email for password reset',
     'settings.section.verification': 'Verification',
