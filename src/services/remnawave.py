@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
+import re
 from typing import Any, Optional, Sequence, cast
 from uuid import UUID
 
@@ -29,7 +30,13 @@ from remnawave.models.webhook import NodeDto
 
 from src.bot.keyboards import get_user_keyboard
 from src.core.config import AppConfig
-from src.core.constants import DATETIME_FORMAT, IMPORTED_TAG, MAX_SUBSCRIPTIONS_PER_USER
+from src.core.constants import (
+    DATETIME_FORMAT,
+    IMPORTED_TAG,
+    MAX_SUBSCRIPTIONS_PER_USER,
+    MAX_SUPPORTED_REMNAWAVE_VERSION,
+    MIN_SUPPORTED_REMNAWAVE_VERSION,
+)
 from src.core.enums import (
     DeviceType,
     RemnaNodeEvent,
@@ -83,7 +90,32 @@ class PanelSyncStats:
     errors: int = 0
 
 
+@dataclass(slots=True, frozen=True)
+class RemnawavePanelVersion:
+    raw: str | None
+    parsed: tuple[int, int, int] | None
+
+    @property
+    def normalized(self) -> str:
+        if self.parsed is not None:
+            return ".".join(str(part) for part in self.parsed)
+        return self.raw or "unknown"
+
+    @property
+    def is_supported(self) -> bool:
+        if self.parsed is None:
+            return False
+
+        min_supported = RemnawaveService._parse_panel_version(MIN_SUPPORTED_REMNAWAVE_VERSION)
+        max_supported = RemnawaveService._parse_panel_version(MAX_SUPPORTED_REMNAWAVE_VERSION)
+        if min_supported is None or max_supported is None:
+            return False
+
+        return min_supported <= self.parsed <= max_supported
+
+
 class RemnawaveService(BaseService):
+    PANEL_VERSION_PATTERN = re.compile(r"(\d+)\.(\d+)\.(\d+)")
     remnawave: RemnawaveSDK
     user_service: UserService
     subscription_service: SubscriptionService
@@ -111,7 +143,7 @@ class RemnawaveService(BaseService):
         self.plan_service = plan_service
         self.settings_service = settings_service
 
-    async def try_connection(self) -> None:
+    async def try_connection(self) -> RemnawavePanelVersion:
         try:
             response = await self.remnawave.system.get_stats()
         except ValidationError as exception:
@@ -121,7 +153,7 @@ class RemnawaveService(BaseService):
                 exception,
             )
             await self._try_connection_raw()
-            return
+            return await self.get_panel_version()
 
         if not isinstance(response, GetStatsResponseDto):
             if isinstance(response, (bytes, bytearray)):
@@ -132,6 +164,43 @@ class RemnawaveService(BaseService):
                 type(response).__name__,
             )
             await self._try_connection_raw()
+
+        return await self.get_panel_version()
+
+    async def get_panel_version(self) -> RemnawavePanelVersion:
+        try:
+            response = await self.remnawave.system.get_metadata()
+        except ValidationError as exception:
+            logger.warning(
+                "Remnawave SDK validation failed for /system/metadata, "
+                "falling back to raw version check: {}",
+                exception,
+            )
+        except Exception as exception:
+            logger.warning(
+                "Remnawave SDK request failed for /system/metadata, "
+                "falling back to raw version check: {}",
+                exception,
+            )
+        else:
+            version = self._extract_panel_version(response)
+            if version.raw is not None:
+                return version
+
+            logger.warning(
+                "Remnawave SDK /system/metadata response did not include a parseable version, "
+                "falling back to raw version check"
+            )
+
+        try:
+            return await self._get_panel_version_raw()
+        except Exception as exception:
+            logger.warning(
+                "Remnawave raw request failed for /system/metadata, "
+                "using unknown panel version: {}",
+                exception,
+            )
+            return RemnawavePanelVersion(raw=None, parsed=None)
 
     def _build_raw_api_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {
@@ -157,6 +226,76 @@ class RemnawaveService(BaseService):
         ) as client:
             response = await client.get("/system/stats")
             response.raise_for_status()
+
+    async def _get_panel_version_raw(self) -> RemnawavePanelVersion:
+        async with AsyncClient(
+            base_url=self._build_raw_api_base_url(),
+            headers=self._build_raw_api_headers(),
+            cookies=self.config.remnawave.cookies,
+            timeout=Timeout(15.0, connect=5.0),
+        ) as client:
+            response = await client.get("/system/metadata")
+            response.raise_for_status()
+            return self._extract_panel_version(response.json())
+
+    @classmethod
+    def _parse_panel_version(cls, value: Any) -> tuple[int, int, int] | None:
+        if value is None:
+            return None
+
+        match = cls.PANEL_VERSION_PATTERN.search(str(value))
+        if match is None:
+            return None
+
+        major, minor, patch = match.groups()
+        return int(major), int(minor), int(patch)
+
+    @classmethod
+    def _extract_version_value(cls, data: Any) -> str | None:
+        if isinstance(data, dict):
+            for key in (
+                "version",
+                "panelVersion",
+                "panel_version",
+                "appVersion",
+                "app_version",
+            ):
+                value = data.get(key)
+                parsed = cls._parse_panel_version(value)
+                if parsed is not None:
+                    return str(value)
+
+            response = data.get("response")
+            if response is not None:
+                nested_value = cls._extract_version_value(response)
+                if nested_value is not None:
+                    return nested_value
+
+            metadata = data.get("metadata")
+            if metadata is not None:
+                nested_value = cls._extract_version_value(metadata)
+                if nested_value is not None:
+                    return nested_value
+
+            for value in data.values():
+                nested_value = cls._extract_version_value(value)
+                if nested_value is not None:
+                    return nested_value
+
+        if isinstance(data, list):
+            for item in data:
+                nested_value = cls._extract_version_value(item)
+                if nested_value is not None:
+                    return nested_value
+
+        return None
+
+    @classmethod
+    def _extract_panel_version(cls, data: Any) -> RemnawavePanelVersion:
+        metadata = getattr(data, "metadata", None)
+        source = metadata if metadata is not None else data
+        raw_version = cls._extract_version_value(source)
+        return RemnawavePanelVersion(raw=raw_version, parsed=cls._parse_panel_version(raw_version))
 
     @staticmethod
     def _normalize_platform_to_device_type(platform: str | None) -> DeviceType:
@@ -1062,8 +1201,7 @@ class RemnawaveService(BaseService):
         )
         if rebound_subscription is None:
             raise ValueError(
-                f"Failed to rebind subscription '{subscription.id}' "
-                f"to user '{user.telegram_id}'"
+                f"Failed to rebind subscription '{subscription.id}' to user '{user.telegram_id}'"
             )
         return rebound_subscription
 

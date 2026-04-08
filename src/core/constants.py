@@ -37,6 +37,8 @@ ENCRYPTED_PREFIX: Final[str] = "enc_"
 REFERRAL_PREFIX: Final[str] = "ref_"
 
 IMPORTED_TAG: Final[str] = "IMPORTED"
+MIN_SUPPORTED_REMNAWAVE_VERSION: Final[str] = "2.7.0"
+MAX_SUPPORTED_REMNAWAVE_VERSION: Final[str] = "2.7.999"
 
 MIDDLEWARE_DATA_KEY: Final[str] = "middleware_data"
 CONTAINER_KEY: Final[str] = "dishka_container"

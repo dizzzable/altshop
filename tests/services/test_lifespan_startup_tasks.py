@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from src import lifespan as lifespan_module
+from src.services.remnawave import RemnawavePanelVersion
 
 
 def run_async(coroutine):
@@ -133,3 +134,159 @@ def test_lifespan_queues_check_bot_update_on_startup(monkeypatch) -> None:
 
     recover_platega_mock.assert_awaited_once()
     send_remnashop_mock.assert_awaited_once()
+
+
+def test_lifespan_sends_warning_for_unsupported_remnawave_version(monkeypatch) -> None:
+    webhook_service = SimpleNamespace(
+        setup=AsyncMock(return_value=SimpleNamespace(last_error_message=None)),
+        has_error=MagicMock(return_value=False),
+        delete=AsyncMock(),
+    )
+    command_service = SimpleNamespace(setup=AsyncMock(), delete=AsyncMock())
+    settings_service = SimpleNamespace(get_access_mode=AsyncMock(return_value="PUBLIC"))
+    gateway_service = SimpleNamespace(
+        create_default=AsyncMock(),
+        normalize_gateway_settings=AsyncMock(),
+    )
+    remnawave_service = SimpleNamespace(
+        try_connection=AsyncMock(return_value=RemnawavePanelVersion(raw="2.6.9", parsed=(2, 6, 9)))
+    )
+    backup_service = SimpleNamespace(
+        start_auto_backup=AsyncMock(),
+        stop_auto_backup=AsyncMock(),
+    )
+    bot = SimpleNamespace(
+        get_me=AsyncMock(
+            return_value=SimpleNamespace(
+                can_join_groups=False,
+                can_read_all_group_messages=False,
+                supports_inline_queries=False,
+            )
+        )
+    )
+    telegram_webhook_endpoint = SimpleNamespace(startup=AsyncMock(), shutdown=AsyncMock())
+    dispatcher = SimpleNamespace(resolve_used_update_types=MagicMock(return_value=[]))
+
+    startup_mapping = {
+        lifespan_module.WebhookService: webhook_service,
+        lifespan_module.CommandService: command_service,
+        lifespan_module.SettingsService: settings_service,
+        lifespan_module.PaymentGatewayService: gateway_service,
+        lifespan_module.RemnawaveService: remnawave_service,
+    }
+    runtime_mapping = {
+        lifespan_module.BackupService: backup_service,
+        lifespan_module.Bot: bot,
+    }
+    container = _FakeContainer(startup_mapping=startup_mapping, runtime_mapping=runtime_mapping)
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            dispatcher=dispatcher,
+            telegram_webhook_endpoint=telegram_webhook_endpoint,
+            dishka_container=container,
+        )
+    )
+
+    monkeypatch.setattr(lifespan_module.check_bot_update, "kiq", AsyncMock())
+    monkeypatch.setattr(lifespan_module.recover_platega_webhooks_task, "kiq", AsyncMock())
+    monkeypatch.setattr(lifespan_module.send_remnashop_notification_task, "kiq", AsyncMock())
+    send_system_mock = AsyncMock()
+    monkeypatch.setattr(lifespan_module.send_system_notification_task, "kiq", send_system_mock)
+    monkeypatch.setattr(lifespan_module.send_error_notification_task, "kiq", AsyncMock())
+    monkeypatch.setattr(lifespan_module.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(
+        lifespan_module,
+        "logger",
+        SimpleNamespace(
+            opt=lambda **kwargs: SimpleNamespace(info=lambda *args, **kw: None),
+            critical=lambda *args, **kwargs: None,
+            exception=lambda *args, **kwargs: None,
+            warning=lambda *args, **kwargs: None,
+        ),
+    )
+
+    async def _exercise_lifespan():
+        async with lifespan_module.lifespan(app):
+            return None
+
+    run_async(_exercise_lifespan())
+
+    assert send_system_mock.await_count == 3
+    warning_call = send_system_mock.await_args_list[1]
+    assert warning_call.kwargs["payload"].i18n_key == "ntf-event-warning-remnawave-version"
+
+
+def test_lifespan_keeps_error_path_for_remnawave_connection_failure(monkeypatch) -> None:
+    webhook_service = SimpleNamespace(
+        setup=AsyncMock(return_value=SimpleNamespace(last_error_message=None)),
+        has_error=MagicMock(return_value=False),
+        delete=AsyncMock(),
+    )
+    command_service = SimpleNamespace(setup=AsyncMock(), delete=AsyncMock())
+    settings_service = SimpleNamespace(get_access_mode=AsyncMock(return_value="PUBLIC"))
+    gateway_service = SimpleNamespace(
+        create_default=AsyncMock(),
+        normalize_gateway_settings=AsyncMock(),
+    )
+    remnawave_service = SimpleNamespace(try_connection=AsyncMock(side_effect=RuntimeError("boom")))
+    backup_service = SimpleNamespace(
+        start_auto_backup=AsyncMock(),
+        stop_auto_backup=AsyncMock(),
+    )
+    bot = SimpleNamespace(
+        get_me=AsyncMock(
+            return_value=SimpleNamespace(
+                can_join_groups=False,
+                can_read_all_group_messages=False,
+                supports_inline_queries=False,
+            )
+        )
+    )
+    telegram_webhook_endpoint = SimpleNamespace(startup=AsyncMock(), shutdown=AsyncMock())
+    dispatcher = SimpleNamespace(resolve_used_update_types=MagicMock(return_value=[]))
+
+    startup_mapping = {
+        lifespan_module.WebhookService: webhook_service,
+        lifespan_module.CommandService: command_service,
+        lifespan_module.SettingsService: settings_service,
+        lifespan_module.PaymentGatewayService: gateway_service,
+        lifespan_module.RemnawaveService: remnawave_service,
+    }
+    runtime_mapping = {
+        lifespan_module.BackupService: backup_service,
+        lifespan_module.Bot: bot,
+    }
+    container = _FakeContainer(startup_mapping=startup_mapping, runtime_mapping=runtime_mapping)
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            dispatcher=dispatcher,
+            telegram_webhook_endpoint=telegram_webhook_endpoint,
+            dishka_container=container,
+        )
+    )
+
+    monkeypatch.setattr(lifespan_module.check_bot_update, "kiq", AsyncMock())
+    monkeypatch.setattr(lifespan_module.recover_platega_webhooks_task, "kiq", AsyncMock())
+    monkeypatch.setattr(lifespan_module.send_remnashop_notification_task, "kiq", AsyncMock())
+    monkeypatch.setattr(lifespan_module.send_system_notification_task, "kiq", AsyncMock())
+    send_error_mock = AsyncMock()
+    monkeypatch.setattr(lifespan_module.send_error_notification_task, "kiq", send_error_mock)
+    monkeypatch.setattr(lifespan_module.asyncio, "sleep", AsyncMock())
+    monkeypatch.setattr(
+        lifespan_module,
+        "logger",
+        SimpleNamespace(
+            opt=lambda **kwargs: SimpleNamespace(info=lambda *args, **kw: None),
+            critical=lambda *args, **kwargs: None,
+            exception=lambda *args, **kwargs: None,
+            warning=lambda *args, **kwargs: None,
+        ),
+    )
+
+    async def _exercise_lifespan():
+        async with lifespan_module.lifespan(app):
+            return None
+
+    run_async(_exercise_lifespan())
+
+    send_error_mock.assert_awaited_once()

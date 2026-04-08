@@ -7,6 +7,29 @@ on:
   pull_request:
 
 jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.12.15"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync backend dependencies
+        run: uv sync --locked --group dev
+
+      - name: Run backend runtime-pin smoke tests
+        run: |
+          uv run python -m pytest tests/services/test_remnawave_service.py -q
+          uv run python -m pytest tests/services/test_lifespan_startup_tasks.py -q
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

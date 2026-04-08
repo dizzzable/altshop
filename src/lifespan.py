@@ -13,6 +13,7 @@ from loguru import logger
 
 from src.__version__ import __version__
 from src.api.endpoints import TelegramWebhookEndpoint
+from src.core.constants import MAX_SUPPORTED_REMNAWAVE_VERSION, MIN_SUPPORTED_REMNAWAVE_VERSION
 from src.core.enums import SystemNotificationType
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.taskiq.tasks.notifications import (
@@ -108,7 +109,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     try:
-        await remnawave_service.try_connection()
+        panel_version = await remnawave_service.try_connection()
     except Exception as exception:
         logger.exception(f"Remnawave connection failed: {exception}")
         error_type_name = type(exception).__name__
@@ -124,6 +125,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 },
             ),
         )
+    else:
+        if not panel_version.is_supported:
+            logger.warning(
+                "Unsupported Remnawave panel version detected: '{}' (supported: {} - {})",
+                panel_version.normalized,
+                MIN_SUPPORTED_REMNAWAVE_VERSION,
+                MAX_SUPPORTED_REMNAWAVE_VERSION,
+            )
+            await send_system_notification_task.kiq(
+                ntf_type=SystemNotificationType.BOT_LIFETIME,
+                payload=MessagePayload.not_deleted(
+                    i18n_key="ntf-event-warning-remnawave-version",
+                    i18n_kwargs={
+                        "current_version": panel_version.normalized,
+                        "min_version": MIN_SUPPORTED_REMNAWAVE_VERSION,
+                        "max_version": MAX_SUPPORTED_REMNAWAVE_VERSION,
+                    },
+                ),
+            )
 
     yield
 

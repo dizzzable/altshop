@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from src.core.enums import DeviceType, PlanType, SubscriptionStatus
 from src.infrastructure.database.models.dto import PlanSnapshotDto, SubscriptionDto
-from src.services.remnawave import RemnawaveService
+from src.services.remnawave import RemnawavePanelVersion, RemnawaveService
 
 
 def run_async(coroutine):
@@ -32,9 +32,7 @@ def _build_validation_error() -> ValidationError:
 
 def test_try_connection_falls_back_to_raw_health_check_on_validation_error() -> None:
     remnawave = SimpleNamespace(
-        system=SimpleNamespace(
-            get_stats=AsyncMock(side_effect=_build_validation_error())
-        )
+        system=SimpleNamespace(get_stats=AsyncMock(side_effect=_build_validation_error()))
     )
     service = RemnawaveService(
         config=MagicMock(),
@@ -49,10 +47,32 @@ def test_try_connection_falls_back_to_raw_health_check_on_validation_error() -> 
         settings_service=MagicMock(),
     )
     service._try_connection_raw = AsyncMock()  # type: ignore[method-assign]
+    service.get_panel_version = AsyncMock(  # type: ignore[method-assign]
+        return_value=RemnawavePanelVersion(raw="2.7.1", parsed=(2, 7, 1))
+    )
 
     run_async(service.try_connection())
 
     service._try_connection_raw.assert_awaited_once()
+
+
+def test_extract_panel_version_supports_sdk_and_raw_payload_shapes() -> None:
+    sdk_payload = SimpleNamespace(metadata={"version": "v2.7.1"})
+    raw_payload = {"response": {"metadata": {"panelVersion": "2.7.2-build.4"}}}
+
+    sdk_version = RemnawaveService._extract_panel_version(sdk_payload)
+    raw_version = RemnawaveService._extract_panel_version(raw_payload)
+
+    assert sdk_version.raw == "v2.7.1"
+    assert sdk_version.parsed == (2, 7, 1)
+    assert raw_version.raw == "2.7.2-build.4"
+    assert raw_version.parsed == (2, 7, 2)
+
+
+def test_panel_version_is_supported_only_inside_configured_range() -> None:
+    assert RemnawavePanelVersion(raw="2.7.1", parsed=(2, 7, 1)).is_supported is True
+    assert RemnawavePanelVersion(raw="2.6.9", parsed=(2, 6, 9)).is_supported is False
+    assert RemnawavePanelVersion(raw=None, parsed=None).is_supported is False
 
 
 def test_pick_group_sync_current_subscription_id_prefers_active_latest_subscription() -> None:

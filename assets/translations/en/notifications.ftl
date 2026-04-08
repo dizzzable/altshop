@@ -58,6 +58,14 @@ ntf-event-error-webhook =
     { $error }
     </blockquote>
 
+ntf-event-warning-remnawave-version =
+    <b>🔅 Event: Unsupported Remnawave version!</b>
+
+    <blockquote>
+    • <b>Current version</b>: { $current_version }
+    • <b>Supported range</b>: { $min_version } - { $max_version }
+    </blockquote>
+
 ntf-event-bot-startup =
     #EventBotStarted
 
