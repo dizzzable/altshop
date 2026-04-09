@@ -6,6 +6,23 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.19] - 2026-04-10
+
+### Changed
+
+- explicit `upgrade_to_plan_ids` transitions are now authoritative for self-service upgrades and replacement-style renewals, so trial subscriptions can show every admin-approved paid target even when limits are equal or catalog availability would normally hide the plan
+- backend and web dependencies were refreshed to the latest mutually compatible stable set, including `remnawave 2.7.1`, while keeping the stack inside the current Vite 7 / React 19 / SDK-compatible Python lane
+
+### Fixed
+
+- active trial subscriptions no longer lose admin-approved upgrade targets in web and Mini App checkout when those targets are not “strictly better” by the old traffic/device heuristic
+- explicit transition targets are no longer filtered out just because the target plan uses `NEW` or `EXISTING` availability; inactive, archived, and self-referential targets are still excluded
+- Remnawave connectivity and fallback tests were refreshed for the `2.7.1` SDK line, keeping raw-health and raw-external-squads fallbacks covered
+
+### Notes
+
+- official Remnawave Panel `2.7.0` operator changes still apply alongside this release: update nodes to `v2.7.0+`, ensure node containers include `cap_add: NET_ADMIN`, migrate built-in Telegram login to Generic OAuth2, and replace legacy `TELEGRAM_NOTIFY_*_CHAT_ID/THREAD_ID` env vars with the new unified notification format
+
 ## [1.2.18] - 2026-04-05
 
 ### Changed

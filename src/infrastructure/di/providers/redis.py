@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from inspect import isawaitable
 
 from dishka import Provider, Scope, provide
 from loguru import logger
@@ -18,7 +19,9 @@ class RedisProvider(Provider):
         client = Redis(connection_pool=connection_pool)
 
         try:
-            await client.ping()
+            ping_result = client.ping()
+            if isawaitable(ping_result):
+                await ping_result
             logger.debug("Successfully connected to Redis")
         except Exception as exception:
             logger.error(f"Failed to connect to Redis: {exception}")

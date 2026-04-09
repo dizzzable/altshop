@@ -192,6 +192,22 @@ class PlanService(BaseService):
         )
         return PlanDto.from_model_list(db_filtered_plans)
 
+    async def get_transition_available_plans_by_ids(
+        self,
+        *,
+        plan_ids: Sequence[int],
+    ) -> list[PlanDto]:
+        if not plan_ids:
+            return []
+
+        db_plans = await self.uow.repository.plans.get_by_ids(plan_ids)
+        db_filtered_plans = [
+            plan
+            for plan in db_plans
+            if plan.is_active and not plan.is_archived
+        ]
+        return PlanDto.from_model_list(db_filtered_plans)
+
     async def get_assignable_active_plans(self) -> list[PlanDto]:
         db_plans = await self.uow.repository.plans.filter_assignable_active()
         return PlanDto.from_model_list(db_plans)

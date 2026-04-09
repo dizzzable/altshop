@@ -109,6 +109,19 @@ class FakePlanService:
             if (plan := self.plans.get(plan_id)) is not None and plan.is_publicly_purchasable
         ]
 
+    async def get_transition_available_plans_by_ids(
+        self,
+        *,
+        plan_ids: list[int],
+    ) -> list[PlanDto]:
+        return [
+            plan
+            for plan_id in plan_ids
+            if (plan := self.plans.get(plan_id)) is not None
+            and plan.is_active
+            and not plan.is_archived
+        ]
+
 
 class FakePlanCatalogService:
     async def build_items_from_plans(
@@ -184,7 +197,12 @@ def test_archived_self_renew_returns_only_source_plan() -> None:
 def test_archived_replace_on_renew_returns_only_configured_replacements() -> None:
     user = build_user()
     replacement_a = build_plan(plan_id=2, name="Fresh Start")
-    replacement_b = build_plan(plan_id=3, name="Bigger Plan", device_limit=2)
+    replacement_b = build_plan(
+        plan_id=3,
+        name="Bigger Plan",
+        device_limit=2,
+        availability=PlanAvailability.NEW,
+    )
     source_plan = build_plan(
         plan_id=1,
         name="Old Plan",
@@ -215,7 +233,7 @@ def test_archived_replace_on_renew_returns_only_configured_replacements() -> Non
     assert [plan.id for plan in purchase_options.plans] == [replacement_a.id, replacement_b.id]
 
 
-def test_upgrade_options_allow_only_strictly_better_plans() -> None:
+def test_upgrade_options_return_all_explicit_transition_targets() -> None:
     user = build_user()
     better_plan = build_plan(plan_id=2, name="More Devices", device_limit=3)
     worse_plan = build_plan(plan_id=3, name="Less Traffic", traffic_limit=50)
@@ -246,20 +264,75 @@ def test_upgrade_options_allow_only_strictly_better_plans() -> None:
     assert action_policy.can_upgrade is True
     assert action_policy.can_multi_renew is True
     assert purchase_options.warning_code == UPGRADE_WARNING_CODE
-    assert [plan.id for plan in purchase_options.plans] == [better_plan.id]
+    assert [plan.id for plan in purchase_options.plans] == [
+        better_plan.id,
+        worse_plan.id,
+        same_plan_limits.id,
+    ]
+
+
+def test_upgrade_options_ignore_catalog_availability_for_explicit_targets() -> None:
+    user = build_user()
+    existing_only_plan = build_plan(
+        plan_id=2,
+        name="Existing Only",
+        availability=PlanAvailability.EXISTING,
+    )
+    new_only_plan = build_plan(
+        plan_id=3,
+        name="New Only",
+        availability=PlanAvailability.NEW,
+    )
+    inactive_plan = build_plan(plan_id=4, name="Inactive", is_active=False)
+    archived_plan = build_plan(plan_id=5, name="Archived", is_archived=True)
+    source_plan = build_plan(
+        plan_id=1,
+        name="Trial",
+        availability=PlanAvailability.TRIAL,
+        upgrade_to_plan_ids=[
+            existing_only_plan.id,
+            new_only_plan.id,
+            inactive_plan.id,
+            archived_plan.id,
+            1,
+        ],
+    )
+    subscription = build_subscription(source_plan, subscription_id=15, is_trial=True)
+    service = build_policy_service(
+        source_plan,
+        existing_only_plan,
+        new_only_plan,
+        inactive_plan,
+        archived_plan,
+    )
+
+    purchase_options = run_async(
+        service.get_purchase_options(
+            current_user=user,
+            subscription=subscription,
+            purchase_type=PurchaseType.UPGRADE,
+            channel=PurchaseChannel.WEB,
+        )
+    )
+
+    assert [plan.id for plan in purchase_options.plans] == [
+        existing_only_plan.id,
+        new_only_plan.id,
+    ]
 
 
 def test_trial_subscription_can_only_upgrade() -> None:
     user = build_user()
     paid_plan = build_plan(plan_id=2, name="Paid", device_limit=2)
+    same_limits_paid_plan = build_plan(plan_id=3, name="Same Limits Paid")
     trial_plan = build_plan(
         plan_id=1,
         name="Trial",
         availability=PlanAvailability.TRIAL,
-        upgrade_to_plan_ids=[paid_plan.id],
+        upgrade_to_plan_ids=[paid_plan.id, same_limits_paid_plan.id],
     )
     subscription = build_subscription(trial_plan, subscription_id=14, is_trial=True)
-    service = build_policy_service(trial_plan, paid_plan)
+    service = build_policy_service(trial_plan, paid_plan, same_limits_paid_plan)
 
     action_policy = run_async(
         service.get_action_policy(current_user=user, subscription=subscription)
@@ -285,5 +358,8 @@ def test_trial_subscription_can_only_upgrade() -> None:
     assert action_policy.can_multi_renew is False
     assert action_policy.can_upgrade is True
     assert renew_options.plans == []
-    assert [plan.id for plan in upgrade_options.plans] == [paid_plan.id]
+    assert [plan.id for plan in upgrade_options.plans] == [
+        paid_plan.id,
+        same_limits_paid_plan.id,
+    ]
     assert upgrade_options.warning_code == UPGRADE_WARNING_CODE

@@ -55,6 +55,34 @@ def test_try_connection_falls_back_to_raw_health_check_on_validation_error() -> 
     service._try_connection_raw.assert_awaited_once()
 
 
+def test_get_external_squads_safe_falls_back_to_raw_http_on_validation_error() -> None:
+    remnawave = SimpleNamespace(
+        external_squads=SimpleNamespace(
+            get_external_squads=AsyncMock(side_effect=_build_validation_error())
+        )
+    )
+    service = RemnawaveService(
+        config=MagicMock(),
+        bot=MagicMock(),
+        redis_client=MagicMock(),
+        redis_repository=MagicMock(),
+        translator_hub=MagicMock(),
+        remnawave=remnawave,
+        user_service=MagicMock(),
+        subscription_service=MagicMock(),
+        plan_service=MagicMock(),
+        settings_service=MagicMock(),
+    )
+    service._get_external_squads_raw = AsyncMock(  # type: ignore[method-assign]
+        return_value=[{"uuid": UUID("00000000-0000-0000-0000-000000000001"), "name": "Team"}]
+    )
+
+    result = run_async(service.get_external_squads_safe())
+
+    assert result == [{"uuid": UUID("00000000-0000-0000-0000-000000000001"), "name": "Team"}]
+    service._get_external_squads_raw.assert_awaited_once()
+
+
 def test_pick_group_sync_current_subscription_id_prefers_active_latest_subscription() -> None:
     now = datetime.now(timezone.utc)
     plan = PlanSnapshotDto(

@@ -178,7 +178,8 @@ class RemnawaveService(BaseService):
 
         Why:
         - Remnawave Panel may return `subscriptionSettings` without some optional fields
-        - `remnawave==2.3.2` SDK marks several `subscriptionSettings.*` fields as required
+        - even on newer SDK releases the panel can temporarily drift from typed models around
+          `subscriptionSettings.*` fields
           and raises `ValidationError` on `/external-squads` response parsing.
 
         This helper tries the SDK first (best-effort typed DTO), then falls back
@@ -497,7 +498,7 @@ class RemnawaveService(BaseService):
             raise ValueError("Unexpected response deleting device")
 
         logger.info(f"Deleted device '{hwid}' for Remna subscription '{user_remna_id}'")
-        return result.total
+        return int(result.total)
 
     async def delete_device(self, user: UserDto, hwid: str) -> Optional[int]:
         logger.info(f"Deleting device '{hwid}' for RemnaUser '{user.telegram_id}'")

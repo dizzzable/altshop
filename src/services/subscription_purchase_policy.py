@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import inf
 
 from src.core.enums import (
     ArchivedPlanRenewMode,
@@ -154,8 +153,7 @@ class SubscriptionPurchasePolicyService:
             if source_plan.is_archived:
                 if source_plan.archived_renew_mode == ArchivedPlanRenewMode.REPLACE_ON_RENEW:
                     renew_mode = SubscriptionRenewMode.REPLACE_ON_RENEW
-                    renew_plans = await self._get_candidate_plans(
-                        current_user=current_user,
+                    renew_plans = await self._get_transition_candidate_plans(
                         plan_ids=source_plan.replacement_plan_ids,
                     )
                 else:
@@ -167,14 +165,13 @@ class SubscriptionPurchasePolicyService:
 
         upgrade_plans: tuple[PlanDto, ...] = ()
         if not subscription_deleted and source_plan:
-            candidate_plans = await self._get_candidate_plans(
-                current_user=current_user,
+            upgrade_plans = await self._get_transition_candidate_plans(
                 plan_ids=source_plan.upgrade_to_plan_ids,
             )
             upgrade_plans = tuple(
                 target_plan
-                for target_plan in candidate_plans
-                if self._is_upgrade_candidate(source_plan=source_plan, target_plan=target_plan)
+                for target_plan in upgrade_plans
+                if target_plan.id != source_plan.id
             )
 
         return SubscriptionPurchaseSelection(
@@ -204,15 +201,13 @@ class SubscriptionPurchasePolicyService:
             return None
         return await self.plan_service.get(plan_id)
 
-    async def _get_candidate_plans(
+    async def _get_transition_candidate_plans(
         self,
         *,
-        current_user: UserDto,
         plan_ids: list[int],
     ) -> tuple[PlanDto, ...]:
         return tuple(
-            await self.plan_service.get_purchase_available_plans_by_ids(
-                user=current_user,
+            await self.plan_service.get_transition_available_plans_by_ids(
                 plan_ids=plan_ids,
             )
         )
@@ -236,34 +231,3 @@ class SubscriptionPurchasePolicyService:
             return UPGRADE_WARNING_CODE, UPGRADE_WARNING_MESSAGE
 
         return None, None
-
-    @staticmethod
-    def _is_upgrade_candidate(*, source_plan: PlanDto, target_plan: PlanDto) -> bool:
-        if source_plan.id == target_plan.id:
-            return False
-
-        source_device_limit = SubscriptionPurchasePolicyService._normalize_limit(
-            source_plan.device_limit
-        )
-        target_device_limit = SubscriptionPurchasePolicyService._normalize_limit(
-            target_plan.device_limit
-        )
-        source_traffic_limit = SubscriptionPurchasePolicyService._normalize_limit(
-            source_plan.traffic_limit
-        )
-        target_traffic_limit = SubscriptionPurchasePolicyService._normalize_limit(
-            target_plan.traffic_limit
-        )
-
-        return (
-            target_device_limit >= source_device_limit
-            and target_traffic_limit >= source_traffic_limit
-            and (
-                target_device_limit > source_device_limit
-                or target_traffic_limit > source_traffic_limit
-            )
-        )
-
-    @staticmethod
-    def _normalize_limit(value: int) -> float:
-        return inf if value <= 0 else float(value)
