@@ -40,14 +40,16 @@ async def _load_stats(remnawave: RemnawaveSDK) -> Optional[GetStatsResponseDto]:
     return response
 
 
-@inject
-async def system_getter(
-    dialog_manager: DialogManager,
-    remnawave: FromDishka[RemnawaveSDK],
-    **kwargs: Any,
-) -> dict[str, Any]:
-    response = await _load_stats(remnawave)
+def _coerce_stat_int(value: object | None) -> int:
+    if value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
+
+def _build_system_stats_payload(response: Optional[GetStatsResponseDto]) -> dict[str, Any]:
     if response is None:
         return {
             "cpu_cores": 0,
@@ -58,17 +60,32 @@ async def system_getter(
             "uptime": i18n_format_seconds(0),
         }
 
+    cpu_cores = _coerce_stat_int(getattr(response.cpu, "physical_cores", None))
+    cpu_threads = _coerce_stat_int(getattr(response.cpu, "cores", None))
+    memory_used = _coerce_stat_int(getattr(response.memory, "active", None))
+    memory_total = _coerce_stat_int(getattr(response.memory, "total", None))
+    uptime_seconds = _coerce_stat_int(getattr(response, "uptime", None))
+
     return {
-        "cpu_cores": response.cpu.physical_cores,
-        "cpu_threads": response.cpu.cores,
-        "ram_used": i18n_format_bytes_to_unit(response.memory.active),
-        "ram_total": i18n_format_bytes_to_unit(response.memory.total),
-        "ram_used_percent": format_percent(
-            part=response.memory.active,
-            whole=response.memory.total,
-        ),
-        "uptime": i18n_format_seconds(response.uptime),
+        "cpu_cores": cpu_cores,
+        "cpu_threads": cpu_threads,
+        "ram_used": i18n_format_bytes_to_unit(memory_used),
+        "ram_total": i18n_format_bytes_to_unit(memory_total),
+        "ram_used_percent": format_percent(part=memory_used, whole=memory_total)
+        if memory_total > 0
+        else 0,
+        "uptime": i18n_format_seconds(uptime_seconds),
     }
+
+
+@inject
+async def system_getter(
+    dialog_manager: DialogManager,
+    remnawave: FromDishka[RemnawaveSDK],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    response = await _load_stats(remnawave)
+    return _build_system_stats_payload(response)
 
 
 @inject

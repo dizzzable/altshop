@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.20] - 2026-04-10
+
+### Fixed
+
+- Remnawave dashboard system statistics no longer crash when panel `memory.active`, `cpu.physical_cores`, or `uptime` come back as `null` after the `2.7.x` upgrade
+- the admin/system Remnawave overview now degrades to zero-safe values for partial stats payloads instead of raising `TypeError` during `ram_used_percent` calculation
+
 ## [1.2.19] - 2026-04-10
 
 ### Changed
