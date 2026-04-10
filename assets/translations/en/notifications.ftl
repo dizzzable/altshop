@@ -162,6 +162,20 @@ ntf-event-subscription-renew =
     { hdr-plan }
     { frg-plan-snapshot }
 
+ntf-event-subscription-upgrade =
+    #EventSubscriptionUpgrade
+
+    <b>✨ Event: Subscription upgrade!</b>
+
+    { hdr-payment }
+    { frg-payment-info }
+
+    { hdr-user }
+    { frg-user-info }
+
+    { hdr-plan }
+    { frg-plan-snapshot }
+
 ntf-event-subscription-additional =
     #EventSubscriptionAdditional
 

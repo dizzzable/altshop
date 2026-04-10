@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 from pydantic import SecretStr
 
-from src.core.enums import Currency, PaymentGatewayType, TransactionStatus
+from src.core.enums import (
+    Currency,
+    MessageEffect,
+    PaymentGatewayType,
+    PurchaseType,
+    TransactionStatus,
+)
 from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.dto import PaymentGatewayDto, PlategaGatewaySettingsDto
 from src.infrastructure.database.models.sql import PaymentWebhookEvent
@@ -168,6 +174,42 @@ def test_handle_payment_canceled_raises_when_transaction_user_is_missing() -> No
         assert "missing user context" in str(exception)
     else:
         raise AssertionError("Expected missing transaction user to raise LookupError")
+
+
+def test_send_subscription_notification_uses_upgrade_template_and_confetti_effect() -> None:
+    service = build_payment_gateway_service()
+    send_task = SimpleNamespace(kiq=AsyncMock())
+    transaction = SimpleNamespace(
+        payment_id=uuid4(),
+        purchase_type=PurchaseType.UPGRADE,
+        gateway_type=PaymentGatewayType.PLATEGA,
+        pricing=SimpleNamespace(
+            final_amount=250,
+            discount_percent=0,
+            original_amount=250,
+        ),
+        currency=Currency.RUB,
+        user=SimpleNamespace(
+            telegram_id=777000,
+            name="Upgrade User",
+            username="upgrade_user",
+        ),
+        plan=SimpleNamespace(
+            name="Standard",
+            type="MONTH",
+            traffic_limit=0,
+            device_limit=1,
+            duration=30,
+        ),
+    )
+
+    with patch("src.services.payment_gateway.send_system_notification_task", send_task):
+        run_async(service._send_subscription_notification(transaction=transaction))
+
+    payload = send_task.kiq.await_args.kwargs["payload"]
+    assert payload.i18n_key == "ntf-event-subscription-upgrade"
+    assert payload.message_effect == MessageEffect.CONFETTI
+    assert send_task.kiq.await_args.kwargs["ntf_type"].value == "SUBSCRIPTION"
 
 
 def test_recover_stuck_platega_payments_reconciles_legacy_webhook_event() -> None:

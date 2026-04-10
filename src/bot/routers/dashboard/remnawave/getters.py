@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Any, Optional
 
@@ -11,6 +12,7 @@ from remnawave import RemnawaveSDK
 from remnawave.models import (
     GetAllHostsResponseDto,
     GetAllInboundsResponseDto,
+    GetMetadataResponseDto,
     GetAllNodesResponseDto,
     GetStatsResponseDto,
 )
@@ -40,6 +42,20 @@ async def _load_stats(remnawave: RemnawaveSDK) -> Optional[GetStatsResponseDto]:
     return response
 
 
+async def _load_metadata(remnawave: RemnawaveSDK) -> Optional[GetMetadataResponseDto]:
+    try:
+        response = await remnawave.system.get_metadata()
+    except httpx.HTTPError as exc:
+        logger.warning("Failed to fetch Remnawave metadata: %s", exc)
+        return None
+
+    if not isinstance(response, GetMetadataResponseDto):
+        logger.warning("Unexpected response from Remnawave system.get_metadata()")
+        return None
+
+    return response
+
+
 def _coerce_stat_int(value: object | None) -> int:
     if value is None:
         return 0
@@ -49,26 +65,68 @@ def _coerce_stat_int(value: object | None) -> int:
         return 0
 
 
-def _build_system_stats_payload(response: Optional[GetStatsResponseDto]) -> dict[str, Any]:
+def _first_present_value(source: object | None, *names: str) -> object | None:
+    if source is None:
+        return None
+    for name in names:
+        value = getattr(source, name, None)
+        if value is not None:
+            return value
+    return None
+
+
+def _build_version_suffix(metadata: Optional[GetMetadataResponseDto]) -> str:
+    if metadata is None:
+        return ""
+
+    raw_metadata = getattr(metadata, "metadata", None)
+    candidates: list[object | None] = []
+    if isinstance(raw_metadata, dict):
+        candidates.extend(
+            [
+                raw_metadata.get("version"),
+                raw_metadata.get("panelVersion"),
+                raw_metadata.get("appVersion"),
+            ]
+        )
+        build = raw_metadata.get("build")
+        if isinstance(build, dict):
+            candidates.append(build.get("version"))
+
+    candidates.append(getattr(metadata, "version", None))
+
+    for candidate in candidates:
+        if candidate is None:
+            continue
+        version = str(candidate).strip()
+        if version:
+            return f" v{version}"
+    return ""
+
+
+def _build_system_stats_payload(
+    response: Optional[GetStatsResponseDto],
+    *,
+    metadata: Optional[GetMetadataResponseDto] = None,
+) -> dict[str, Any]:
     if response is None:
         return {
+            "version_suffix": _build_version_suffix(metadata),
             "cpu_cores": 0,
-            "cpu_threads": 0,
             "ram_used": i18n_format_bytes_to_unit(0),
             "ram_total": i18n_format_bytes_to_unit(0),
             "ram_used_percent": 0,
             "uptime": i18n_format_seconds(0),
         }
 
-    cpu_cores = _coerce_stat_int(getattr(response.cpu, "physical_cores", None))
-    cpu_threads = _coerce_stat_int(getattr(response.cpu, "cores", None))
-    memory_used = _coerce_stat_int(getattr(response.memory, "active", None))
-    memory_total = _coerce_stat_int(getattr(response.memory, "total", None))
+    cpu_cores = _coerce_stat_int(_first_present_value(response.cpu, "physical_cores", "cores"))
+    memory_used = _coerce_stat_int(_first_present_value(response.memory, "active", "used"))
+    memory_total = _coerce_stat_int(_first_present_value(response.memory, "total"))
     uptime_seconds = _coerce_stat_int(getattr(response, "uptime", None))
 
     return {
+        "version_suffix": _build_version_suffix(metadata),
         "cpu_cores": cpu_cores,
-        "cpu_threads": cpu_threads,
         "ram_used": i18n_format_bytes_to_unit(memory_used),
         "ram_total": i18n_format_bytes_to_unit(memory_total),
         "ram_used_percent": format_percent(part=memory_used, whole=memory_total)
@@ -84,8 +142,11 @@ async def system_getter(
     remnawave: FromDishka[RemnawaveSDK],
     **kwargs: Any,
 ) -> dict[str, Any]:
-    response = await _load_stats(remnawave)
-    return _build_system_stats_payload(response)
+    response, metadata = await asyncio.gather(
+        _load_stats(remnawave),
+        _load_metadata(remnawave),
+    )
+    return _build_system_stats_payload(response, metadata=metadata)
 
 
 @inject

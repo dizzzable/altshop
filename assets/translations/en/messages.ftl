@@ -747,16 +747,13 @@ msg-user-message =
 
 # RemnaWave
 msg-remnawave-main =
-    <b>🌊 RemnaWave</b>
+    <b>🌊 RemnaWave{ $version_suffix }</b>
     
     <b>🖥️ System:</b>
     <blockquote>
     • <b>CPU</b>: { $cpu_cores } { $cpu_cores ->
     [one] core
     *[other] cores
-    } { $cpu_threads } { $cpu_threads ->
-    [one] thread
-    *[other] threads
     }
     • <b>RAM</b>: { $ram_used } / { $ram_total } ({ $ram_used_percent }%)
     • <b>Uptime</b>: { $uptime }

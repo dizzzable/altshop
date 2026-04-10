@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.22] - 2026-04-10
+
+### Changed
+
+- Telegram subscription lifecycle events now use a richer upgrade notification layout with the same payment, user, and plan snapshot structure as regular purchase events
+- successful subscription `new` / `renew` / `upgrade` notifications now use a celebratory Telegram message effect instead of the old plain presentation
+
+### Fixed
+
+- the admin `subscription upgrade` event no longer falls back to a raw key-style card because the missing `ntf-event-subscription-upgrade` template now exists in both RU and EN translations
+- the Remnawave system dashboard now accepts both legacy (`physical_cores`, `active`) and newer (`cores`, `used`) stats payload shapes, while showing the panel version in the header when metadata is available
+
 ## [1.2.21] - 2026-04-10
 
 ### Fixed

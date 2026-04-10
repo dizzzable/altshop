@@ -16,6 +16,7 @@ from src.core.enums import (
     Currency,
     DeviceType,
     DiscountSource,
+    MessageEffect,
     PaymentGatewayType,
     PurchaseChannel,
     PurchaseType,
@@ -628,6 +629,7 @@ class PaymentGatewayService(BaseService):
                 i18n_key=i18n_key,
                 i18n_kwargs={**i18n_kwargs, **extra_i18n_kwargs},
                 reply_markup=get_user_keyboard(transaction_user.telegram_id),
+                message_effect=MessageEffect.CONFETTI,
             ),
         )
 
