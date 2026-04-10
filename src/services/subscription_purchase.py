@@ -62,6 +62,18 @@ ARCHIVED_PLAN_NOT_PURCHASABLE_CODE = "ARCHIVED_PLAN_NOT_PURCHASABLE"
 ARCHIVED_PLAN_NOT_PURCHASABLE_MESSAGE = (
     "Archived plans cannot be purchased as a new subscription"
 )
+TRIAL_UPGRADE_REQUIRED_CODE = "TRIAL_UPGRADE_REQUIRED"
+TRIAL_UPGRADE_REQUIRED_MESSAGE = (
+    "An existing trial subscription can only be continued via upgrade"
+)
+TRIAL_UPGRADE_SELECTION_REQUIRED_CODE = "TRIAL_UPGRADE_SELECTION_REQUIRED"
+TRIAL_UPGRADE_SELECTION_REQUIRED_MESSAGE = (
+    "Multiple active trial subscriptions found. Open subscriptions and upgrade the required one explicitly."
+)
+TRIAL_UPGRADE_QUANTITY_UNSUPPORTED_CODE = "TRIAL_UPGRADE_QUANTITY_UNSUPPORTED"
+TRIAL_UPGRADE_QUANTITY_UNSUPPORTED_MESSAGE = (
+    "A trial subscription can only be converted to a paid plan one at a time."
+)
 
 
 class SubscriptionPurchaseError(Exception):
@@ -164,8 +176,12 @@ class SubscriptionPurchaseService:
         current_user: UserDto,
     ) -> SubscriptionPurchaseResult:
         await self.purchase_access_service.assert_can_purchase(current_user)
-        return await self._execute_without_access_assert(
+        normalized_request = await self._normalize_trial_catalog_purchase_request(
             request=request,
+            current_user=current_user,
+        )
+        return await self._execute_without_access_assert(
+            request=normalized_request,
             current_user=current_user,
         )
 
@@ -176,43 +192,49 @@ class SubscriptionPurchaseService:
         current_user: UserDto,
     ) -> SubscriptionPurchaseQuoteResult:
         await self.purchase_access_service.assert_can_purchase(current_user)
-        validated_context = await self._validate_purchase_context(
+        normalized_request = await self._normalize_trial_catalog_purchase_request(
             request=request,
             current_user=current_user,
         )
+        validated_context = await self._validate_purchase_context(
+            request=normalized_request,
+            current_user=current_user,
+        )
         plan = validated_context.plan
-        _, duration = self._resolve_purchase_duration(request=request, plan=plan)
-        effective_multiplier, _ = self._resolve_effective_subscription_count(request=request)
-        gateway, gateway_type = await self._resolve_purchase_gateway(request=request)
+        _, duration = self._resolve_purchase_duration(request=normalized_request, plan=plan)
+        effective_multiplier, _ = self._resolve_effective_subscription_count(
+            request=normalized_request
+        )
+        gateway, gateway_type = await self._resolve_purchase_gateway(request=normalized_request)
         payment_asset = self._resolve_payment_asset(
-            request=request,
+            request=normalized_request,
             gateway_type=gateway_type,
         )
         settlement_pricing, renew_items = await self._calculate_settlement_pricing(
-            request=request,
+            request=normalized_request,
             current_user=current_user,
             validated_context=validated_context,
             duration=duration,
             gateway=gateway,
             effective_multiplier=effective_multiplier,
         )
-        if request.payment_source == PaymentSource.PARTNER_BALANCE:
+        if normalized_request.payment_source == PaymentSource.PARTNER_BALANCE:
             await self._assert_partner_balance_purchase_allowed(
-                request=request,
+                request=normalized_request,
                 current_user=current_user,
                 gateway=gateway,
             )
 
         final_display_quote = await self._build_display_quote(
             current_user=current_user,
-            request=request,
+            request=normalized_request,
             gateway=gateway,
             settlement_amount=settlement_pricing.final_amount,
             payment_asset=payment_asset,
         )
         original_display_quote = await self._build_display_quote(
             current_user=current_user,
-            request=request,
+            request=normalized_request,
             gateway=gateway,
             settlement_amount=settlement_pricing.original_amount,
             payment_asset=payment_asset,
@@ -436,6 +458,61 @@ class SubscriptionPurchaseService:
         raise SubscriptionPurchaseError(
             status_code=HTTPStatus.BAD_REQUEST,
             detail=f"Unsupported purchase type: {request.purchase_type}",
+        )
+
+    async def _normalize_trial_catalog_purchase_request(
+        self,
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ) -> SubscriptionPurchaseRequest:
+        if request.purchase_type != PurchaseType.NEW:
+            return request
+
+        trial_subscriptions = await self._get_active_trial_subscriptions(
+            current_user=current_user
+        )
+        if not trial_subscriptions:
+            return request
+
+        if request.quantity > 1:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail={
+                    "code": TRIAL_UPGRADE_QUANTITY_UNSUPPORTED_CODE,
+                    "message": TRIAL_UPGRADE_QUANTITY_UNSUPPORTED_MESSAGE,
+                },
+            )
+
+        if len(trial_subscriptions) != 1 or trial_subscriptions[0].id is None:
+            raise SubscriptionPurchaseError(
+                status_code=HTTPStatus.BAD_REQUEST,
+                detail={
+                    "code": TRIAL_UPGRADE_SELECTION_REQUIRED_CODE,
+                    "message": TRIAL_UPGRADE_SELECTION_REQUIRED_MESSAGE,
+                },
+            )
+
+        return replace(
+            request,
+            purchase_type=PurchaseType.UPGRADE,
+            renew_subscription_id=trial_subscriptions[0].id,
+            renew_subscription_ids=None,
+            quantity=1,
+            device_type=None,
+            device_types=None,
+        )
+
+    async def _get_active_trial_subscriptions(
+        self,
+        *,
+        current_user: UserDto,
+    ) -> tuple[SubscriptionDto, ...]:
+        existing_subs = await self.subscription_service.get_all_by_user(current_user.telegram_id)
+        return tuple(
+            subscription
+            for subscription in existing_subs
+            if subscription.is_trial and not self._is_deleted_subscription(subscription)
         )
 
     async def _get_valid_catalog_purchase_plan(
@@ -1042,16 +1119,12 @@ class SubscriptionPurchaseService:
         if request.purchase_type not in {PurchaseType.NEW, PurchaseType.ADDITIONAL}:
             return
 
-        existing_subs = await self.subscription_service.get_all_by_user(current_user.telegram_id)
-        if any(
-            subscription.is_trial and not self._is_deleted_subscription(subscription)
-            for subscription in existing_subs
-        ):
+        if await self._get_active_trial_subscriptions(current_user=current_user):
             raise SubscriptionPurchaseError(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail={
-                    "code": "TRIAL_UPGRADE_REQUIRED",
-                    "message": "An existing trial subscription can only be continued via upgrade",
+                    "code": TRIAL_UPGRADE_REQUIRED_CODE,
+                    "message": TRIAL_UPGRADE_REQUIRED_MESSAGE,
                 },
             )
 

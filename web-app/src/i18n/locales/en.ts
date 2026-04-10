@@ -977,6 +977,10 @@ export const enDictionary: Dictionary = {
     'purchase.trialErrorPlanNotFound': 'Trial plan not found',
     'purchase.trialUpgradeRequired':
       'You already have a trial subscription. It can only be continued by upgrading the current plan.',
+    'purchase.trialUpgradeSelectionRequired':
+      'Multiple active trial subscriptions were found. Open the subscriptions screen and choose the one to upgrade.',
+    'purchase.trialUpgradeSingleOnly':
+      'A trial subscription can only be converted to a paid plan one at a time.',
     'purchase.trialDebugReasonCode': 'Reason code',
     'purchase.quotePreparing': 'Preparing the final quote and payment parameters...',
     'purchase.quoteUnavailable': 'Failed to prepare payment. Try changing the options or refresh the page.',

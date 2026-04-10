@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.21] - 2026-04-10
+
+### Fixed
+
+- upgrade payments no longer fail during transaction creation because the PostgreSQL `purchasetype` enum is repaired from legacy `CHANGE` to `UPGRADE`, with existing transaction rows migrated safely
+- Mini App and web `/dashboard/subscription/purchase` now auto-convert a single active trial into the normal upgrade flow, so paid checkout works without dead-ending on the old `TRIAL_UPGRADE_REQUIRED` error
+
 ## [1.2.20] - 2026-04-10
 
 ### Fixed

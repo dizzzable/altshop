@@ -193,6 +193,8 @@ type PurchaseText = {
   trialErrorNotTrialPlan: string
   trialErrorPlanNotFound: string
   trialUpgradeRequired: string
+  trialUpgradeSelectionRequired: string
+  trialUpgradeSingleOnly: string
   trialDebugReasonCode: string
   quotePreparing: string
   quoteUnavailable: string
@@ -317,6 +319,8 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
   trialErrorNotTrialPlan: 'purchase.trialErrorNotTrialPlan',
   trialErrorPlanNotFound: 'purchase.trialErrorPlanNotFound',
   trialUpgradeRequired: 'purchase.trialUpgradeRequired',
+  trialUpgradeSelectionRequired: 'purchase.trialUpgradeSelectionRequired',
+  trialUpgradeSingleOnly: 'purchase.trialUpgradeSingleOnly',
   trialDebugReasonCode: 'purchase.trialDebugReasonCode',
   quotePreparing: 'purchase.quotePreparing',
   quoteUnavailable: 'purchase.quoteUnavailable',
@@ -327,6 +331,7 @@ const PURCHASE_TEXT_KEYS: Record<keyof PurchaseText, string> = {
 type SubmitBlockReason =
   | 'LIMIT_REACHED'
   | 'LIMIT_WOULD_BE_EXCEEDED'
+  | 'TRIAL_SELECTION_REQUIRED'
   | 'READ_ONLY_ACCESS'
   | 'PURCHASES_DISABLED'
   | 'MISSING_PLAN'
@@ -793,20 +798,39 @@ export function PurchasePage() {
   const { data: accessStatus } = useAccessStatusQuery()
   const { id: subscriptionIdFromPath } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
-  const isUpgradeFlow = location.pathname.endsWith('/upgrade')
+  const explicitUpgradeFlow = location.pathname.endsWith('/upgrade')
+  const { data: subscriptions = [], isLoading: isSubscriptionsLoading } = useSubscriptionsQuery()
 
-  const renewIdsFromQuery = isUpgradeFlow
+  const renewIdsFromQuery = explicitUpgradeFlow
     ? []
     : searchParams
       .getAll('renew')
       .map((value) => Number(value))
       .filter((value) => Number.isInteger(value) && value > 0)
   const pathSubscriptionId = subscriptionIdFromPath ? Number(subscriptionIdFromPath) : null
-  const renewId = isUpgradeFlow ? null : pathSubscriptionId
-  const upgradeSubscriptionId = isUpgradeFlow ? pathSubscriptionId : null
+  const renewId = explicitUpgradeFlow ? null : pathSubscriptionId
   const renewTargets = Array.from(
     new Set([...(renewId ? [renewId] : []), ...renewIdsFromQuery])
   )
+  const activeTrialSubscriptions = useMemo(
+    () =>
+      subscriptions.filter(
+        (subscription) => subscription.is_trial && subscription.status !== 'DELETED'
+      ),
+    [subscriptions]
+  )
+  const autoUpgradeTrialSubscription = useMemo(() => {
+    if (explicitUpgradeFlow || renewTargets.length > 0) {
+      return null
+    }
+    return activeTrialSubscriptions.length === 1 ? activeTrialSubscriptions[0] : null
+  }, [activeTrialSubscriptions, explicitUpgradeFlow, renewTargets.length])
+  const isTrialSelectionRequired =
+    !explicitUpgradeFlow && renewTargets.length === 0 && activeTrialSubscriptions.length > 1
+  const isUpgradeFlow = explicitUpgradeFlow || autoUpgradeTrialSubscription !== null
+  const upgradeSubscriptionId = explicitUpgradeFlow
+    ? pathSubscriptionId
+    : autoUpgradeTrialSubscription?.id ?? null
   const singleRenewId = renewTargets.length === 1 ? renewTargets[0] : null
   const singleSubscriptionTargetId = upgradeSubscriptionId ?? singleRenewId
   const isBulkRenewFlow = !isUpgradeFlow && renewTargets.length > 1
@@ -823,8 +847,10 @@ export function PurchasePage() {
   const [selectedRenewIds] = useState<number[]>(renewTargets.length > 1 ? renewTargets : [])
   const purchaseLaunchRef = useRef(false)
 
+  const isPurchaseFlowResolutionPending =
+    !explicitUpgradeFlow && renewTargets.length === 0 && isSubscriptionsLoading
   const isRenewFlow = !isUpgradeFlow && (renewTargets.length > 0 || selectedRenewIds.length > 0)
-  const isNewPurchaseFlow = !isRenewFlow && !isUpgradeFlow
+  const isNewPurchaseFlow = !isPurchaseFlowResolutionPending && !isRenewFlow && !isUpgradeFlow
   const purchaseType: PurchaseType = isUpgradeFlow ? 'UPGRADE' : isRenewFlow ? 'RENEW' : 'NEW'
   const isSingleSubscriptionFlow = singleSubscriptionTargetId !== null
   const accessCapabilities = useMemo(
@@ -838,7 +864,7 @@ export function PurchasePage() {
   const { data: catalogPlans = [], isLoading: isCatalogPlansLoading } = useQuery<Plan[]>({
     queryKey: ['plans', purchaseChannel],
     queryFn: () => api.plans.list(purchaseChannel).then((response) => response.data),
-    enabled: !isSingleSubscriptionFlow,
+    enabled: !isSingleSubscriptionFlow && !isTrialSelectionRequired,
   })
   const { data: singlePurchaseOptions, isLoading: isPurchaseOptionsLoading } = useQuery<SubscriptionPurchaseOptionsResponse>({
     queryKey: ['subscription-purchase-options', singleSubscriptionTargetId, purchaseType, purchaseChannel],
@@ -850,7 +876,7 @@ export function PurchasePage() {
           purchaseChannel
         )
         .then((response) => response.data),
-    enabled: isSingleSubscriptionFlow,
+    enabled: isSingleSubscriptionFlow && !isPurchaseFlowResolutionPending,
   })
   const bulkPurchaseOptionQueries = useQueries({
     queries: isBulkRenewFlow
@@ -861,8 +887,6 @@ export function PurchasePage() {
       }))
       : [],
   })
-
-  const { data: subscriptions = [] } = useSubscriptionsQuery()
   const { data: userProfile } = useQuery<User>({
     queryKey: ['user-profile'],
     queryFn: () => api.user.me().then((response) => response.data),
@@ -958,11 +982,13 @@ export function PurchasePage() {
     [bulkRenewSyntheticPlan, catalogPlans, isBulkRenewFlow, isSingleSubscriptionFlow, singlePurchaseOptions?.plans]
   )
   const isBulkPurchaseOptionsLoading = isBulkRenewFlow && bulkPurchaseOptionQueries.some((query) => query.isLoading)
-  const isLoading = isBulkRenewFlow
-    ? isBulkPurchaseOptionsLoading
-    : isSingleSubscriptionFlow
-      ? isPurchaseOptionsLoading
-      : isCatalogPlansLoading
+  const isLoading = isPurchaseFlowResolutionPending || (
+    isBulkRenewFlow
+      ? isBulkPurchaseOptionsLoading
+      : isSingleSubscriptionFlow
+        ? isPurchaseOptionsLoading
+        : isCatalogPlansLoading
+  )
   const defaultFlowPlanId =
     (
       isBulkRenewFlow
@@ -1160,6 +1186,7 @@ export function PurchasePage() {
     (isBulkRenewFlow || effectivePlanId !== null)
       && effectiveSelectedDuration !== null
       && effectiveSelectedGateway
+      && !isTrialSelectionRequired
       && canPurchase
       && !purchaseBlockedByLimit
       && !exceedsPredictedLimit
@@ -1229,6 +1256,9 @@ export function PurchasePage() {
     if (exceedsPredictedLimit) {
       return 'LIMIT_WOULD_BE_EXCEEDED'
     }
+    if (isTrialSelectionRequired) {
+      return 'TRIAL_SELECTION_REQUIRED'
+    }
     if (!isBulkRenewFlow && effectivePlanId === null) {
       return 'MISSING_PLAN'
     }
@@ -1257,6 +1287,7 @@ export function PurchasePage() {
     isQuoteFetching,
     isPurchaseBlocked,
     isReadOnlyAccess,
+    isTrialSelectionRequired,
     noGatewayAvailable,
     purchaseBlockedByLimit,
     purchaseQuoteEnabled,
@@ -1277,6 +1308,8 @@ export function PurchasePage() {
         return text.limitReached
       case 'LIMIT_WOULD_BE_EXCEEDED':
         return text.limitWouldExceed
+      case 'TRIAL_SELECTION_REQUIRED':
+        return text.trialUpgradeSelectionRequired
       case 'READ_ONLY_ACCESS':
         return text.readOnlyNotice
       case 'PURCHASES_DISABLED':
@@ -1306,6 +1339,7 @@ export function PurchasePage() {
     text.limitWouldExceed,
     text.purchaseBlockedNotice,
     text.readOnlyNotice,
+    text.trialUpgradeSelectionRequired,
     text.selectPlanError,
     text.selectDurationMethodError,
     text.selectDeviceError,
@@ -1389,6 +1423,16 @@ export function PurchasePage() {
       </CardContent>
     </Card>
   ) : null
+  const trialSelectionRequiredCard = isTrialSelectionRequired ? (
+    <Card className="border-amber-300/25 bg-amber-500/10">
+      <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-amber-100">{text.trialUpgradeSelectionRequired}</p>
+        <Button type="button" onClick={() => navigate('/dashboard/subscription')}>
+          {text.manageSubscriptions}
+        </Button>
+      </CardContent>
+    </Card>
+  ) : null
 
   useEffect(() => {
     if (!isNewPurchaseFlow) {
@@ -1434,6 +1478,10 @@ export function PurchasePage() {
 
     if (purchaseBlockedByLimit || exceedsPredictedLimit) {
       toast.error(text.limitReached)
+      return
+    }
+    if (isTrialSelectionRequired) {
+      toast.error(text.trialUpgradeSelectionRequired)
       return
     }
 
@@ -1867,8 +1915,9 @@ export function PurchasePage() {
           <p className="text-muted-foreground">{pageSubtitle}</p>
         </div>
 
+        {trialSelectionRequiredCard}
         {trialCard}
-        {purchaseWarningMessage && (
+        {purchaseWarningMessage && !isTrialSelectionRequired && (
           <Card className="border-amber-300/25 bg-amber-500/10">
             <CardContent className="pt-6">
               <p className="text-sm text-amber-100">{purchaseWarningMessage}</p>
@@ -1876,14 +1925,16 @@ export function PurchasePage() {
           </Card>
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>{text.noPlansTitle}</CardTitle>
-            <CardDescription>
-              {text.noPlansDesc}
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        {!isTrialSelectionRequired && (
+          <Card>
+            <CardHeader>
+              <CardTitle>{text.noPlansTitle}</CardTitle>
+              <CardDescription>
+                {text.noPlansDesc}
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
       </div>
     )
   }
@@ -1905,6 +1956,7 @@ export function PurchasePage() {
         </Card>
       )}
 
+      {trialSelectionRequiredCard}
       {trialCard}
       <LimitWarningCard
         show={showLimitWarning}
@@ -2253,6 +2305,12 @@ function extractPurchaseError(error: unknown, text: PurchaseText): string {
     }
     if (detail.code === 'TRIAL_UPGRADE_REQUIRED') {
       return text.trialUpgradeRequired
+    }
+    if (detail.code === 'TRIAL_UPGRADE_SELECTION_REQUIRED') {
+      return text.trialUpgradeSelectionRequired
+    }
+    if (detail.code === 'TRIAL_UPGRADE_QUANTITY_UNSUPPORTED') {
+      return text.trialUpgradeSingleOnly
     }
     if (detail.code === 'ARCHIVED_PLAN_NOT_PURCHASABLE') {
       return text.archivedPlanNotPurchasable

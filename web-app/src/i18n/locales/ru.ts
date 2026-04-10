@@ -978,6 +978,10 @@ export const ruDictionary: Dictionary = {
     'purchase.trialErrorPlanNotFound': 'Пробный тариф не найден',
     'purchase.trialUpgradeRequired':
       'У вас уже есть пробная подписка. Её можно продолжить только через улучшение текущего тарифа.',
+    'purchase.trialUpgradeSelectionRequired':
+      'Найдено несколько активных пробных подписок. Откройте экран подписок и выберите нужную для улучшения.',
+    'purchase.trialUpgradeSingleOnly':
+      'Пробную подписку можно перевести на платный тариф только по одной за раз.',
     'purchase.trialDebugReasonCode': 'Код причины',
     'purchase.quotePreparing': 'Подготавливаем итоговую стоимость и параметры оплаты...',
     'purchase.quoteUnavailable': 'Не удалось подготовить оплату. Попробуйте изменить параметры или обновить страницу.',
