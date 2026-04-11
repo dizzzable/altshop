@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.29] - 2026-04-11
+
+### Fixed
+
+- DEV Web Cabinet bind now completes cleanly when the old source shadow-user still owns `referral_invites`, because referral-invite ownership is reassigned before the source user is deleted
+- the banner editor keeps its one-screen category editor stable after selection, with localized category labels and no hidden `locale_scope_items` dependency that could break render-time keyboard building
+
 ## [1.2.28] - 2026-04-11
 
 ### Changed

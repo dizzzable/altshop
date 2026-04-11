@@ -317,6 +317,53 @@ def test_telegram_link_wraps_integrity_error_during_reference_merge() -> None:
     assert getattr(error, "code", None) == "MANUAL_MERGE_REQUIRED"
 
 
+def test_telegram_link_deletes_shadow_source_user_after_reference_reassign() -> None:
+    uow = DummyUow()
+    service = TelegramLinkService(
+        uow=uow,
+        challenge_service=SimpleNamespace(),
+        bot=SimpleNamespace(),
+        settings_service=SimpleNamespace(),
+    )
+    current_account = SimpleNamespace(id=77, user_telegram_id=-4, token_version=4)
+    source_user = SimpleNamespace(telegram_id=-4)
+    target_user = SimpleNamespace(telegram_id=412289221)
+    updated_account = SimpleNamespace(
+        id=77,
+        user_telegram_id=412289221,
+        username="alice",
+        password_hash="hash",
+        token_version=5,
+        email=None,
+        email_normalized=None,
+        email_verified_at=None,
+        credentials_bootstrapped_at=None,
+        requires_password_change=False,
+        temporary_password_expires_at=None,
+        link_prompt_snooze_until=None,
+        created_at=None,
+        updated_at=None,
+    )
+    service._get_web_account_or_error = AsyncMock(return_value=current_account)
+    service._handle_already_linked_account = AsyncMock(return_value=None)
+    service._assert_telegram_not_linked_elsewhere = AsyncMock()
+    service._get_source_user_or_error = AsyncMock(return_value=source_user)
+    service._get_or_create_target_user = AsyncMock(return_value=target_user)
+    service._assert_merge_allowed = AsyncMock(return_value=True)
+    service._merge_user_values = AsyncMock()
+    uow.repository.users.reassign_telegram_id_references = AsyncMock()
+    uow.repository.web_accounts.update = AsyncMock(return_value=updated_account)
+
+    result = run_async(service._safe_auto_link(web_account_id=77, telegram_id=412289221))
+
+    assert result.user_telegram_id == 412289221
+    uow.repository.users.reassign_telegram_id_references.assert_awaited_once_with(
+        source_telegram_id=-4,
+        target_telegram_id=412289221,
+    )
+    uow.repository.users.delete.assert_awaited_once_with(-4)
+
+
 def test_web_login_contract_normalizes_supported_values() -> None:
     register = RegisterRequest(username=" Alice.User_1 ", password="secret123")
     bootstrap = WebAccountBootstrapRequest(username=" USER_01.TEST ", password="secret123")

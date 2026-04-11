@@ -141,7 +141,7 @@ async def banners_getter(
     banners: list[dict[str, Any]] = [
         {
             "name": banner_name.value,
-            "icon": "📣" if banner_name.value == ALL_BANNER_SECTION else "🖼️",
+            "icon": "🖼️",
             "display_name": _resolve_section_display_name(
                 banner_name.value,
                 dialog_manager,

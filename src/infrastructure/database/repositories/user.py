@@ -161,6 +161,10 @@ class UserRepository(BaseRepository):
                 "UPDATE user_notification_events "
                 "SET user_telegram_id = :target WHERE user_telegram_id = :source"
             ),
+            (
+                "UPDATE referral_invites "
+                "SET inviter_telegram_id = :target WHERE inviter_telegram_id = :source"
+            ),
         ]
         for statement in statements:
             await self.session.execute(text(statement), params)
