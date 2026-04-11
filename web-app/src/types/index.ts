@@ -570,6 +570,7 @@ export interface TelegramLinkRequestResponse {
   delivered: boolean
   expires_in_seconds: number
   bot_confirm_url?: string | null
+  bot_confirm_deep_link?: string | null
 }
 
 export interface TelegramLinkConfirmResponse {

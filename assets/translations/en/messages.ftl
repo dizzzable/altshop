@@ -2620,3 +2620,57 @@ msg-user-referral-invite-settings-summary =
     • Qualification threshold: { $effective_refill_threshold }
     • Refill amount: { $effective_refill_amount }
     </blockquote>
+
+msg-user-web-cabinet =
+    <b>Web Cabinet</b>
+
+    { $has_web_account ->
+    [1] - <b>Web login</b>: <code>{ $web_login }</code>
+        { $linked_telegram_id ->
+        [0]
+        *[other] - <b>Linked Telegram ID</b>: <code>{ $linked_telegram_id }</code>
+        }
+    *[0] This user does not have a web account yet.
+    }
+
+msg-user-web-change-login =
+    <b>Change web login</b>
+
+    { $has_web_account ->
+    [1] Current login: <code>{ $web_login }</code>
+
+        Send a new login for web access. The password will stay unchanged.
+    *[0] This user has no web account, so there is no login to change.
+    }
+
+msg-user-web-bind-tg =
+    <b>Bind TG ID to web account</b>
+
+    { $has_web_account ->
+    [1] - <b>Web login</b>: <code>{ $web_login }</code>
+
+        Send the Telegram ID that should own this web account.
+        The bot will show a merge preview before confirmation.
+    *[0] This user has no web account, so binding is unavailable.
+    }
+
+msg-user-web-bind-preview =
+    <b>Web / Telegram bind preview</b>
+
+    - <b>Target TG ID</b>: <code>{ $target_telegram_id }</code>
+    { $target_name ->
+    [0]
+    *[other] - <b>Target user</b>: { $target_name }
+    }
+    { $target_web_login ->
+    [0]
+    *[other] - <b>Target web login</b>: <code>{ $target_web_login }</code>
+    }
+
+    Tap the subscriptions below to choose which ones should remain after the merge.
+
+msg-user-web-bind-target-existing = The target Telegram user already exists locally.
+msg-user-web-bind-target-missing = The local Telegram user will be created during the merge.
+msg-user-web-bind-source-summary = <b>Web/shadow subscriptions</b>: { $count }
+msg-user-web-bind-target-summary = <b>Telegram subscriptions</b>: { $count }
+msg-user-web-bind-selection-summary = <b>Selected to keep</b>: { $selected } / { $total }

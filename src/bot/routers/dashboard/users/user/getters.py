@@ -172,9 +172,7 @@ async def user_getter(
     # Проверяем партнерский статус
     partner = await partner_service.get_partner_by_user(target_telegram_id)
     is_partner = partner is not None and partner.is_active
-    has_referral_attribution = await referral_service.has_referral_attribution(
-        target_telegram_id
-    )
+    has_referral_attribution = await referral_service.has_referral_attribution(target_telegram_id)
     has_partner_attribution = await partner_service.has_partner_attribution(target_telegram_id)
     can_edit = user.role > target_user.role or user.telegram_id in config.bot.dev_id
     attach_referrer_reason: str | None = None
@@ -292,9 +290,7 @@ async def referral_attach_results_getter(
 ) -> dict[str, Any]:
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
     found_users_data = dialog_manager.dialog_data.get("referral_attach_found_users", [])
-    found_users = [
-        UserDto.model_validate_json(json_string) for json_string in found_users_data
-    ]
+    found_users = [UserDto.model_validate_json(json_string) for json_string in found_users_data]
     target_user = await user_service.get(telegram_id=target_telegram_id)
 
     if not target_user:
@@ -341,9 +337,7 @@ async def referral_attach_confirm_getter(
         "target_telegram_id": target_user.telegram_id,
         "referrer_name": referrer.name,
         "referrer_telegram_id": referrer.telegram_id,
-        "referrer_web_login": (
-            referrer_web_account.username if referrer_web_account else False
-        ),
+        "referrer_web_login": (referrer_web_account.username if referrer_web_account else False),
         "referrer_is_partner": await partner_service.is_partner(referrer.telegram_id),
     }
 
@@ -1440,4 +1434,132 @@ async def referral_invite_settings_getter(
         "effective_refill_amount": _display(effective.refill_amount),
         "global_ttl_enabled": global_settings.invite_limits.link_ttl_enabled,
         "global_slots_enabled": global_settings.invite_limits.slots_enabled,
+    }
+
+
+@inject
+async def web_cabinet_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    web_account = await web_account_service.get_by_user_telegram_id(target_telegram_id)
+    return {
+        "target_name": target_user.name,
+        "target_telegram_id": str(target_user.telegram_id),
+        "has_web_account": bool(web_account),
+        "web_login": web_account.username if web_account else False,
+        "linked_telegram_id": (
+            str(web_account.user_telegram_id)
+            if web_account and web_account.user_telegram_id > 0
+            else False
+        ),
+    }
+
+
+@inject
+async def web_login_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    web_account = await web_account_service.get_by_user_telegram_id(target_telegram_id)
+    return {
+        "target_name": target_user.name,
+        "target_telegram_id": str(target_user.telegram_id),
+        "web_login": web_account.username if web_account else False,
+        "has_web_account": bool(web_account),
+    }
+
+
+@inject
+async def web_bind_target_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    web_account = await web_account_service.get_by_user_telegram_id(target_telegram_id)
+    return {
+        "target_name": target_user.name,
+        "target_telegram_id": str(target_user.telegram_id),
+        "web_login": web_account.username if web_account else False,
+        "has_web_account": bool(web_account),
+    }
+
+
+@inject
+async def web_bind_preview_getter(
+    dialog_manager: DialogManager,
+    i18n: FromDishka[TranslatorRunner],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_tg_id = dialog_manager.dialog_data.get("web_bind_target_telegram_id")
+    source_items = list(dialog_manager.dialog_data.get("web_bind_source_subscriptions", []))
+    target_items = list(dialog_manager.dialog_data.get("web_bind_target_subscriptions", []))
+    kept_ids = {
+        int(subscription_id)
+        for subscription_id in dialog_manager.dialog_data.get("web_bind_keep_subscription_ids", [])
+    }
+
+    def _row(item: dict[str, Any]) -> dict[str, Any]:
+        subscription_id = int(item["subscription_id"])
+        profile_name = item.get("profile_name") or i18n.get("msg-common-empty-value")
+        owner_label = "WEB" if item.get("owner_kind") == "WEB" else "TG"
+        return {
+            **item,
+            "subscription_id": subscription_id,
+            "display": (
+                f"{'[x]' if subscription_id in kept_ids else '[ ]'} "
+                f"{owner_label} | {item.get('plan_name', '-')} | "
+                f"{profile_name} | {item.get('status', '-')}"
+            ),
+        }
+
+    source_rows = [_row(item) for item in source_items]
+    target_rows = [_row(item) for item in target_items]
+    target_exists = bool(dialog_manager.dialog_data.get("web_bind_target_exists"))
+    target_name = dialog_manager.dialog_data.get("web_bind_target_name") or False
+    target_web_login = dialog_manager.dialog_data.get("web_bind_target_web_login") or False
+
+    return {
+        "target_telegram_id": str(target_tg_id) if target_tg_id is not None else False,
+        "target_exists": target_exists,
+        "target_name": target_name,
+        "target_web_login": target_web_login,
+        "target_state_summary": (
+            i18n.get("msg-user-web-bind-target-existing")
+            if target_exists
+            else i18n.get("msg-user-web-bind-target-missing")
+        ),
+        "source_summary": i18n.get("msg-user-web-bind-source-summary", count=len(source_rows)),
+        "target_summary": i18n.get("msg-user-web-bind-target-summary", count=len(target_rows)),
+        "selection_summary": i18n.get(
+            "msg-user-web-bind-selection-summary",
+            selected=len(kept_ids),
+            total=len(source_rows) + len(target_rows),
+        ),
+        "source_count": len(source_rows),
+        "target_count": len(target_rows),
+        "selected_count": len(kept_ids),
+        "source_subscriptions": source_rows,
+        "target_subscriptions": target_rows,
+        "has_target_subscriptions": bool(target_rows),
     }

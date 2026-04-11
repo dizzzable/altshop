@@ -6,6 +6,21 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.23] - 2026-04-11
+
+### Changed
+
+- the admin user card now includes a dedicated `Web Cabinet` section for DEV accounts, combining web-password reset, web-login rename, and manual Telegram ID binding flows in one place
+- browser-side Telegram confirmation now prefers the native `tg://resolve` deeplink before falling back to the regular `https://t.me/...` bot link
+
+### Fixed
+
+- new `Web Cabinet` RU/EN translations, merge preview labels, and aggregated expiry summaries no longer ship with placeholder text, mojibake, or broken `?` separators
+- placeholder Telegram users created during DEV-only web-account binding no longer pollute the recent registered user list
+- referral and partner link copy actions now fail gracefully and show consistent user toasts when the Clipboard API is unavailable
+- enriched purchase notification payloads remain backward-compatible with older transaction fixtures that do not carry renewal metadata or purchase channel fields
+
+
 ## [1.2.22] - 2026-04-10
 
 ### Changed

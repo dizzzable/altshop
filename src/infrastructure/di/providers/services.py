@@ -42,6 +42,7 @@ from src.services.user_profile import UserProfileService
 from src.services.web_access_guard import WebAccessGuardService
 from src.services.web_account import WebAccountService
 from src.services.web_analytics_event import WebAnalyticsEventService
+from src.services.web_cabinet_admin import WebCabinetAdminService
 from src.services.webhook import WebhookService
 
 
@@ -95,3 +96,4 @@ class ServicesProvider(Provider):
         source=UserNotificationEventService, scope=Scope.REQUEST
     )
     web_analytics_event_service = provide(source=WebAnalyticsEventService, scope=Scope.REQUEST)
+    web_cabinet_admin_service = provide(source=WebCabinetAdminService, scope=Scope.REQUEST)

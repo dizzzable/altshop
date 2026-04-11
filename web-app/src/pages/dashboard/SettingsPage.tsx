@@ -23,6 +23,7 @@ import { api, clearLegacyAuthStorage } from '@/lib/api'
 import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { getPaymentGatewayDisplayName } from '@/lib/payment-gateway-icons'
 import { readLocaleOverride } from '@/lib/locale'
+import { openTelegramDeepLinkWithFallback } from '@/lib/openTelegramDeepLink'
 import {
   readMobileExtraNavigationEnabled,
   subscribeMobileExtraNavigationPreference,
@@ -152,6 +153,7 @@ export function SettingsPage() {
   const [isTelegramRequestLoading, setIsTelegramRequestLoading] = useState(false)
   const [isTelegramConfirmLoading, setIsTelegramConfirmLoading] = useState(false)
   const [isTelegramBotConfirmLoading, setIsTelegramBotConfirmLoading] = useState(false)
+  const [telegramBotOpenUrl, setTelegramBotOpenUrl] = useState<string | null>(null)
   const [isEmailSaveLoading, setIsEmailSaveLoading] = useState(false)
   const [isEmailVerifyLoading, setIsEmailVerifyLoading] = useState(false)
   const [isEmailResendLoading, setIsEmailResendLoading] = useState(false)
@@ -377,6 +379,7 @@ export function SettingsPage() {
   const handleTelegramRequest = async () => {
     setError(null)
     setMessage(null)
+    setTelegramBotOpenUrl(null)
     if (!telegramId.trim() || !/^\d+$/.test(telegramId.trim())) {
       setError(t('settings.validation.telegramId'))
       return
@@ -396,6 +399,7 @@ export function SettingsPage() {
   const handleTelegramConfirm = async () => {
     setError(null)
     setMessage(null)
+    setTelegramBotOpenUrl(null)
     if (!telegramId.trim() || !telegramCode.trim()) {
       setError(t('settings.validation.telegramCodeRequired'))
       return
@@ -422,6 +426,7 @@ export function SettingsPage() {
   const handleTelegramBotConfirm = async () => {
     setError(null)
     setMessage(null)
+    setTelegramBotOpenUrl(null)
 
     setIsTelegramBotConfirmLoading(true)
     try {
@@ -434,7 +439,20 @@ export function SettingsPage() {
       }
 
       setMessage(data.message)
-      window.location.href = data.bot_confirm_url
+      setTelegramBotOpenUrl(data.bot_confirm_url)
+
+      if (authSource === 'telegram-miniapp' && isInTelegram) {
+        window.location.href = data.bot_confirm_url
+        return
+      }
+
+      const opened = openTelegramDeepLinkWithFallback(
+        data.bot_confirm_deep_link,
+        data.bot_confirm_url
+      )
+      if (!opened) {
+        window.location.href = data.bot_confirm_url
+      }
     } catch (err: unknown) {
       setError(getErrorMessage(err, requestFailedMessage))
     } finally {
@@ -976,6 +994,19 @@ export function SettingsPage() {
         </div>
         {!canAutoConfirmInTelegram && (
           <p className="text-xs text-slate-400">{t('settings.section.confirmInTelegramHint')}</p>
+        )}
+        {telegramBotOpenUrl && !isInTelegram && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="w-full justify-start px-0 text-primary hover:bg-transparent hover:text-primary/90"
+            onClick={() => {
+              window.location.href = telegramBotOpenUrl
+            }}
+          >
+            <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
+            {t('settings.access.openVerificationBot')}
+          </Button>
         )}
       </div>
       <div className="flex flex-wrap gap-3 text-xs">

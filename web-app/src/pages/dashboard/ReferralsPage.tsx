@@ -8,7 +8,7 @@ import { translateWithLocale, type TranslationParams } from '@/i18n/runtime'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
 import { api } from '@/lib/api'
-import { cn, formatRelativeTime } from '@/lib/utils'
+import { cn, copyToClipboard, formatRelativeTime } from '@/lib/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -352,7 +352,13 @@ export function ReferralsPage() {
       toast.error(translateText(referralLocale, 'referrals.auto.007'))
       return
     }
-    await navigator.clipboard.writeText(link)
+
+    const copied = await copyToClipboard(link)
+    if (!copied) {
+      toast.error(translateText(referralLocale, 'referrals.auto.007'))
+      return
+    }
+
     toast.success(
       formatText(
         translateText(referralLocale, 'referrals.auto.008'),
@@ -376,7 +382,12 @@ export function ReferralsPage() {
       return
     }
 
-    await navigator.clipboard.writeText(shareReferralLink)
+    const copied = await copyToClipboard(shareReferralLink)
+    if (!copied) {
+      toast.error(translateText(referralLocale, 'referrals.auto.007'))
+      return
+    }
+
     toast.success(translateText(referralLocale, 'referrals.auto.009'))
   }
 

@@ -223,6 +223,10 @@ def test_telegram_link_request_returns_bot_confirm_url() -> None:
     )
 
     assert result.bot_confirm_url == "https://t.me/altshop_bot?start=tglink_challenge-token"
+    assert (
+        result.bot_confirm_deep_link
+        == "tg://resolve?domain=altshop_bot&start=tglink_challenge-token"
+    )
     challenge_service.create.assert_awaited_once()
     assert challenge_service.create.await_args.kwargs["include_token"] is True
     bot.send_message.assert_awaited_once()
@@ -316,12 +320,14 @@ def test_web_login_contract_normalizes_supported_values() -> None:
 
 
 def test_auto_link_uses_trusted_positive_telegram_id_only() -> None:
-    assert _resolve_trusted_telegram_id_for_auto_link(
-        UserDto(telegram_id=412289221, name="TG User")
-    ) == 412289221
-    assert _resolve_trusted_telegram_id_for_auto_link(
-        UserDto(telegram_id=-555, name="Shadow User")
-    ) is None
+    assert (
+        _resolve_trusted_telegram_id_for_auto_link(UserDto(telegram_id=412289221, name="TG User"))
+        == 412289221
+    )
+    assert (
+        _resolve_trusted_telegram_id_for_auto_link(UserDto(telegram_id=-555, name="Shadow User"))
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -433,3 +439,31 @@ def test_identity_kind_marks_web_only_and_linked_profiles() -> None:
         )
         == "TELEGRAM_LINKED"
     )
+
+
+def test_create_placeholder_user_does_not_touch_recent_registered() -> None:
+    created_user_model = make_user_model(777, username=None, name="777")
+    uow = DummyUow()
+    uow.repository.users.generate_unique_referral_code = AsyncMock(return_value="PLACEHOLDER")
+    uow.repository.users.create = AsyncMock(return_value=created_user_model)
+    service = UserService(
+        config=SimpleNamespace(
+            default_locale=Locale.EN,
+            crypt_key=SimpleNamespace(get_secret_value=lambda: "secret"),
+            bot=SimpleNamespace(dev_id=[]),
+        ),
+        bot=SimpleNamespace(),
+        redis_client=SimpleNamespace(),
+        redis_repository=SimpleNamespace(),
+        translator_hub=SimpleNamespace(),
+        uow=uow,
+    )
+    service.get = AsyncMock(return_value=None)
+    service.add_to_recent_registered = AsyncMock()
+    service.clear_user_cache = AsyncMock()
+
+    result = run_async(service.create_placeholder_user(telegram_id=777))
+
+    assert result.telegram_id == 777
+    service.add_to_recent_registered.assert_not_awaited()
+    service.clear_user_cache.assert_awaited_once_with(777)

@@ -5,7 +5,7 @@ import { useBranding } from '@/components/common/BrandingProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { translateWithLocale, type TranslationParams } from '@/i18n/runtime'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
-import { cn } from '@/lib/utils'
+import { cn, copyToClipboard } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -400,7 +400,13 @@ export function PartnerPage() {
       toast.error(translateText(partnerLocale, 'partner.auto.007'))
       return
     }
-    await navigator.clipboard.writeText(link)
+
+    const copied = await copyToClipboard(link)
+    if (!copied) {
+      toast.error(translateText(partnerLocale, 'partner.auto.007'))
+      return
+    }
+
     toast.success(
       formatText(
         translateText(partnerLocale, 'partner.auto.008'),
@@ -424,7 +430,12 @@ export function PartnerPage() {
       return
     }
 
-    await navigator.clipboard.writeText(activePartnerLink)
+    const copied = await copyToClipboard(activePartnerLink)
+    if (!copied) {
+      toast.error(translateText(partnerLocale, 'partner.auto.007'))
+      return
+    }
+
     toast.success(translateText(partnerLocale, 'partner.auto.010'))
   }
 

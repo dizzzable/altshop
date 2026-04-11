@@ -1018,6 +1018,7 @@ async def request_telegram_link_code(
         delivered=result.delivered,
         expires_in_seconds=result.expires_in_seconds,
         bot_confirm_url=result.bot_confirm_url,
+        bot_confirm_deep_link=result.bot_confirm_deep_link,
     )
 
 
@@ -1076,6 +1077,7 @@ async def request_telegram_link_auto_confirm(
         delivered=result.delivered,
         expires_in_seconds=result.expires_in_seconds,
         bot_confirm_url=result.bot_confirm_url,
+        bot_confirm_deep_link=result.bot_confirm_deep_link,
     )
 
 

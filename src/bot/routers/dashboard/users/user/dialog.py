@@ -58,6 +58,10 @@ from .getters import (
     transaction_getter,
     transactions_getter,
     user_getter,
+    web_bind_preview_getter,
+    web_bind_target_getter,
+    web_cabinet_getter,
+    web_login_getter,
 )
 from .handlers import (
     on_active_toggle,
@@ -131,6 +135,10 @@ from .handlers import (
     on_transaction_select,
     on_transactions,
     on_user_subscription_select,
+    on_web_bind_confirm,
+    on_web_bind_subscription_toggle,
+    on_web_bind_tg_id_input,
+    on_web_login_input,
 )
 
 user = Window(
@@ -259,10 +267,10 @@ user = Window(
         ),
     ),
     Row(
-        Button(
-            text=I18nFormat("btn-user-reset-web-password"),
-            id="reset_web_password",
-            on_click=on_reset_web_password,
+        SwitchTo(
+            text=I18nFormat("btn-user-web-cabinet"),
+            id="web_cabinet",
+            state=DashboardUser.WEB_CABINET,
             when=F["is_dev"],
         ),
     ),
@@ -1514,6 +1522,132 @@ referral_invite_refill_amount = Window(
 )
 
 
+web_cabinet = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-web-cabinet"),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-reset-web-password"),
+            id="reset_web_password",
+            on_click=on_reset_web_password,
+            when=F["has_web_account"],
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-user-web-change-login"),
+            id="web_change_login",
+            state=DashboardUser.WEB_LOGIN,
+            when=F["has_web_account"],
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-user-web-bind-tg"),
+            id="web_bind_tg",
+            state=DashboardUser.WEB_BIND_TG_ID,
+            when=F["has_web_account"],
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.MAIN,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.WEB_CABINET,
+    getter=web_cabinet_getter,
+)
+
+web_login = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-web-change-login"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.WEB_CABINET,
+        ),
+    ),
+    MessageInput(func=on_web_login_input),
+    IgnoreUpdate(),
+    state=DashboardUser.WEB_LOGIN,
+    getter=web_login_getter,
+)
+
+web_bind_tg_id = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-web-bind-tg"),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.WEB_CABINET,
+        ),
+    ),
+    MessageInput(func=on_web_bind_tg_id_input),
+    IgnoreUpdate(),
+    state=DashboardUser.WEB_BIND_TG_ID,
+    getter=web_bind_target_getter,
+)
+
+web_bind_preview = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-web-bind-preview"),
+    Format("{target_state_summary}"),
+    Format("{selection_summary}"),
+    Format("{source_summary}"),
+    ScrollingGroup(
+        Select(
+            text=Format("{item[display]}"),
+            id="web_bind_source_subscription",
+            item_id_getter=lambda item: item["subscription_id"],
+            items="source_subscriptions",
+            type_factory=int,
+            on_click=on_web_bind_subscription_toggle,
+        ),
+        id="web_bind_source_scroll",
+        width=1,
+        height=5,
+        hide_on_single_page=True,
+    ),
+    Format("{target_summary}"),
+    ScrollingGroup(
+        Select(
+            text=Format("{item[display]}"),
+            id="web_bind_target_subscription",
+            item_id_getter=lambda item: item["subscription_id"],
+            items="target_subscriptions",
+            type_factory=int,
+            on_click=on_web_bind_subscription_toggle,
+        ),
+        id="web_bind_target_scroll",
+        width=1,
+        height=5,
+        hide_on_single_page=True,
+        when=F["has_target_subscriptions"],
+    ),
+    Row(
+        Button(
+            text=I18nFormat("btn-user-web-bind-confirm"),
+            id="web_bind_confirm",
+            on_click=on_web_bind_confirm,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=DashboardUser.WEB_BIND_TG_ID,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=DashboardUser.WEB_BIND_PREVIEW,
+    getter=web_bind_preview_getter,
+)
+
 router = Dialog(
     user,
     referral_attach_search,
@@ -1554,4 +1688,8 @@ router = Dialog(
     referral_invite_initial_slots,
     referral_invite_refill_threshold,
     referral_invite_refill_amount,
+    web_cabinet,
+    web_login,
+    web_bind_tg_id,
+    web_bind_preview,
 )

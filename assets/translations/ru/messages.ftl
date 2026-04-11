@@ -2802,3 +2802,57 @@ msg-bot-menu-source-settings = настройка из БД
 msg-bot-menu-source-config = fallback из BOT_MINI_APP
 msg-bot-menu-source-missing = не настроено
 msg-bot-menu-new-button-label = Новая кнопка
+
+msg-user-web-cabinet =
+    <b>Web-кабинет</b>
+
+    { $has_web_account ->
+    [1] - <b>Web login</b>: <code>{ $web_login }</code>
+        { $linked_telegram_id ->
+        [0]
+        *[other] - <b>Привязан к TG ID</b>: <code>{ $linked_telegram_id }</code>
+        }
+    *[0] У пользователя пока нет web-аккаунта.
+    }
+
+msg-user-web-change-login =
+    <b>Смена web-логина</b>
+
+    { $has_web_account ->
+    [1] Текущий логин: <code>{ $web_login }</code>
+
+        Отправьте новый логин для web-входа. Пароль останется прежним.
+    *[0] У пользователя нет web-аккаунта, поэтому менять логин пока нечему.
+    }
+
+msg-user-web-bind-tg =
+    <b>Привязка TG ID к web-аккаунту</b>
+
+    { $has_web_account ->
+    [1] - <b>Web login</b>: <code>{ $web_login }</code>
+
+        Отправьте Telegram ID, которому должен принадлежать этот web-аккаунт.
+        Перед подтверждением бот покажет preview итогового merge.
+    *[0] У пользователя нет web-аккаунта, поэтому привязка недоступна.
+    }
+
+msg-user-web-bind-preview =
+    <b>Preview привязки Web / Telegram</b>
+
+    - <b>Целевой TG ID</b>: <code>{ $target_telegram_id }</code>
+    { $target_name ->
+    [0]
+    *[other] - <b>Целевой пользователь</b>: { $target_name }
+    }
+    { $target_web_login ->
+    [0]
+    *[other] - <b>Целевой web login</b>: <code>{ $target_web_login }</code>
+    }
+
+    Нажимайте на подписки ниже, чтобы выбрать итоговый набор, который останется после merge.
+
+msg-user-web-bind-target-existing = Целевой Telegram-пользователь уже существует локально.
+msg-user-web-bind-target-missing = Локальный Telegram-пользователь будет создан во время merge.
+msg-user-web-bind-source-summary = <b>Подписки web/shadow</b>: { $count }
+msg-user-web-bind-target-summary = <b>Подписки Telegram</b>: { $count }
+msg-user-web-bind-selection-summary = <b>Останется после merge</b>: { $selected } / { $total }

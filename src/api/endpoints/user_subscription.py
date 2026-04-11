@@ -48,11 +48,19 @@ from src.api.presenters.user_account import (
     _raise_subscription_purchase_http_error,
     build_subscription_response,
 )
-from src.core.enums import PurchaseChannel, PurchaseType, SubscriptionStatus
+from src.bot.keyboards import get_user_keyboard
+from src.core.enums import PurchaseChannel, PurchaseType, SubscriptionStatus, SystemNotificationType
+from src.core.utils.formatters import (
+    i18n_format_days,
+    i18n_format_device_limit,
+    i18n_format_traffic_limit,
+)
+from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.database.models.dto import UserDto
 from src.infrastructure.taskiq.tasks.subscriptions import (
     refresh_user_subscriptions_runtime_task,
 )
+from src.services.notification import NotificationService
 from src.services.promocode_portal import (
     PromocodePortalError,
     PromocodePortalService,
@@ -358,6 +366,7 @@ async def get_trial_subscription(
     request: TrialRequest | None = None,
     current_user: UserDto = Depends(require_web_product_access),
     subscription_trial_service: FromDishka[SubscriptionTrialService] = _DISHKA_DEFAULT,
+    notification_service: FromDishka[NotificationService] = _DISHKA_DEFAULT,
 ) -> SubscriptionResponse:
     """Create trial subscription for current user."""
     try:
@@ -373,6 +382,28 @@ async def get_trial_subscription(
             status_code=exception.status_code,
             detail=exception.detail,
         ) from exception
+
+    await notification_service.system_notify(
+        payload=MessagePayload.not_deleted(
+            i18n_key="ntf-event-subscription-trial",
+            i18n_kwargs={
+                "user_id": str(current_user.telegram_id),
+                "user_name": current_user.name,
+                "username": current_user.username or False,
+                "plan_name": created_subscription.plan.name,
+                "plan_type": created_subscription.plan.type,
+                "plan_traffic_limit": i18n_format_traffic_limit(
+                    created_subscription.plan.traffic_limit
+                ),
+                "plan_device_limit": i18n_format_device_limit(
+                    created_subscription.plan.device_limit
+                ),
+                "plan_duration": i18n_format_days(created_subscription.plan.duration),
+            },
+            reply_markup=get_user_keyboard(current_user.telegram_id),
+        ),
+        ntf_type=SystemNotificationType.TRIAL_GETTED,
+    )
 
     return build_subscription_response(
         created_subscription,

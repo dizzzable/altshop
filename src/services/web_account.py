@@ -409,6 +409,55 @@ class WebAccountService:
                 is_new_user=False,
             )
 
+
+    async def rename_login(
+        self,
+        *,
+        user_telegram_id: int,
+        username: str,
+    ) -> WebAccountDto:
+        normalized_username = validate_web_login_or_raise(username)
+
+        async with self.uow:
+            account_model = await self.uow.repository.web_accounts.get_by_user_telegram_id(
+                user_telegram_id
+            )
+            if account_model is None:
+                raise ValueError("Web account not found")
+
+            existing_username = await self.uow.repository.web_accounts.get_by_username(
+                normalized_username
+            )
+            if existing_username is not None and existing_username.id != account_model.id:
+                raise ValueError("Username already taken")
+
+            updated_account = await self.uow.repository.web_accounts.update(
+                account_model.id,
+                username=normalized_username,
+            )
+            if updated_account is None:
+                raise ValueError("Failed to update web login")
+
+            user_model = await self.uow.repository.users.get(user_telegram_id)
+            if user_model is not None:
+                profile_sync_data: dict[str, str] = {}
+                if not user_model.username or user_model.username == account_model.username:
+                    profile_sync_data["username"] = normalized_username
+                if not user_model.name or user_model.name == account_model.username:
+                    profile_sync_data["name"] = normalized_username
+                if profile_sync_data:
+                    await self.uow.repository.users.update(
+                        telegram_id=user_telegram_id,
+                        **profile_sync_data,
+                    )
+
+            await self.uow.commit()
+
+        dto = WebAccountDto.from_model(updated_account)
+        if dto is None:
+            raise ValueError("Failed to reload web account after login rename")
+        return dto
+
     async def set_link_prompt_snooze(self, account_id: int, days: int) -> Optional[WebAccountDto]:
         return await self.update(
             account_id,

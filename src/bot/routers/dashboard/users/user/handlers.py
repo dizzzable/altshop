@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any, Union
@@ -38,6 +39,8 @@ from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 from src.services.transaction import TransactionService
 from src.services.user import UserService
+from src.services.web_account import WebAccountService
+from src.services.web_cabinet_admin import WebCabinetAdminError, WebCabinetAdminService
 
 from .subscription_selection import (
     clear_selected_subscription,
@@ -2606,9 +2609,7 @@ async def on_referral_attach_search(
     ]
 
     if not filtered_users:
-        logger.info(
-            f"{log(user)} Referrer search for '{search_query}' yielded no eligible results"
-        )
+        logger.info(f"{log(user)} Referrer search for '{search_query}' yielded no eligible results")
         await notification_service.notify_user(
             user=user,
             payload=MessagePayload(i18n_key="ntf-user-not-found"),
@@ -2717,3 +2718,201 @@ async def on_referral_attach_confirm(
         f"partner_chain={result.partner_chain_attached})"
     )
     await dialog_manager.switch_to(DashboardUser.MAIN)
+
+
+@inject
+async def on_web_login_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    config: FromDishka[AppConfig],
+    notification_service: FromDishka[NotificationService],
+    web_cabinet_admin_service: FromDishka[WebCabinetAdminService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    if user.role != UserRole.DEV and user.telegram_id not in config.bot.dev_id:
+        await notification_service.notify_user(
+            user=user, payload=MessagePayload(i18n_key="ntf-error")
+        )
+        return
+
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    new_login = (message.text or "").strip()
+    try:
+        account = await web_cabinet_admin_service.rename_web_login(
+            user_telegram_id=target_telegram_id,
+            username=new_login,
+        )
+    except (ValueError, WebCabinetAdminError) as exc:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-user-web-login-update-failed",
+                i18n_kwargs={"error": str(exc)},
+            ),
+        )
+        return
+
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(
+            i18n_key="ntf-user-web-login-updated",
+            i18n_kwargs={"username": account.username},
+        ),
+    )
+    await dialog_manager.switch_to(DashboardUser.WEB_CABINET)
+
+
+@inject
+async def on_web_bind_tg_id_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    config: FromDishka[AppConfig],
+    notification_service: FromDishka[NotificationService],
+    web_cabinet_admin_service: FromDishka[WebCabinetAdminService],
+    user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    if user.role != UserRole.DEV and user.telegram_id not in config.bot.dev_id:
+        await notification_service.notify_user(
+            user=user, payload=MessagePayload(i18n_key="ntf-error")
+        )
+        return
+
+    target_telegram_id = parse_int((message.text or "").strip())
+    if target_telegram_id is None or target_telegram_id <= 0:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-user-web-bind-failed",
+                i18n_kwargs={"error": "Invalid Telegram ID."},
+            ),
+        )
+        return
+
+    source_user_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    try:
+        preview = await web_cabinet_admin_service.build_bind_preview(
+            source_user_telegram_id=source_user_telegram_id,
+            target_telegram_id=target_telegram_id,
+        )
+    except (ValueError, WebCabinetAdminError) as exc:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-user-web-bind-failed",
+                i18n_kwargs={"error": str(exc)},
+            ),
+        )
+        return
+
+    target_user = await user_service.get(target_telegram_id)
+    target_web_account = await web_account_service.get_by_user_telegram_id(target_telegram_id)
+    dialog_manager.dialog_data["web_bind_target_telegram_id"] = target_telegram_id
+    dialog_manager.dialog_data["web_bind_target_exists"] = bool(target_user)
+    dialog_manager.dialog_data["web_bind_target_name"] = target_user.name if target_user else None
+    dialog_manager.dialog_data["web_bind_target_web_login"] = (
+        target_web_account.username if target_web_account else None
+    )
+    dialog_manager.dialog_data["web_bind_source_subscriptions"] = [
+        asdict(item) for item in preview.source_subscriptions
+    ]
+    dialog_manager.dialog_data["web_bind_target_subscriptions"] = [
+        asdict(item) for item in preview.target_subscriptions
+    ]
+    dialog_manager.dialog_data["web_bind_keep_subscription_ids"] = list(
+        preview.all_subscription_ids
+    )
+    await dialog_manager.switch_to(DashboardUser.WEB_BIND_PREVIEW)
+
+
+async def on_web_bind_subscription_toggle(
+    callback: CallbackQuery,
+    widget: Select[int],
+    dialog_manager: DialogManager,
+    selected_subscription_id: int,
+) -> None:
+    kept_ids = {
+        int(subscription_id)
+        for subscription_id in dialog_manager.dialog_data.get("web_bind_keep_subscription_ids", [])
+    }
+    if selected_subscription_id in kept_ids:
+        kept_ids.remove(selected_subscription_id)
+    else:
+        kept_ids.add(selected_subscription_id)
+    dialog_manager.dialog_data["web_bind_keep_subscription_ids"] = sorted(kept_ids)
+    await callback.answer()
+    await dialog_manager.show(show_mode=ShowMode.EDIT)
+
+
+@inject
+async def on_web_bind_confirm(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+    config: FromDishka[AppConfig],
+    notification_service: FromDishka[NotificationService],
+    web_cabinet_admin_service: FromDishka[WebCabinetAdminService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    if user.role != UserRole.DEV and user.telegram_id not in config.bot.dev_id:
+        await notification_service.notify_user(
+            user=user, payload=MessagePayload(i18n_key="ntf-error")
+        )
+        return
+
+    source_user_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_telegram_id = dialog_manager.dialog_data.get("web_bind_target_telegram_id")
+    keep_ids = list(dialog_manager.dialog_data.get("web_bind_keep_subscription_ids", []))
+    if not isinstance(target_telegram_id, int):
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-user-web-bind-failed",
+                i18n_kwargs={"error": "Target Telegram ID is missing."},
+            ),
+        )
+        return
+
+    try:
+        result = await web_cabinet_admin_service.apply_bind_merge(
+            source_user_telegram_id=source_user_telegram_id,
+            target_telegram_id=target_telegram_id,
+            kept_subscription_ids=keep_ids,
+        )
+    except (ValueError, WebCabinetAdminError) as exc:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-user-web-bind-failed",
+                i18n_kwargs={"error": str(exc)},
+            ),
+        )
+        return
+
+    for key in [
+        "web_bind_target_telegram_id",
+        "web_bind_target_exists",
+        "web_bind_target_name",
+        "web_bind_target_web_login",
+        "web_bind_source_subscriptions",
+        "web_bind_target_subscriptions",
+        "web_bind_keep_subscription_ids",
+    ]:
+        dialog_manager.dialog_data.pop(key, None)
+
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(
+            i18n_key="ntf-user-web-bind-success",
+            i18n_kwargs={
+                "linked_telegram_id": str(result.target_user.telegram_id),
+                "kept": len(result.kept_subscription_ids),
+                "deleted": len(result.deleted_subscription_ids),
+                "web_login": result.web_account.username,
+            },
+        ),
+    )
+    await start_user_window(dialog_manager, result.target_user.telegram_id)

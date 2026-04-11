@@ -876,3 +876,8 @@ btn-user-referral-invite-use-global = 🌐 Глобальные настройк
     }
 btn-backup-import = 📥 Импортировать бэкап
 btn-backup-delete-local = 🗑️ Удалить локальную копию
+
+btn-user-web-cabinet = Web-кабинет
+btn-user-web-bind-tg = Привязать TG ID к web-аккаунту
+btn-user-web-change-login = Сменить web-логин
+btn-user-web-bind-confirm = Применить привязку и merge

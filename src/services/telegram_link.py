@@ -35,6 +35,7 @@ class TelegramLinkRequestResult:
     expires_in_seconds: int
     destination: int
     bot_confirm_url: str | None = None
+    bot_confirm_deep_link: str | None = None
 
 
 @dataclass
@@ -132,6 +133,10 @@ class TelegramLinkService:
                 challenge.token,
                 return_to_miniapp=return_to_miniapp,
             ),
+            bot_confirm_deep_link=await self._build_bot_confirm_deep_link(
+                challenge.token,
+                return_to_miniapp=return_to_miniapp,
+            ),
         )
 
     async def confirm_code(
@@ -169,6 +174,18 @@ class TelegramLinkService:
         return TelegramLinkConfirmResult(
             web_account=account,
             linked_telegram_id=telegram_id,
+        )
+
+
+    async def bind_existing_account(
+        self,
+        *,
+        web_account_id: int,
+        telegram_id: int,
+    ) -> WebAccountDto:
+        return await self._safe_auto_link(
+            web_account_id=web_account_id,
+            telegram_id=telegram_id,
         )
 
     async def confirm_token(
@@ -268,6 +285,29 @@ class TelegramLinkService:
 
         start_prefix = "tglinkapp_" if return_to_miniapp else "tglink_"
         return f"{T_ME}{username}?start={start_prefix}{normalized_token}"
+
+    async def _build_bot_confirm_deep_link(
+        self,
+        token: str | None,
+        *,
+        return_to_miniapp: bool,
+    ) -> str | None:
+        normalized_token = str(token or "").strip()
+        if not normalized_token:
+            return None
+
+        try:
+            bot_info = await self.bot.get_me()
+        except Exception as exc:
+            logger.warning(f"Failed to resolve Telegram link bot username for deep link: {exc}")
+            return None
+
+        username = (bot_info.username or "").strip().lstrip("@")
+        if not username:
+            return None
+
+        start_prefix = "tglinkapp_" if return_to_miniapp else "tglink_"
+        return f"tg://resolve?domain={username}&start={start_prefix}{normalized_token}"
 
     async def _safe_auto_link(
         self,

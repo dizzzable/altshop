@@ -791,3 +791,35 @@ ntf-bot-menu-button-deleted = <i>✅ Custom button deleted.</i>
 ntf-bot-menu-button-limit = <i>⚠️ You can add at most 5 custom buttons.</i>
 ntf-bot-menu-invalid-label = <i>❌ Invalid label. Use 1 to 32 visible characters.</i>
 ntf-bot-menu-button-not-found = <i>⚠️ Custom button not found. Refresh the list and try again.</i>
+
+ntf-user-web-login-updated = Web login updated: <code>{ $username }</code>
+ntf-user-web-login-update-failed = Failed to update web login: { $error }
+ntf-user-web-bind-success = Web account <code>{ $web_login }</code> is now bound to TG ID <code>{ $linked_telegram_id }</code>. Kept subscriptions: <b>{ $kept }</b>, deleted: <b>{ $deleted }</b>.
+ntf-user-web-bind-failed = Failed to complete Web / Telegram merge: { $error }
+
+ntf-event-user-expiring-summary =
+    <b>Warning! { $subscriptions_count } subscriptions expire in { unit-day }.</b>
+
+    <blockquote>
+    { $subscriptions_summary }
+    </blockquote>
+
+    Renew the required subscriptions in advance to keep access active.
+
+ntf-event-user-expired-summary =
+    <b>Warning! Multiple subscriptions have expired.</b>
+
+    <blockquote>
+    { $subscriptions_summary }
+    </blockquote>
+
+    Renew the required subscriptions to restore access.
+
+ntf-event-user-expired-ago-summary =
+    <b>Warning! Multiple subscriptions expired {unit-day} ago.</b>
+
+    <blockquote>
+    { $subscriptions_summary }
+    </blockquote>
+
+    Renew the required subscriptions to restore access.

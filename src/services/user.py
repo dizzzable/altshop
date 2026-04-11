@@ -126,6 +126,41 @@ class UserService(BaseService):
             )
         return UserDto.from_model(db_created_user)  # type: ignore[return-value]
 
+    async def create_placeholder_user(
+        self,
+        *,
+        telegram_id: int,
+        username: str | None = None,
+        name: str | None = None,
+    ) -> UserDto:
+        existing_user = await self.get(telegram_id)
+        if existing_user is not None:
+            return existing_user
+
+        referral_code = await self.uow.repository.users.generate_unique_referral_code()
+        user = User(
+            telegram_id=telegram_id,
+            username=username,
+            referral_code=referral_code,
+            name=name or username or str(telegram_id),
+            role=UserRole.USER,
+            language=self.config.default_locale,
+            personal_discount=0,
+            purchase_discount=0,
+            points=0,
+            is_blocked=False,
+            is_bot_blocked=False,
+            is_rules_accepted=True,
+        )
+        created = await self.uow.repository.users.create(user)
+        await self.uow.commit()
+        await self.clear_user_cache(telegram_id)
+        logger.info(f"Created placeholder user '{telegram_id}'")
+        dto = UserDto.from_model(created)
+        if dto is None:
+            raise ValueError(f"Failed to create placeholder user '{telegram_id}'")
+        return dto
+
     @redis_cache(prefix="get_user", ttl=TIME_1M)
     async def get(self, telegram_id: int) -> Optional[UserDto]:
         db_user = await self.uow.repository.users.get(telegram_id)
@@ -437,10 +472,7 @@ class UserService(BaseService):
                 normalized_query
             )
             partial_account_user_ids = list(
-                {
-                    account.user_telegram_id
-                    for account in partial_accounts
-                }
+                {account.user_telegram_id for account in partial_accounts}
             )
             partial_login_users = UserDto.from_model_list(
                 await self.uow.repository.users.get_by_ids(partial_account_user_ids)

@@ -597,9 +597,25 @@ class PaymentGatewayService(BaseService):
             logger.warning("No current subscription found!")
         return fallback, [fallback] if fallback else []
 
-    @staticmethod
-    def _build_subscription_i18n_kwargs(transaction: TransactionDto) -> dict[str, object]:
-        transaction_user = PaymentGatewayService._require_transaction_user(transaction)
+    async def _build_subscription_i18n_kwargs(
+        self, transaction: TransactionDto
+    ) -> dict[str, object]:
+        transaction_user = self._require_transaction_user(transaction)
+        renew_subscription_ids = getattr(transaction, "renew_subscription_ids", None) or []
+        renew_subscription_id = getattr(transaction, "renew_subscription_id", None)
+        subscription_ids = renew_subscription_ids or (
+            [renew_subscription_id] if renew_subscription_id else []
+        )
+        source_plan_name: str | bool = False
+        source_subscription_id: str | bool = False
+        if renew_subscription_id:
+            source_subscription = await self.subscription_service.get(renew_subscription_id)
+            if source_subscription is not None:
+                source_plan_name = source_subscription.plan.name
+                source_subscription_id = (
+                    str(source_subscription.id) if source_subscription.id is not None else False
+                )
+
         return {
             "payment_id": transaction.payment_id,
             "gateway_type": transaction.gateway_type,
@@ -615,12 +631,25 @@ class PaymentGatewayService(BaseService):
             "plan_traffic_limit": i18n_format_traffic_limit(transaction.plan.traffic_limit),
             "plan_device_limit": i18n_format_device_limit(transaction.plan.device_limit),
             "plan_duration": i18n_format_days(transaction.plan.duration),
+            "purchase_channel": getattr(
+                getattr(transaction, "channel", None),
+                "value",
+                str(getattr(transaction, "channel", False))
+                if getattr(transaction, "channel", None)
+                else False,
+            ),
+            "subscription_ids": ", ".join(
+                str(subscription_id) for subscription_id in subscription_ids
+            )
+            or False,
+            "source_plan_name": source_plan_name,
+            "source_subscription_id": source_subscription_id,
         }
 
     async def _send_subscription_notification(self, *, transaction: TransactionDto) -> None:
         transaction_user = self._require_transaction_user(transaction)
         i18n_key = self._get_purchase_notification_key(transaction.purchase_type)
-        i18n_kwargs = self._build_subscription_i18n_kwargs(transaction)
+        i18n_kwargs = await self._build_subscription_i18n_kwargs(transaction)
         extra_i18n_kwargs: dict[str, object] = {}
 
         await send_system_notification_task.kiq(
@@ -884,10 +913,7 @@ class PaymentGatewayService(BaseService):
 
         transaction = await self.transaction_service.get(internal_payment_id)
         if transaction is None:
-            diagnostic = (
-                "Resolved internal payment UUID is missing locally: "
-                f"{internal_payment_id}"
-            )
+            diagnostic = f"Resolved internal payment UUID is missing locally: {internal_payment_id}"
             await self.payment_webhook_event_service.mark_reconcile_failed(
                 gateway_type=PaymentGatewayType.PLATEGA.value,
                 payment_id=external_transaction_id,

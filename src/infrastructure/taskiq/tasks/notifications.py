@@ -1,23 +1,122 @@
+from __future__ import annotations
+
 import asyncio
-from typing import Any, Union, cast
+from datetime import date
+from html import escape
+from typing import TYPE_CHECKING, Any, Union, cast
 
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from dishka.integrations.taskiq import FromDishka, inject
 
 from src.api.utils.web_app_urls import build_web_app_route_url
 from src.bot.keyboards import get_renew_keyboard
-from src.core.constants import BATCH_DELAY, BATCH_SIZE
+from src.core.constants import BATCH_DELAY, BATCH_SIZE, DATETIME_FORMAT
 from src.core.enums import MediaType, SystemNotificationType, UserNotificationType
 from src.core.utils.bot_menu import resolve_bot_menu_url
 from src.core.utils.iterables import chunked
 from src.core.utils.message_payload import MessagePayload
 from src.core.utils.types import RemnaUserDto
-from src.infrastructure.database.models.dto import UserDto
+from src.infrastructure.database.models.dto import SubscriptionDto, UserDto
 from src.infrastructure.taskiq.broker import broker
 from src.services.notification import NotificationService
+
+if TYPE_CHECKING:
+    from src.services.remnawave import RemnawaveService
+else:
+    RemnawaveService = Any
+
 from src.services.settings import SettingsService
+from src.services.subscription import SubscriptionService
 from src.services.user import UserService
 from src.services.user_notification_event import UserNotificationEventService
+
+
+def _build_expiry_summary_key(
+    *, telegram_id: int, ntf_type: UserNotificationType, target_date: date
+) -> str:
+    return f"user_expiry_summary:{telegram_id}:{ntf_type.value}:{target_date.isoformat()}"
+
+
+def _resolve_expiry_notification_message(
+    ntf_type: UserNotificationType,
+) -> tuple[str, dict[str, Any], str | None]:
+    if ntf_type == UserNotificationType.EXPIRES_IN_3_DAYS:
+        return "ntf-event-user-expiring", {"value": 3}, "ntf-event-user-expiring-summary"
+    if ntf_type == UserNotificationType.EXPIRES_IN_2_DAYS:
+        return "ntf-event-user-expiring", {"value": 2}, "ntf-event-user-expiring-summary"
+    if ntf_type == UserNotificationType.EXPIRES_IN_1_DAYS:
+        return "ntf-event-user-expiring", {"value": 1}, "ntf-event-user-expiring-summary"
+    if ntf_type == UserNotificationType.EXPIRED:
+        return "ntf-event-user-expired", {}, "ntf-event-user-expired-summary"
+    if ntf_type == UserNotificationType.EXPIRED_1_DAY_AGO:
+        return "ntf-event-user-expired_ago", {"value": 1}, "ntf-event-user-expired-ago-summary"
+    raise ValueError(f"Unsupported expiry notification type: {ntf_type}")
+
+
+async def _build_expiry_summary_lines(
+    *,
+    subscriptions: list[SubscriptionDto],
+    remnawave_service: RemnawaveService,
+) -> str:
+    lines: list[str] = []
+    for subscription in subscriptions:
+        profile_name = str(subscription.user_remna_id)
+        try:
+            remna_user = await remnawave_service.get_user(subscription.user_remna_id)
+        except Exception:
+            remna_user = None
+        if remna_user is not None and getattr(remna_user, "username", None):
+            profile_name = str(getattr(remna_user, "username"))
+        lines.append(
+            "- <b>{plan}</b> | <code>{profile}</code> | <b>{expires}</b>".format(
+                plan=escape(subscription.plan.name),
+                profile=escape(profile_name),
+                expires=subscription.expire_at.strftime(DATETIME_FORMAT),
+            )
+        )
+    return "\n".join(lines)
+
+
+async def _resolve_expiry_summary_payload(
+    *,
+    telegram_id: int,
+    ntf_type: UserNotificationType,
+    target_date: date,
+    i18n_kwargs: dict[str, Any],
+    subscription_service: SubscriptionService,
+    remnawave_service: RemnawaveService,
+    redis_client: Any,
+) -> tuple[str, dict[str, Any]] | None:
+    summary_key = _build_expiry_summary_key(
+        telegram_id=telegram_id,
+        ntf_type=ntf_type,
+        target_date=target_date,
+    )
+    is_new = await redis_client.set(summary_key, "1", ex=36 * 60 * 60, nx=True)
+    if not is_new:
+        return None
+
+    subscriptions = [
+        subscription
+        for subscription in await subscription_service.get_all_by_user(telegram_id)
+        if subscription.status.value != "DELETED" and subscription.expire_at.date() == target_date
+    ]
+    if len(subscriptions) <= 1:
+        return None
+
+    _, extra_kwargs, summary_key_name = _resolve_expiry_notification_message(ntf_type)
+    if summary_key_name is None:
+        return None
+
+    return summary_key_name, {
+        **i18n_kwargs,
+        **extra_kwargs,
+        "subscriptions_summary": await _build_expiry_summary_lines(
+            subscriptions=subscriptions,
+            remnawave_service=remnawave_service,
+        ),
+        "subscriptions_count": len(subscriptions),
+    }
 
 
 async def _resolve_renew_reply_markup(
@@ -133,30 +232,45 @@ async def send_subscription_expire_notification_task(
     user_service: FromDishka[UserService],
     notification_service: FromDishka[NotificationService],
     settings_service: FromDishka[SettingsService],
+    subscription_service: FromDishka[SubscriptionService],
+    remnawave_service: FromDishka[RemnawaveService],
 ) -> None:
     telegram_id = cast(int, remna_user.telegram_id)
-
-    if ntf_type == UserNotificationType.EXPIRES_IN_3_DAYS:
-        i18n_key = "ntf-event-user-expiring"
-        i18n_kwargs_extra = {"value": 3}
-    elif ntf_type == UserNotificationType.EXPIRES_IN_2_DAYS:
-        i18n_key = "ntf-event-user-expiring"
-        i18n_kwargs_extra = {"value": 2}
-    elif ntf_type == UserNotificationType.EXPIRES_IN_1_DAYS:
-        i18n_key = "ntf-event-user-expiring"
-        i18n_kwargs_extra = {"value": 1}
-    elif ntf_type == UserNotificationType.EXPIRED:
-        i18n_key = "ntf-event-user-expired"
-        i18n_kwargs_extra = {}
-    elif ntf_type == UserNotificationType.EXPIRED_1_DAY_AGO:
-        i18n_key = "ntf-event-user-expired_ago"
-        i18n_kwargs_extra = {"value": 1}
+    i18n_key, i18n_kwargs_extra, _summary_key = _resolve_expiry_notification_message(ntf_type)
 
     user = await user_service.get(telegram_id)
     renew_reply_markup = await _resolve_renew_reply_markup(
         notification_service=notification_service,
         settings_service=settings_service,
     )
+
+    target_date = getattr(getattr(remna_user, "expire_at", None), "date", lambda: None)()
+    summary_payload = None
+    if target_date is not None:
+        summary_payload = await _resolve_expiry_summary_payload(
+            telegram_id=telegram_id,
+            ntf_type=ntf_type,
+            target_date=target_date,
+            i18n_kwargs=i18n_kwargs,
+            subscription_service=subscription_service,
+            remnawave_service=remnawave_service,
+            redis_client=notification_service.redis_client,
+        )
+
+    if summary_payload is not None:
+        summary_i18n_key, summary_kwargs = summary_payload
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key=summary_i18n_key,
+                i18n_kwargs=summary_kwargs,
+                reply_markup=renew_reply_markup,
+                auto_delete_after=None,
+                add_close_button=True,
+            ),
+            ntf_type=ntf_type,
+        )
+        return
 
     await notification_service.notify_user(
         user=user,

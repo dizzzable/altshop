@@ -75,6 +75,7 @@ class TelegramLinkRequestResponse(BaseModel):
     delivered: bool
     expires_in_seconds: int
     bot_confirm_url: str | None = None
+    bot_confirm_deep_link: str | None = None
 
 
 class TelegramLinkConfirmResponse(BaseModel):
