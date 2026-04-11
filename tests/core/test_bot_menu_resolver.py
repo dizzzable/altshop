@@ -5,6 +5,11 @@ from src.core.utils.bot_menu import (
     BOT_MENU_SOURCE_CONFIG,
     BOT_MENU_SOURCE_MISSING,
     BOT_MENU_SOURCE_SETTINGS,
+    BOT_MENU_URL_KIND_INVALID,
+    BOT_MENU_URL_KIND_URL,
+    BOT_MENU_URL_KIND_WEB_APP,
+    classify_bot_menu_url_kind,
+    resolve_bot_menu_launch_target,
     resolve_bot_menu_state,
     resolve_bot_menu_url,
 )
@@ -104,3 +109,30 @@ def test_resolve_bot_menu_state_uses_project_name_as_primary_button_fallback() -
 
     assert state.primary_button_text == "2GET SHOP"
     assert state.miniapp_only_active is True
+
+
+def test_classify_bot_menu_url_kind_distinguishes_webapp_and_telegram_links() -> None:
+    assert (
+        classify_bot_menu_url_kind("https://example.com/webapp/miniapp")
+        == BOT_MENU_URL_KIND_WEB_APP
+    )
+    assert (
+        classify_bot_menu_url_kind("https://t.me/example_bot/app?startapp=miniapp")
+        == BOT_MENU_URL_KIND_URL
+    )
+    assert (
+        classify_bot_menu_url_kind("tg://resolve?domain=example_bot&startapp=miniapp")
+        == BOT_MENU_URL_KIND_URL
+    )
+    assert classify_bot_menu_url_kind("ftp://example.com/file") == BOT_MENU_URL_KIND_INVALID
+
+
+def test_resolve_bot_menu_launch_target_returns_kind_with_source() -> None:
+    bot_menu = BotMenuSettingsDto(mini_app_url="https://t.me/example_bot/app?startapp=miniapp")
+    config = _build_config("https://config.example/app")
+
+    resolved_url, source, kind = resolve_bot_menu_launch_target(bot_menu=bot_menu, config=config)
+
+    assert resolved_url == "https://t.me/example_bot/app?startapp=miniapp"
+    assert source == BOT_MENU_SOURCE_SETTINGS
+    assert kind == BOT_MENU_URL_KIND_URL

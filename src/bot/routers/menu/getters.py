@@ -7,7 +7,11 @@ from fluentogram import TranslatorRunner
 
 from src.core.config import AppConfig
 from src.core.enums import DeviceType, PointsExchangeType, PurchaseChannel, SubscriptionStatus
-from src.core.utils.bot_menu import resolve_bot_menu_state, resolve_bot_menu_url
+from src.core.utils.bot_menu import (
+    BOT_MENU_URL_KIND_WEB_APP,
+    resolve_bot_menu_launch_target,
+    resolve_bot_menu_state,
+)
 from src.core.utils.formatters import (
     format_username_to_url,
     i18n_format_device_limit,
@@ -192,6 +196,8 @@ async def menu_getter(
         "miniapp_only_active": miniapp_only_active,
         "mini_app_button_text": bot_menu_state.primary_button_text,
         "menu_mini_app_url": mini_app_url or "",
+        "menu_mini_app_is_web_app": bot_menu_state.mini_app_url_kind == BOT_MENU_URL_KIND_WEB_APP,
+        "menu_mini_app_is_url": bot_menu_state.mini_app_url_kind != BOT_MENU_URL_KIND_WEB_APP,
         "custom_menu_buttons": [
             {
                 "id": button.id,
@@ -502,8 +508,11 @@ async def connect_device_url_getter(
     """
     subscription_url = dialog_manager.dialog_data.get("selected_subscription_url", "")
     settings = await settings_service.get()
-    mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=config)
-    is_app_enabled = bool(mini_app_url)
+    mini_app_url, _source, mini_app_url_kind = resolve_bot_menu_launch_target(
+        bot_menu=settings.bot_menu,
+        config=config,
+    )
+    is_app_enabled = mini_app_url_kind == BOT_MENU_URL_KIND_WEB_APP
     plan_name = dialog_manager.dialog_data.get(
         "selected_subscription_plan_name",
         i18n.get("msg-common-plan-fallback"),

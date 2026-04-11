@@ -62,11 +62,6 @@ from src.infrastructure.database.models.dto import (
     UserDto,
 )
 from src.infrastructure.redis import RedisRepository
-from src.infrastructure.taskiq.tasks.notifications import (
-    send_subscription_expire_notification_task,
-    send_subscription_limited_notification_task,
-    send_system_notification_task,
-)
 from src.services.plan import PlanService
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
@@ -1200,6 +1195,11 @@ class RemnawaveService(BaseService):
         i18n_kwargs: dict[str, Any],
         update_status_current_subscription_task: Any,
     ) -> None:
+        from src.infrastructure.taskiq.tasks.notifications import (  # noqa: PLC0415
+            send_subscription_expire_notification_task,
+            send_subscription_limited_notification_task,
+        )
+
         logger.debug(
             f"RemnaUser '{remna_user.telegram_id}' status changed to '{remna_user.status}'"
         )
@@ -1229,6 +1229,10 @@ class RemnawaveService(BaseService):
         remna_user: RemnaUserDto,
         i18n_kwargs: dict[str, Any],
     ) -> None:
+        from src.infrastructure.taskiq.tasks.notifications import (  # noqa: PLC0415
+            send_subscription_expire_notification_task,
+        )
+
         logger.debug(f"Sending expiration notification for RemnaUser '{remna_user.telegram_id}'")
         expire_map = {
             RemnaUserEvent.EXPIRES_IN_72_HOURS: UserNotificationType.EXPIRES_IN_3_DAYS,
@@ -1243,6 +1247,9 @@ class RemnawaveService(BaseService):
         )
 
     async def handle_user_event(self, event: str, remna_user: RemnaUserDto) -> None:
+        from src.infrastructure.taskiq.tasks.notifications import (  # noqa: PLC0415
+            send_system_notification_task,
+        )
         from src.infrastructure.taskiq.tasks.subscriptions import (  # noqa: PLC0415
             delete_current_subscription_task,
             update_status_current_subscription_task,
@@ -1334,6 +1341,10 @@ class RemnawaveService(BaseService):
         remna_user: RemnaUserDto,
         device: HwidUserDeviceDto,
     ) -> None:
+        from src.infrastructure.taskiq.tasks.notifications import (  # noqa: PLC0415
+            send_system_notification_task,
+        )
+
         logger.info(f"Received device event '{event}' for RemnaUser '{remna_user.telegram_id}'")
 
         if not remna_user.telegram_id:
@@ -1409,6 +1420,10 @@ class RemnawaveService(BaseService):
         )
 
     async def handle_node_event(self, event: str, node: NodeDto) -> None:
+        from src.infrastructure.taskiq.tasks.notifications import (  # noqa: PLC0415
+            send_system_notification_task,
+        )
+
         logger.info(f"Received node event '{event}' for node '{node.name}'")
 
         if event == RemnaNodeEvent.CONNECTION_LOST:

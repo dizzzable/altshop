@@ -29,11 +29,17 @@ def run_async(coroutine):
 class DummyUow:
     def __init__(self) -> None:
         self.repository = SimpleNamespace(
-            web_accounts=SimpleNamespace(update=AsyncMock()),
+            web_accounts=SimpleNamespace(
+                update=AsyncMock(),
+                get=AsyncMock(return_value=None),
+                get_by_user_telegram_id=AsyncMock(return_value=None),
+                delete=AsyncMock(),
+            ),
             users=SimpleNamespace(
                 get=AsyncMock(return_value=None),
                 reassign_telegram_id_references=AsyncMock(),
                 delete=AsyncMock(),
+                has_material_data=AsyncMock(return_value=False),
             ),
             auth_challenges=SimpleNamespace(update=AsyncMock()),
         )
@@ -330,6 +336,77 @@ def test_auto_link_uses_trusted_positive_telegram_id_only() -> None:
     )
 
 
+def test_inspect_telegram_account_occupancy_marks_empty_bootstrapless_account_reclaimable() -> None:
+    service = WebAccountService(uow=DummyUow())
+    user_model = make_user_model(412289221, username="tg_412289221", name="Alina")
+    account_model = SimpleNamespace(
+        id=77,
+        user_telegram_id=412289221,
+        username="tg_412289221",
+        password_hash="hash",
+        email=None,
+        email_normalized=None,
+        email_verified_at=None,
+        credentials_bootstrapped_at=None,
+        token_version=0,
+        requires_password_change=False,
+        temporary_password_expires_at=None,
+        link_prompt_snooze_until=None,
+        created_at=None,
+        updated_at=None,
+    )
+    service.uow.repository.web_accounts.get_by_user_telegram_id = AsyncMock(
+        return_value=account_model
+    )
+    service.uow.repository.users.get = AsyncMock(return_value=user_model)
+    service.uow.repository.users.has_material_data = AsyncMock(return_value=False)
+
+    snapshot = run_async(service.inspect_telegram_account_occupancy(telegram_id=412289221))
+
+    assert snapshot.web_account is not None
+    assert snapshot.is_reclaimable_provisional is True
+    assert snapshot.has_material_data is False
+
+
+def test_cleanup_provisional_account_on_logout_deletes_empty_account_and_user() -> None:
+    service = WebAccountService(uow=DummyUow())
+    user_model = make_user_model(412289221, username="tg_412289221", name="Alina")
+    account_model = SimpleNamespace(
+        id=77,
+        user_telegram_id=412289221,
+        username="tg_412289221",
+        password_hash="hash",
+        email=None,
+        email_normalized=None,
+        email_verified_at=None,
+        credentials_bootstrapped_at=None,
+        token_version=0,
+        requires_password_change=False,
+        temporary_password_expires_at=None,
+        link_prompt_snooze_until=None,
+        created_at=None,
+        updated_at=None,
+    )
+    service.uow.repository.web_accounts.get = AsyncMock(return_value=account_model)
+    service.uow.repository.web_accounts.get_by_user_telegram_id = AsyncMock(
+        return_value=account_model
+    )
+    service.uow.repository.users.get = AsyncMock(return_value=user_model)
+    service.uow.repository.users.has_material_data = AsyncMock(return_value=False)
+
+    deleted = run_async(
+        service.cleanup_provisional_account_on_logout(
+            web_account_id=77,
+            expected_user_telegram_id=412289221,
+        )
+    )
+
+    assert deleted is True
+    service.uow.repository.web_accounts.delete.assert_awaited_once_with(77)
+    service.uow.repository.users.delete.assert_awaited_once_with(412289221)
+    service.uow.commit.assert_awaited_once()
+
+
 @pytest.mark.parametrize(
     ("username",),
     [
@@ -422,20 +499,32 @@ def test_user_service_search_merges_partial_name_and_web_login_matches() -> None
 def test_identity_kind_marks_web_only_and_linked_profiles() -> None:
     web_only_user = make_user_dto(-555, username="alice", name="Alice")
     linked_user = make_user_dto(412289221, username="tg_412289221", name="Alina")
+    provisional_user = make_user_dto(777, username="tg_777", name="Ghost")
 
     assert (
         _resolve_identity_kind(
             web_only_user,
             web_login="alice",
             linked_telegram_id=None,
+            web_credentials_bootstrapped=False,
         )
         == "WEB_ONLY"
+    )
+    assert (
+        _resolve_identity_kind(
+            provisional_user,
+            web_login="tg_777",
+            linked_telegram_id=777,
+            web_credentials_bootstrapped=False,
+        )
+        == "TELEGRAM_PROVISIONAL"
     )
     assert (
         _resolve_identity_kind(
             linked_user,
             web_login="alice",
             linked_telegram_id=412289221,
+            web_credentials_bootstrapped=True,
         )
         == "TELEGRAM_LINKED"
     )

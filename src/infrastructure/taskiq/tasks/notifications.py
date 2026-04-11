@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import date
 from html import escape
-from typing import TYPE_CHECKING, Any, Union, cast
+from typing import Any, Union, cast
 
 from aiogram.types import BufferedInputFile, InlineKeyboardMarkup
 from dishka.integrations.taskiq import FromDishka, inject
@@ -12,19 +12,18 @@ from src.api.utils.web_app_urls import build_web_app_route_url
 from src.bot.keyboards import get_renew_keyboard
 from src.core.constants import BATCH_DELAY, BATCH_SIZE, DATETIME_FORMAT
 from src.core.enums import MediaType, SystemNotificationType, UserNotificationType
-from src.core.utils.bot_menu import resolve_bot_menu_url
+from src.core.utils.bot_menu import (
+    BOT_MENU_URL_KIND_URL,
+    BOT_MENU_URL_KIND_WEB_APP,
+    resolve_bot_menu_launch_target,
+)
 from src.core.utils.iterables import chunked
 from src.core.utils.message_payload import MessagePayload
 from src.core.utils.types import RemnaUserDto
 from src.infrastructure.database.models.dto import SubscriptionDto, UserDto
 from src.infrastructure.taskiq.broker import broker
 from src.services.notification import NotificationService
-
-if TYPE_CHECKING:
-    from src.services.remnawave import RemnawaveService
-else:
-    RemnawaveService = Any
-
+from src.services.remnawave import RemnawaveService
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 from src.services.user import UserService
@@ -125,20 +124,24 @@ async def _resolve_renew_reply_markup(
     settings_service: SettingsService,
 ) -> InlineKeyboardMarkup:
     settings = await settings_service.get()
-    mini_app_url, _ = resolve_bot_menu_url(
+    mini_app_url, _source, launch_kind = resolve_bot_menu_launch_target(
         bot_menu=settings.bot_menu,
         config=notification_service.config,
     )
-    use_web_app = settings.bot_menu.miniapp_only_enabled and bool(mini_app_url)
-    if use_web_app and mini_app_url and not mini_app_url.startswith(("http://", "https://")):
-        use_web_app = False
+    use_web_app = (
+        settings.bot_menu.miniapp_only_enabled
+        and launch_kind == BOT_MENU_URL_KIND_WEB_APP
+        and bool(mini_app_url)
+    )
     renew_web_app_url = (
         build_web_app_route_url(mini_app_url, "/dashboard/subscription")
         if use_web_app and mini_app_url
         else None
     )
+    renew_url = mini_app_url if launch_kind == BOT_MENU_URL_KIND_URL else None
     return get_renew_keyboard(
         web_app_url=renew_web_app_url,
+        url=renew_url,
         use_web_app=bool(renew_web_app_url),
     )
 

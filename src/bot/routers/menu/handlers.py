@@ -23,7 +23,10 @@ from src.bot.states import MainMenu, UserPartner
 from src.core.config import AppConfig
 from src.core.constants import REFERRAL_PREFIX, USER_KEY
 from src.core.enums import MediaType, PointsExchangeType, PurchaseChannel, ReferralInviteSource
-from src.core.utils.bot_menu import resolve_bot_menu_url
+from src.core.utils.bot_menu import (
+    BOT_MENU_URL_KIND_WEB_APP,
+    resolve_bot_menu_launch_target,
+)
 from src.core.utils.formatters import format_user_log as log
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.database.models.dto import UserDto
@@ -119,20 +122,29 @@ async def _build_telegram_link_return_url(
     telegram_link: str,
     telegram_id: int,
     return_to_miniapp: bool,
-) -> str:
+) -> tuple[str, bool]:
     if return_to_miniapp:
         settings = await settings_service.get()
-        mini_app_url, _ = resolve_bot_menu_url(bot_menu=settings.bot_menu, config=config)
-        if mini_app_url:
-            return build_web_app_route_url(
-                mini_app_url,
-                f"/dashboard/settings?telegram_link={telegram_link}&telegram_id={telegram_id}",
+        mini_app_url, _source, launch_kind = resolve_bot_menu_launch_target(
+            bot_menu=settings.bot_menu,
+            config=config,
+        )
+        if mini_app_url and launch_kind == BOT_MENU_URL_KIND_WEB_APP:
+            return (
+                build_web_app_route_url(
+                    mini_app_url,
+                    f"/dashboard/settings?telegram_link={telegram_link}&telegram_id={telegram_id}",
+                ),
+                True,
             )
 
-    return build_web_settings_url(
+    return (
+        build_web_settings_url(
         config,
         telegram_link=telegram_link,
         telegram_id=telegram_id,
+        ),
+        False,
     )
 
 
@@ -166,7 +178,7 @@ def _build_tg_link_result_keyboard(
     user: UserDto,
     return_url: str | None,
     *,
-    return_to_miniapp: bool = False,
+    use_web_app_button: bool = False,
 ) -> InlineKeyboardMarkup | None:
     if not return_url:
         return None
@@ -175,8 +187,8 @@ def _build_tg_link_result_keyboard(
     builder.row(
         InlineKeyboardButton(
             text=_tg_link_copy(user, "return"),
-            web_app=WebAppInfo(url=return_url) if return_to_miniapp else None,
-            url=None if return_to_miniapp else return_url,
+            web_app=WebAppInfo(url=return_url) if use_web_app_button else None,
+            url=return_url if not use_web_app_button else None,
         ),
     )
     return builder.as_markup()
@@ -314,35 +326,37 @@ async def on_telegram_link_confirm_click(
             else "invalid"
         )
         result_marker = "merge_conflict" if result_key == "merge_conflict" else "invalid"
+        return_url, use_web_app_button = await _build_telegram_link_return_url(
+            config,
+            settings_service,
+            telegram_link=result_marker,
+            telegram_id=user.telegram_id,
+            return_to_miniapp=return_to_miniapp,
+        )
         await callback.message.edit_text(
             _tg_link_copy(user, result_key),
             reply_markup=_build_tg_link_result_keyboard(
                 user,
-                await _build_telegram_link_return_url(
-                    config,
-                    settings_service,
-                    telegram_link=result_marker,
-                    telegram_id=user.telegram_id,
-                    return_to_miniapp=return_to_miniapp,
-                ),
-                return_to_miniapp=return_to_miniapp,
+                return_url,
+                use_web_app_button=use_web_app_button,
             ),
         )
         await callback.answer()
         return
 
+    return_url, use_web_app_button = await _build_telegram_link_return_url(
+        config,
+        settings_service,
+        telegram_link="success",
+        telegram_id=user.telegram_id,
+        return_to_miniapp=return_to_miniapp,
+    )
     await callback.message.edit_text(
         _tg_link_copy(user, "success"),
         reply_markup=_build_tg_link_result_keyboard(
             user,
-            await _build_telegram_link_return_url(
-                config,
-                settings_service,
-                telegram_link="success",
-                telegram_id=user.telegram_id,
-                return_to_miniapp=return_to_miniapp,
-            ),
-            return_to_miniapp=return_to_miniapp,
+            return_url,
+            use_web_app_button=use_web_app_button,
         ),
     )
     await callback.answer()
@@ -357,18 +371,19 @@ async def on_telegram_link_cancel_click(
     settings_service: FromDishka[SettingsService],
 ) -> None:
     _token, return_to_miniapp = _extract_tg_link_token_and_mode(str(callback.data or ""))
+    return_url, use_web_app_button = await _build_telegram_link_return_url(
+        config,
+        settings_service,
+        telegram_link="cancelled",
+        telegram_id=user.telegram_id,
+        return_to_miniapp=return_to_miniapp,
+    )
     await callback.message.edit_text(
         _tg_link_copy(user, "cancelled"),
         reply_markup=_build_tg_link_result_keyboard(
             user,
-            await _build_telegram_link_return_url(
-                config,
-                settings_service,
-                telegram_link="cancelled",
-                telegram_id=user.telegram_id,
-                return_to_miniapp=return_to_miniapp,
-            ),
-            return_to_miniapp=return_to_miniapp,
+            return_url,
+            use_web_app_button=use_web_app_button,
         ),
     )
     await callback.answer()

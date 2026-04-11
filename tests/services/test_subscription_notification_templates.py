@@ -42,3 +42,12 @@ def test_en_upgrade_notification_template_matches_subscription_event_layout() ->
     assert "{ frg-user-info }" in block
     assert "{ hdr-plan }" in block
     assert "{ frg-plan-snapshot }" in block
+
+
+def test_notification_tasks_import_real_remnawave_service_instead_of_any_alias() -> None:
+    module_text = (
+        ROOT_DIR / "src/infrastructure/taskiq/tasks/notifications.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from src.services.remnawave import RemnawaveService" in module_text
+    assert "RemnawaveService = Any" not in module_text

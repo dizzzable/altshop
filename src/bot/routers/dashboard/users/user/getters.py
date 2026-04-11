@@ -102,7 +102,10 @@ def _resolve_identity_kind(
     *,
     web_login: str | None,
     linked_telegram_id: int | None,
+    web_credentials_bootstrapped: bool,
 ) -> str:
+    if linked_telegram_id is not None and web_login and not web_credentials_bootstrapped:
+        return "TELEGRAM_PROVISIONAL"
     if linked_telegram_id is not None and web_login:
         return "TELEGRAM_LINKED"
     if linked_telegram_id is not None:
@@ -146,6 +149,9 @@ async def user_getter(
         )
     )
     web_login = web_account.username if web_account else None
+    web_credentials_bootstrapped = bool(
+        web_account and web_account.credentials_bootstrapped_at is not None
+    )
     public_username = target_user.username or None
     panel_telegram_id = linked_telegram_id or target_user.telegram_id
     dialog_manager.dialog_data["panel_telegram_id"] = panel_telegram_id
@@ -200,7 +206,9 @@ async def user_getter(
             target_user,
             web_login=web_login,
             linked_telegram_id=linked_telegram_id,
+            web_credentials_bootstrapped=web_credentials_bootstrapped,
         ),
+        "is_provisional_web_account": bool(web_account) and not web_credentials_bootstrapped,
         "user_name": target_user.name,
         "role": target_user.role,
         "language": target_user.language,
@@ -1455,6 +1463,12 @@ async def web_cabinet_getter(
         "target_telegram_id": str(target_user.telegram_id),
         "has_web_account": bool(web_account),
         "web_login": web_account.username if web_account else False,
+        "web_credentials_bootstrapped": bool(
+            web_account and web_account.credentials_bootstrapped_at is not None
+        ),
+        "web_account_provisional": bool(
+            web_account and web_account.credentials_bootstrapped_at is None
+        ),
         "linked_telegram_id": (
             str(web_account.user_telegram_id)
             if web_account and web_account.user_telegram_id > 0
@@ -1481,6 +1495,9 @@ async def web_login_getter(
         "target_telegram_id": str(target_user.telegram_id),
         "web_login": web_account.username if web_account else False,
         "has_web_account": bool(web_account),
+        "web_account_provisional": bool(
+            web_account and web_account.credentials_bootstrapped_at is None
+        ),
     }
 
 
@@ -1502,6 +1519,9 @@ async def web_bind_target_getter(
         "target_telegram_id": str(target_user.telegram_id),
         "web_login": web_account.username if web_account else False,
         "has_web_account": bool(web_account),
+        "web_account_provisional": bool(
+            web_account and web_account.credentials_bootstrapped_at is None
+        ),
     }
 
 
@@ -1538,17 +1558,43 @@ async def web_bind_preview_getter(
     target_exists = bool(dialog_manager.dialog_data.get("web_bind_target_exists"))
     target_name = dialog_manager.dialog_data.get("web_bind_target_name") or False
     target_web_login = dialog_manager.dialog_data.get("web_bind_target_web_login") or False
+    target_web_account_exists = bool(
+        dialog_manager.dialog_data.get("web_bind_target_web_account_exists")
+    )
+    target_web_account_reclaimable = bool(
+        dialog_manager.dialog_data.get("web_bind_target_web_account_reclaimable")
+    )
+    target_web_account_bootstrapped = bool(
+        dialog_manager.dialog_data.get("web_bind_target_web_account_bootstrapped")
+    )
+    target_has_material_data = bool(
+        dialog_manager.dialog_data.get("web_bind_target_has_material_data")
+    )
+    target_bind_blocked_reason = dialog_manager.dialog_data.get(
+        "web_bind_target_bind_blocked_reason"
+    )
+
+    if target_bind_blocked_reason:
+        target_state_summary = i18n.get("msg-user-web-bind-target-occupied-real")
+    elif target_web_account_reclaimable:
+        target_state_summary = i18n.get("msg-user-web-bind-target-occupied-provisional")
+    elif target_exists:
+        target_state_summary = i18n.get("msg-user-web-bind-target-existing")
+    else:
+        target_state_summary = i18n.get("msg-user-web-bind-target-missing")
 
     return {
         "target_telegram_id": str(target_tg_id) if target_tg_id is not None else False,
         "target_exists": target_exists,
         "target_name": target_name,
         "target_web_login": target_web_login,
-        "target_state_summary": (
-            i18n.get("msg-user-web-bind-target-existing")
-            if target_exists
-            else i18n.get("msg-user-web-bind-target-missing")
-        ),
+        "target_web_account_exists": target_web_account_exists,
+        "target_web_account_reclaimable": target_web_account_reclaimable,
+        "target_web_account_bootstrapped": target_web_account_bootstrapped,
+        "target_has_material_data": target_has_material_data,
+        "target_bind_blocked_reason": target_bind_blocked_reason or False,
+        "target_state_summary": target_state_summary,
+        "can_confirm_bind": not bool(target_bind_blocked_reason),
         "source_summary": i18n.get("msg-user-web-bind-source-summary", count=len(source_rows)),
         "target_summary": i18n.get("msg-user-web-bind-target-summary", count=len(target_rows)),
         "selection_summary": i18n.get(

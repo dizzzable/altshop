@@ -10,6 +10,7 @@ from aiogram_dialog.widgets.kbd import (
     Start,
     SwitchTo,
 )
+from aiogram_dialog.widgets.text import Format
 from magic_filter import F
 
 from src.bot.keyboards import main_menu_button
@@ -19,6 +20,7 @@ from src.core.enums import BannerName
 
 from .getters import (
     banner_confirm_delete_getter,
+    banner_locale_scope_getter,
     banner_select_getter,
     banner_upload_getter,
     banners_getter,
@@ -62,9 +64,9 @@ banners_main = Window(
     getter=banners_getter,
 )
 
-banner_select = Window(
+banner_locale_scope = Window(
     Banner(BannerName.DASHBOARD),
-    I18nFormat("msg-banner-select"),
+    I18nFormat("msg-banner-locale-scope"),
     Column(
         Select(
             text=I18nFormat(
@@ -74,10 +76,26 @@ banner_select = Window(
             ),
             id="locale_select",
             item_id_getter=lambda item: item["locale"],
-            items="locale_list",
+            items="locale_scope_items",
             on_click=on_locale_select,
         ),
     ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-back"),
+            id="back",
+            state=RemnashopBanners.MAIN,
+        ),
+    ),
+    IgnoreUpdate(),
+    state=RemnashopBanners.SELECT_LOCALE,
+    getter=banner_locale_scope_getter,
+)
+
+banner_select = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-banner-select"),
+    Format("{scope_summary}"),
     Row(
         Button(
             text=I18nFormat("btn-banner-upload"),
@@ -95,7 +113,7 @@ banner_select = Window(
         SwitchTo(
             text=I18nFormat("btn-back"),
             id="back",
-            state=RemnashopBanners.MAIN,
+            state=RemnashopBanners.SELECT_LOCALE,
         ),
     ),
     IgnoreUpdate(),
@@ -144,6 +162,7 @@ banner_confirm_delete = Window(
 
 router = Dialog(
     banners_main,
+    banner_locale_scope,
     banner_select,
     banner_upload,
     banner_confirm_delete,

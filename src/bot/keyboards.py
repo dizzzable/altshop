@@ -76,6 +76,7 @@ main_menu_button = (
 def get_renew_keyboard(
     *,
     web_app_url: str | None = None,
+    url: str | None = None,
     use_web_app: bool = False,
 ) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
@@ -83,9 +84,10 @@ def get_renew_keyboard(
         InlineKeyboardButton(
             text="btn-goto-subscription-renew",
             web_app=WebAppInfo(url=web_app_url) if use_web_app and web_app_url else None,
+            url=url if not (use_web_app and web_app_url) and url else None,
             callback_data=(
                 None
-                if use_web_app and web_app_url
+                if (use_web_app and web_app_url) or url
                 else f"{GOTO_PREFIX}{PURCHASE_PREFIX}{PurchaseType.RENEW}"
             ),
         ),

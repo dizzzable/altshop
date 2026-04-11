@@ -39,7 +39,6 @@ from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 from src.services.transaction import TransactionService
 from src.services.user import UserService
-from src.services.web_account import WebAccountService
 from src.services.web_cabinet_admin import WebCabinetAdminError, WebCabinetAdminService
 
 from .subscription_selection import (
@@ -58,6 +57,11 @@ def _clear_web_bind_dialog_state(dialog_manager: DialogManager) -> None:
         "web_bind_target_exists",
         "web_bind_target_name",
         "web_bind_target_web_login",
+        "web_bind_target_web_account_exists",
+        "web_bind_target_web_account_reclaimable",
+        "web_bind_target_web_account_bootstrapped",
+        "web_bind_target_has_material_data",
+        "web_bind_target_bind_blocked_reason",
         "web_bind_source_subscriptions",
         "web_bind_target_subscriptions",
         "web_bind_keep_subscription_ids",
@@ -2811,8 +2815,6 @@ async def on_web_bind_tg_id_input(
     config: FromDishka[AppConfig],
     notification_service: FromDishka[NotificationService],
     web_cabinet_admin_service: FromDishka[WebCabinetAdminService],
-    user_service: FromDishka[UserService],
-    web_account_service: FromDishka[WebAccountService],
 ) -> None:
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
     if user.role != UserRole.DEV and user.telegram_id not in config.bot.dev_id:
@@ -2849,13 +2851,29 @@ async def on_web_bind_tg_id_input(
         )
         return
 
-    target_user = await user_service.get(target_telegram_id)
-    target_web_account = await web_account_service.get_by_user_telegram_id(target_telegram_id)
     dialog_manager.dialog_data["web_bind_target_telegram_id"] = target_telegram_id
-    dialog_manager.dialog_data["web_bind_target_exists"] = bool(target_user)
-    dialog_manager.dialog_data["web_bind_target_name"] = target_user.name if target_user else None
+    dialog_manager.dialog_data["web_bind_target_exists"] = bool(preview.target_user)
+    dialog_manager.dialog_data["web_bind_target_name"] = (
+        preview.target_user.name if preview.target_user else None
+    )
     dialog_manager.dialog_data["web_bind_target_web_login"] = (
-        target_web_account.username if target_web_account else None
+        preview.target_web_account.username if preview.target_web_account else None
+    )
+    dialog_manager.dialog_data["web_bind_target_web_account_exists"] = bool(
+        preview.target_web_account
+    )
+    dialog_manager.dialog_data["web_bind_target_web_account_reclaimable"] = (
+        preview.target_account_reclaimable
+    )
+    dialog_manager.dialog_data["web_bind_target_web_account_bootstrapped"] = bool(
+        preview.target_web_account
+        and preview.target_web_account.credentials_bootstrapped_at is not None
+    )
+    dialog_manager.dialog_data["web_bind_target_has_material_data"] = (
+        preview.target_has_material_data
+    )
+    dialog_manager.dialog_data["web_bind_target_bind_blocked_reason"] = (
+        preview.target_bind_blocked_reason
     )
     dialog_manager.dialog_data["web_bind_source_subscriptions"] = [
         asdict(item) for item in preview.source_subscriptions

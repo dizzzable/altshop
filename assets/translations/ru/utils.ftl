@@ -186,6 +186,7 @@ role =
 identity-kind = 
     { $identity_kind ->
     [WEB_ONLY] Только web
+    [TELEGRAM_PROVISIONAL] Временный Mini App
     [TELEGRAM_LINKED] Telegram привязан
     *[TELEGRAM_ONLY] Только Telegram
 }

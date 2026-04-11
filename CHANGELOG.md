@@ -6,6 +6,21 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.26] - 2026-04-11
+
+### Changed
+
+- provisional Mini App web accounts are now treated as reclaimable ghost bindings: explicit logout can clean them up, admin bind preview can identify them, and Web / Telegram merge can absorb them safely instead of being blocked by an empty occupied TG ID
+- banner management now uses a cleaner scope flow of `section -> locale -> action`, including a new synthetic bulk category `📣 Для всех` / `📣 For all` and locale scope `Для всех локалей` / `All locales`
+- Telegram Mini App launch targets are now classified before button rendering so runtime keyboards can choose between `web_app`, plain `url`, or callback fallback without generating invalid button payloads
+
+### Fixed
+
+- logging out from an empty Mini App provisional account no longer leaves behind a ghost TG-bound web account that blocks later manual bind/merge in admin tools
+- admin Web Cabinet bind can now reclaim a TG ID occupied only by a provisional Mini App account, while still blocking takeover of real bootstrapped/material accounts with a clearer preview state
+- `send_subscription_expire_notification_task` no longer resolves `RemnawaveService` as `Any`, so Taskiq / Dishka runtime injection no longer crashes with `NoFactoryError`
+- `BUTTON_URL_INVALID` no longer appears when bot menu or notification keyboards receive a `t.me` / `tg://` Mini App link that is unsafe for `WebAppInfo`
+
 ## [1.2.25] - 2026-04-11
 
 ### Changed

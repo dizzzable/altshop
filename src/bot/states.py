@@ -182,6 +182,7 @@ class RemnashopMultiSubscription(StatesGroup):
 
 class RemnashopBanners(StatesGroup):
     MAIN = State()
+    SELECT_LOCALE = State()
     SELECT_BANNER = State()
     UPLOAD_BANNER = State()
     CONFIRM_DELETE = State()

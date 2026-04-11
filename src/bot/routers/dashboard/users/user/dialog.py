@@ -1637,6 +1637,7 @@ web_bind_preview = Window(
             text=I18nFormat("btn-user-web-bind-confirm"),
             id="web_bind_confirm",
             on_click=on_web_bind_confirm,
+            when=F["can_confirm_bind"],
         ),
     ),
     Row(

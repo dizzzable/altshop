@@ -60,7 +60,7 @@ def test_build_tg_link_result_keyboard_uses_web_app_for_miniapp_return() -> None
     keyboard = _build_tg_link_result_keyboard(
         user,
         "https://example.com/webapp/dashboard/settings?telegram_link=success",
-        return_to_miniapp=True,
+        use_web_app_button=True,
     )
 
     assert keyboard is not None
@@ -93,4 +93,39 @@ def test_build_telegram_link_return_url_uses_miniapp_settings_route() -> None:
         )
     )
 
-    assert result == "https://example.com/webapp/dashboard/settings?telegram_link=success&telegram_id=901"
+    assert result == (
+        "https://example.com/webapp/dashboard/settings?telegram_link=success&telegram_id=901",
+        True,
+    )
+
+
+def test_build_telegram_link_return_url_falls_back_to_plain_web_settings_for_t_me_link() -> None:
+    config = SimpleNamespace(
+        web_app=SimpleNamespace(url_str="https://example.com/webapp"),
+        domain=SimpleNamespace(get_secret_value=lambda: "example.com"),
+        bot=SimpleNamespace(mini_app_url=""),
+    )
+    settings_service = SimpleNamespace(
+        get=AsyncMock(
+            return_value=SimpleNamespace(
+                bot_menu=SimpleNamespace(
+                    mini_app_url="https://t.me/example_bot/app?startapp=miniapp"
+                )
+            )
+        )
+    )
+
+    result = run_async(
+        _build_telegram_link_return_url(
+            config,
+            settings_service,
+            telegram_link="success",
+            telegram_id=901,
+            return_to_miniapp=True,
+        )
+    )
+
+    assert result == (
+        "https://example.com/webapp/dashboard/settings?telegram_link=success&telegram_id=901",
+        False,
+    )

@@ -920,34 +920,44 @@ msg-user-max-subscriptions =
 msg-banners-main =
     <b>🖼️ Управление баннерами</b>
 
-    Здесь вы можете загружать и удалять баннеры для различных разделов бота.
+    Здесь вы можете управлять баннерами отдельных разделов или обновлять все категории баннеров разом.
 
     <blockquote>
     Поддерживаемые форматы: JPG, JPEG, PNG, GIF, WEBP
     </blockquote>
 
-    Выберите баннер для редактирования:
+    Выберите раздел баннеров:
+
+msg-banner-section-all = 📣 Для всех
+msg-banner-locale-all = Для всех локалей
+msg-banner-scope-status-empty = Нет выбранных целей
+msg-banner-scope-status-progress = Загружено целей: { $uploaded } / { $total }
+
+msg-banner-locale-scope =
+    <b>🌐 Выбор локали для баннера</b>
+
+    <blockquote>
+    • <b>Раздел</b>: { $banner_display_name }
+    </blockquote>
+
+    Выберите, для какой локали нужно изменить баннер.
 
 msg-banner-select =
-    <b>🖼️ Баннер: { $banner_display_name }</b>
+    <b>🖼️ Область баннера: { $banner_display_name }</b>
 
-    { $has_banner ->
-    [1] <blockquote>
-    ✅ Баннер загружен для локали <b>{ $locale }</b>
+    <blockquote>
+    • <b>Локаль</b>: { $locale_display_name }
+    • <b>Статус</b>: { $scope_summary }
     </blockquote>
-    *[0] <blockquote>
-    ❌ Баннер не загружен для локали <b>{ $locale }</b>
-    </blockquote>
-    }
 
-    Выберите локаль и действие:
+    Выберите действие для этой области.
 
 msg-banner-upload =
     <b>📤 Загрузка баннера</b>
 
     <blockquote>
-    • <b>Баннер</b>: { $banner_display_name }
-    • <b>Локаль</b>: { $locale }
+    • <b>Раздел</b>: { $banner_display_name }
+    • <b>Локаль</b>: { $locale_display_name }
     </blockquote>
 
     Отправьте изображение для загрузки.
@@ -960,8 +970,8 @@ msg-banner-confirm-delete =
     Вы уверены, что хотите удалить баннер?
 
     <blockquote>
-    • <b>Баннер</b>: { $banner_display_name }
-    • <b>Локаль</b>: { $locale }
+    • <b>Раздел</b>: { $banner_display_name }
+    • <b>Локаль</b>: { $locale_display_name }
     </blockquote>
 
     <i>Это действие нельзя отменить.</i>
@@ -2808,6 +2818,10 @@ msg-user-web-cabinet =
 
     { $has_web_account ->
     [1] - <b>Web login</b>: <code>{ $web_login }</code>
+        - <b>Состояние аккаунта</b>: { $web_account_provisional ->
+            [1] временный Mini App аккаунт
+            *[0] bootstrap завершён
+          }
         { $linked_telegram_id ->
         [0]
         *[other] - <b>Привязан к TG ID</b>: <code>{ $linked_telegram_id }</code>
@@ -2848,11 +2862,20 @@ msg-user-web-bind-preview =
     [0]
     *[other] - <b>Целевой web login</b>: <code>{ $target_web_login }</code>
     }
+    { $target_web_account_exists ->
+    [1] - <b>Целевой web-аккаунт</b>: { $target_web_account_reclaimable ->
+            [1] временный Mini App аккаунт, доступный для поглощения
+            *[0] существующий защищённый аккаунт
+          }
+    *[0]
+    }
 
     Нажимайте на подписки ниже, чтобы выбрать итоговый набор, который останется после merge.
 
 msg-user-web-bind-target-existing = Целевой Telegram-пользователь уже существует локально.
 msg-user-web-bind-target-missing = Локальный Telegram-пользователь будет создан во время merge.
+msg-user-web-bind-target-occupied-provisional = Целевой TG ID занят пустым временным Mini App аккаунтом и может быть автоматически поглощён во время merge.
+msg-user-web-bind-target-occupied-real = Целевой TG ID уже занят полноценным web-аккаунтом с данными. Автоматический takeover заблокирован.
 msg-user-web-bind-source-summary = <b>Подписки web/shadow</b>: { $count }
 msg-user-web-bind-target-summary = <b>Подписки Telegram</b>: { $count }
 msg-user-web-bind-selection-summary = <b>Останется после merge</b>: { $selected } / { $total }

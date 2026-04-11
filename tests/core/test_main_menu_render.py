@@ -78,6 +78,8 @@ def _build_menu_data(*, locked: bool, miniapp_only: bool = False) -> dict[str, o
         "is_app": False,
         "mini_app_button_text": "Open App",
         "menu_mini_app_url": "https://t.me/example_app",
+        "menu_mini_app_is_web_app": False,
+        "menu_mini_app_is_url": True,
         "custom_menu_buttons": (
             [
                 {

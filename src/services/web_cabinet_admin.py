@@ -38,6 +38,10 @@ class WebCabinetBindPreview:
     source_user: UserDto
     web_account: WebAccountDto
     target_user: UserDto | None
+    target_web_account: WebAccountDto | None
+    target_has_material_data: bool
+    target_account_reclaimable: bool
+    target_bind_blocked_reason: str | None
     source_subscriptions: tuple[WebCabinetSubscriptionPreviewItem, ...]
     target_subscriptions: tuple[WebCabinetSubscriptionPreviewItem, ...]
 
@@ -92,6 +96,10 @@ class WebCabinetAdminService:
             raise WebCabinetAdminError("Web account is already bound to this Telegram ID")
 
         target_user = await self.user_service.get(target_telegram_id)
+        target_occupancy = await self.web_account_service.inspect_telegram_account_occupancy(
+            telegram_id=target_telegram_id,
+            exclude_account_id=web_account.id,
+        )
         source_subscriptions = await self._build_subscription_preview_items(
             owner=source_user,
             owner_kind="WEB",
@@ -104,6 +112,17 @@ class WebCabinetAdminService:
             source_user=source_user,
             web_account=web_account,
             target_user=target_user,
+            target_web_account=target_occupancy.web_account,
+            target_has_material_data=target_occupancy.has_material_data,
+            target_account_reclaimable=target_occupancy.is_reclaimable_provisional,
+            target_bind_blocked_reason=(
+                None
+                if (
+                    target_occupancy.web_account is None
+                    or target_occupancy.is_reclaimable_provisional
+                )
+                else "TARGET_TELEGRAM_ALREADY_LINKED"
+            ),
             source_subscriptions=tuple(source_subscriptions),
             target_subscriptions=tuple(target_subscriptions),
         )
@@ -119,6 +138,10 @@ class WebCabinetAdminService:
             source_user_telegram_id=source_user_telegram_id,
             target_telegram_id=target_telegram_id,
         )
+        if preview.target_bind_blocked_reason is not None:
+            raise WebCabinetAdminError(
+                "Target Telegram ID is already occupied by a bootstrapped or material web account"
+            )
         keep_ids = {int(subscription_id) for subscription_id in kept_subscription_ids}
         known_ids = set(preview.all_subscription_ids)
         invalid_ids = sorted(keep_ids - known_ids)
@@ -127,6 +150,12 @@ class WebCabinetAdminService:
 
         source_user = preview.source_user
         target_user = preview.target_user
+        if preview.target_account_reclaimable:
+            await self.web_account_service.delete_reclaimable_account_for_telegram_id(
+                telegram_id=target_telegram_id,
+                exclude_account_id=preview.web_account.id,
+            )
+            target_user = await self.user_service.get(target_telegram_id)
         if target_user is None:
             target_user = await self.user_service.create_placeholder_user(
                 telegram_id=target_telegram_id

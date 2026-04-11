@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from src.core.config import AppConfig
 from src.core.enums import BotMenuCustomButtonKind
@@ -15,6 +16,11 @@ BOT_MENU_SOURCE_CONFIG = "config"
 BOT_MENU_SOURCE_MISSING = "missing"
 BOT_MENU_SOURCE_SETTINGS = "settings"
 BOT_MENU_MAX_CUSTOM_BUTTONS = 5
+BOT_MENU_URL_KIND_MISSING = "missing"
+BOT_MENU_URL_KIND_INVALID = "invalid"
+BOT_MENU_URL_KIND_URL = "url"
+BOT_MENU_URL_KIND_WEB_APP = "web_app"
+_TELEGRAM_URL_HOSTS = {"t.me", "www.t.me", "telegram.me", "www.telegram.me"}
 
 
 @dataclass(slots=True, frozen=True)
@@ -41,6 +47,7 @@ class ResolvedBotMenuState:
     miniapp_only_active: bool
     mini_app_url: str | None
     mini_app_source: str
+    mini_app_url_kind: str
     primary_button_text: str
     custom_buttons: tuple[ResolvedBotMenuButton, ...]
 
@@ -52,13 +59,16 @@ def resolve_bot_menu_state(
     config: AppConfig,
 ) -> ResolvedBotMenuState:
     mini_app_url, mini_app_source = resolve_bot_menu_url(bot_menu=bot_menu, config=config)
+    mini_app_url_kind = classify_bot_menu_url_kind(mini_app_url)
     custom_buttons = tuple(_resolve_custom_buttons(bot_menu.custom_buttons))
 
     return ResolvedBotMenuState(
         miniapp_only_enabled=bot_menu.miniapp_only_enabled,
-        miniapp_only_active=bot_menu.miniapp_only_enabled and bool(mini_app_url),
+        miniapp_only_active=bot_menu.miniapp_only_enabled
+        and mini_app_url_kind in {BOT_MENU_URL_KIND_WEB_APP, BOT_MENU_URL_KIND_URL},
         mini_app_url=mini_app_url,
         mini_app_source=mini_app_source,
+        mini_app_url_kind=mini_app_url_kind,
         primary_button_text=resolve_bot_menu_button_text(
             branding.bot_menu_button_text,
             project_name=resolve_project_name(branding.project_name),
@@ -83,6 +93,15 @@ def resolve_bot_menu_url(
     return None, BOT_MENU_SOURCE_MISSING
 
 
+def resolve_bot_menu_launch_target(
+    *,
+    bot_menu: BotMenuSettingsDto,
+    config: AppConfig,
+) -> tuple[str | None, str, str]:
+    resolved_url, source = resolve_bot_menu_url(bot_menu=bot_menu, config=config)
+    return resolved_url, source, classify_bot_menu_url_kind(resolved_url)
+
+
 def _resolve_custom_buttons(
     buttons: list[BotMenuCustomButtonDto],
 ) -> list[ResolvedBotMenuButton]:
@@ -90,11 +109,18 @@ def _resolve_custom_buttons(
     for button in sorted(buttons, key=lambda item: (item.order, item.id)):
         if not button.enabled:
             continue
+        resolved_kind = button.kind
+        url_kind = classify_bot_menu_url_kind(button.url)
+        if button.kind == BotMenuCustomButtonKind.WEB_APP and url_kind != BOT_MENU_URL_KIND_WEB_APP:
+            if url_kind == BOT_MENU_URL_KIND_URL:
+                resolved_kind = BotMenuCustomButtonKind.URL
+            else:
+                continue
         resolved.append(
             ResolvedBotMenuButton(
                 id=button.id,
                 label=button.label,
-                kind=button.kind,
+                kind=resolved_kind,
                 url=button.url,
                 enabled=button.enabled,
                 order=button.order,
@@ -109,3 +135,21 @@ def _normalize_url(value: str | bool | None) -> str | None:
         if normalized:
             return normalized.rstrip("/")
     return None
+
+
+def classify_bot_menu_url_kind(raw_url: str | None) -> str:
+    normalized = _normalize_url(raw_url)
+    if not normalized:
+        return BOT_MENU_URL_KIND_MISSING
+
+    parsed = urlparse(normalized)
+    scheme = parsed.scheme.lower()
+    host = parsed.netloc.lower()
+
+    if scheme == "https" and host and host not in _TELEGRAM_URL_HOSTS:
+        return BOT_MENU_URL_KIND_WEB_APP
+    if scheme in {"https", "http"} and host in _TELEGRAM_URL_HOSTS:
+        return BOT_MENU_URL_KIND_URL
+    if scheme == "tg":
+        return BOT_MENU_URL_KIND_URL
+    return BOT_MENU_URL_KIND_INVALID

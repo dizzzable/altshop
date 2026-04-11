@@ -906,34 +906,44 @@ msg-user-max-subscriptions =
 msg-banners-main =
     <b>🖼️ Banner Management</b>
 
-    Here you can upload and delete banners for various sections of the bot.
+    Here you can manage banners for individual sections or update every banner category at once.
 
     <blockquote>
     Supported formats: JPG, JPEG, PNG, GIF, WEBP
     </blockquote>
 
-    Select a banner to edit:
+    Select a banner section:
+
+msg-banner-section-all = 📣 For all
+msg-banner-locale-all = All locales
+msg-banner-scope-status-empty = No targets selected
+msg-banner-scope-status-progress = Uploaded targets: { $uploaded } / { $total }
+
+msg-banner-locale-scope =
+    <b>🌐 Banner Locale Scope</b>
+
+    <blockquote>
+    • <b>Section</b>: { $banner_display_name }
+    </blockquote>
+
+    Select which locale scope should be updated.
 
 msg-banner-select =
-    <b>🖼️ Banner: { $banner_display_name }</b>
+    <b>🖼️ Banner Scope: { $banner_display_name }</b>
 
-    { $has_banner ->
-    [1] <blockquote>
-    ✅ Banner uploaded for locale <b>{ $locale }</b>
+    <blockquote>
+    • <b>Locale scope</b>: { $locale_display_name }
+    • <b>Status</b>: { $scope_summary }
     </blockquote>
-    *[0] <blockquote>
-    ❌ Banner not uploaded for locale <b>{ $locale }</b>
-    </blockquote>
-    }
 
-    Select locale and action:
+    Select an action for this scope:
 
 msg-banner-upload =
     <b>📤 Upload Banner</b>
 
     <blockquote>
-    • <b>Banner</b>: { $banner_display_name }
-    • <b>Locale</b>: { $locale }
+    • <b>Section</b>: { $banner_display_name }
+    • <b>Locale scope</b>: { $locale_display_name }
     </blockquote>
 
     Send an image to upload.
@@ -946,8 +956,8 @@ msg-banner-confirm-delete =
     Are you sure you want to delete this banner?
 
     <blockquote>
-    • <b>Banner</b>: { $banner_display_name }
-    • <b>Locale</b>: { $locale }
+    • <b>Section</b>: { $banner_display_name }
+    • <b>Locale scope</b>: { $locale_display_name }
     </blockquote>
 
     <i>This action cannot be undone.</i>
@@ -2626,6 +2636,10 @@ msg-user-web-cabinet =
 
     { $has_web_account ->
     [1] - <b>Web login</b>: <code>{ $web_login }</code>
+        - <b>Account state</b>: { $web_account_provisional ->
+            [1] provisional Mini App account
+            *[0] bootstrapped
+          }
         { $linked_telegram_id ->
         [0]
         *[other] - <b>Linked Telegram ID</b>: <code>{ $linked_telegram_id }</code>
@@ -2666,11 +2680,20 @@ msg-user-web-bind-preview =
     [0]
     *[other] - <b>Target web login</b>: <code>{ $target_web_login }</code>
     }
+    { $target_web_account_exists ->
+    [1] - <b>Target web account</b>: { $target_web_account_reclaimable ->
+            [1] reclaimable provisional Mini App account
+            *[0] existing protected account
+          }
+    *[0]
+    }
 
     Tap the subscriptions below to choose which ones should remain after the merge.
 
 msg-user-web-bind-target-existing = The target Telegram user already exists locally.
 msg-user-web-bind-target-missing = The local Telegram user will be created during the merge.
+msg-user-web-bind-target-occupied-provisional = The target Telegram ID is occupied by an empty provisional Mini App account and can be reclaimed during merge.
+msg-user-web-bind-target-occupied-real = The target Telegram ID is already occupied by a bootstrapped or material web account. Automatic takeover is blocked.
 msg-user-web-bind-source-summary = <b>Web/shadow subscriptions</b>: { $count }
 msg-user-web-bind-target-summary = <b>Telegram subscriptions</b>: { $count }
 msg-user-web-bind-selection-summary = <b>Selected to keep</b>: { $selected } / { $total }

@@ -27,6 +27,15 @@ class WebAuthResult:
     is_new_user: bool = False
 
 
+@dataclass(slots=True, frozen=True)
+class TelegramAccountOccupancySnapshot:
+    telegram_id: int
+    web_account: WebAccountDto | None
+    user: UserDto | None
+    has_material_data: bool
+    is_reclaimable_provisional: bool
+
+
 class WebAccountService:
     def __init__(self, uow: UnitOfWork) -> None:
         self.uow = uow
@@ -471,6 +480,134 @@ class WebAccountService:
         self, account_id: int, target_telegram_id: int
     ) -> Optional[WebAccountDto]:
         return await self.update(account_id, user_telegram_id=target_telegram_id)
+
+    async def inspect_telegram_account_occupancy(
+        self,
+        *,
+        telegram_id: int,
+        exclude_account_id: int | None = None,
+    ) -> TelegramAccountOccupancySnapshot:
+        async with self.uow:
+            return await self._inspect_telegram_account_occupancy_locked(
+                telegram_id=telegram_id,
+                exclude_account_id=exclude_account_id,
+            )
+
+    async def cleanup_provisional_account_on_logout(
+        self,
+        *,
+        web_account_id: int,
+        expected_user_telegram_id: int,
+    ) -> bool:
+        async with self.uow:
+            account_model = await self.uow.repository.web_accounts.get(web_account_id)
+            if not account_model or account_model.user_telegram_id != expected_user_telegram_id:
+                return False
+
+            occupancy = await self._inspect_telegram_account_occupancy_locked(
+                telegram_id=expected_user_telegram_id,
+                exclude_account_id=None,
+            )
+            if not occupancy.is_reclaimable_provisional:
+                return False
+
+            await self.uow.repository.web_accounts.delete(web_account_id)
+
+            if occupancy.user is not None:
+                user_has_material_data = await self.uow.repository.users.has_material_data(
+                    occupancy.user.telegram_id,
+                    include_referrals=True,
+                )
+                if not user_has_material_data:
+                    await self.uow.repository.users.delete(occupancy.user.telegram_id)
+
+            await self.uow.commit()
+            logger.info(
+                "Deleted reclaimable provisional web account '{}' "
+                "for telegram_id='{}' during logout",
+                web_account_id,
+                expected_user_telegram_id,
+            )
+            return True
+
+    async def delete_reclaimable_account_for_telegram_id(
+        self,
+        *,
+        telegram_id: int,
+        exclude_account_id: int | None = None,
+    ) -> bool:
+        async with self.uow:
+            account_model = await self.uow.repository.web_accounts.get_by_user_telegram_id(
+                telegram_id
+            )
+            if account_model is None:
+                return False
+            if exclude_account_id is not None and account_model.id == exclude_account_id:
+                return False
+
+            occupancy = await self._inspect_telegram_account_occupancy_locked(
+                telegram_id=telegram_id,
+                exclude_account_id=exclude_account_id,
+            )
+            if not occupancy.is_reclaimable_provisional or occupancy.web_account is None:
+                return False
+
+            await self.uow.repository.web_accounts.delete(occupancy.web_account.id or 0)
+            if occupancy.user is not None:
+                user_has_material_data = await self.uow.repository.users.has_material_data(
+                    occupancy.user.telegram_id,
+                    include_referrals=True,
+                )
+                if not user_has_material_data:
+                    await self.uow.repository.users.delete(occupancy.user.telegram_id)
+
+            await self.uow.commit()
+            logger.info(
+                "Reclaimed provisional target web account '{}' for telegram_id='{}'",
+                occupancy.web_account.id,
+                telegram_id,
+            )
+            return True
+
+    async def _inspect_telegram_account_occupancy_locked(
+        self,
+        *,
+        telegram_id: int,
+        exclude_account_id: int | None = None,
+    ) -> TelegramAccountOccupancySnapshot:
+        account_model = await self.uow.repository.web_accounts.get_by_user_telegram_id(
+            telegram_id
+        )
+        if (
+            account_model
+            and exclude_account_id is not None
+            and account_model.id == exclude_account_id
+        ):
+            account_model = None
+        user_model = await self.uow.repository.users.get(telegram_id)
+        has_material_data = (
+            await self.uow.repository.users.has_material_data(
+                telegram_id,
+                include_referrals=True,
+            )
+            if user_model is not None
+            else False
+        )
+        account_dto = WebAccountDto.from_model(account_model)
+        user_dto = UserDto.from_model(user_model)
+        is_reclaimable_provisional = bool(
+            account_dto is not None
+            and account_dto.credentials_bootstrapped_at is None
+            and not has_material_data
+        )
+
+        return TelegramAccountOccupancySnapshot(
+            telegram_id=telegram_id,
+            web_account=account_dto,
+            user=user_dto,
+            has_material_data=has_material_data,
+            is_reclaimable_provisional=is_reclaimable_provisional,
+        )
 
     async def _create_real_user(
         self, *, telegram_id: int, username: str, name: Optional[str]

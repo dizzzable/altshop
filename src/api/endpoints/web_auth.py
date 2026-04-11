@@ -914,13 +914,23 @@ async def get_session_status(
 async def logout(
     response: Response,
     current_user: UserDto = Depends(get_current_user),
+    web_account: WebAccountDto = Depends(get_current_web_account),
     web_account_service: FromDishka[WebAccountService] = _DISHKA_DEFAULT,
 ) -> LogoutResponse:
-    web_account = await web_account_service.get_by_user_telegram_id(current_user.telegram_id)
-    if web_account and web_account.id is not None:
-        await web_account_service.increment_token_version(web_account.id)
+    cleaned_up_provisional = False
+    if web_account.id is not None:
+        cleaned_up_provisional = await web_account_service.cleanup_provisional_account_on_logout(
+            web_account_id=web_account.id,
+            expected_user_telegram_id=current_user.telegram_id,
+        )
+        if not cleaned_up_provisional:
+            await web_account_service.increment_token_version(web_account.id)
     clear_auth_cookies(response)
-    logger.info(f"User {current_user.telegram_id} logged out")
+    logger.info(
+        "User {} logged out (provisional_cleanup={})",
+        current_user.telegram_id,
+        cleaned_up_provisional,
+    )
     return LogoutResponse()
 
 

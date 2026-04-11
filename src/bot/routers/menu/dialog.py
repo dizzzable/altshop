@@ -125,6 +125,13 @@ menu = Window(
             text=Format("{mini_app_button_text}"),
             url=Format("{menu_mini_app_url}"),
             id="main_miniapp",
+            when=F["menu_mini_app_is_web_app"],
+        ),
+        Url(
+            text=Format("{mini_app_button_text}"),
+            url=Format("{menu_mini_app_url}"),
+            id="main_miniapp_url",
+            when=F["menu_mini_app_is_url"],
         ),
         when=F["product_sections_enabled"] & F["miniapp_only_active"],
     ),
