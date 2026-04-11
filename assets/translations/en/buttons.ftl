@@ -864,7 +864,7 @@ btn-user-referral-invite-use-global = 🌐 Use global settings: { $use_global ->
 btn-backup-import = 📥 Import backup
 btn-backup-delete-local = 🗑️ Delete local copy
 
-btn-user-web-cabinet = Web Cabinet
-btn-user-web-bind-tg = Bind TG ID to web account
-btn-user-web-change-login = Change web login
-btn-user-web-bind-confirm = Apply bind and merge
+btn-user-web-cabinet = 🏯Web Cabinet
+btn-user-web-bind-tg = ⚓️Bind TG ID to web account
+btn-user-web-change-login = 🪝Change web login
+btn-user-web-bind-confirm = ✅Apply bind and merge

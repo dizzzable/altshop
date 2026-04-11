@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.27] - 2026-04-11
+
+### Changed
+
+- the EN Web Cabinet action labels now use the same emoji-first styling as the rest of the localized button set, keeping the Web Cabinet controls visually aligned across languages
+
 ## [1.2.26] - 2026-04-11
 
 ### Changed
