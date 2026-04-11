@@ -6,6 +6,21 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.24] - 2026-04-11
+
+### Changed
+
+- banner locale management now supports an explicit `ALL` target that applies uploads and deletions across every configured locale, while individual locale selection refreshes the preview immediately
+- starting a new plan from the configurator now clears the previous editor state instead of reusing stale `PlanDto` data from the last edited tariff
+
+### Fixed
+
+- DEV-only web-account binding preview state is now cleared when reopening the section or leaving preview mode, so temporary merge selections do not linger in dialog storage
+- partner and referral link copy actions now show consistent success and failure toasts even when the Clipboard API is unavailable
+- enriched subscription notifications remain backward-compatible with older transaction fixtures that do not include renewal metadata or purchase channel fields
+- creating a new tariff after editing another one no longer silently reuses the previous plan state, which could cause purchases to inherit the wrong traffic limit such as `100 GB` instead of the intended `350 GB`
+
+
 ## [1.2.23] - 2026-04-11
 
 ### Changed

@@ -7,6 +7,8 @@ from src.core.config import AppConfig
 from src.core.constants import CONFIG_KEY
 from src.core.enums import BannerFormat, BannerName, Locale
 
+ALL_BANNER_LOCALE = "all"
+
 
 def get_banner_info(banners_dir: Path, name: BannerName, locale: Locale) -> dict[str, Any]:
     """Получает информацию о баннере."""
@@ -55,7 +57,7 @@ async def banners_getter(
         }
 
         for locale in locales:
-            info = get_banner_info(banners_dir, banner_name, locale)
+            info = get_banner_info(banners_dir, banner_name, locale.value)
             banner_info["locales"][locale.value] = info
 
         banners.append(banner_info)
@@ -87,18 +89,25 @@ async def banner_select_getter(
 
     # Получаем информацию о текущем баннере
     if banner_name:
-        banner_info = get_banner_info(banners_dir, BannerName(banner_name), Locale(locale))
+        banner_info = get_banner_info(banners_dir, BannerName(banner_name), str(locale))
     else:
         banner_info = {"exists": False}
 
     # Список локалей для выбора
     locale_list = [
         {
-            "locale": loc.value,
-            "display_name": loc.value.upper(),
-            "selected": 1 if loc.value == locale else 0,
-        }
-        for loc in config.locales
+            "locale": ALL_BANNER_LOCALE,
+            "display_name": ALL_BANNER_LOCALE.upper(),
+            "selected": 1 if ALL_BANNER_LOCALE == locale else 0,
+        },
+        *[
+            {
+                "locale": loc.value,
+                "display_name": loc.value.upper(),
+                "selected": 1 if loc.value == locale else 0,
+            }
+            for loc in config.locales
+        ],
     ]
 
     return {

@@ -52,6 +52,46 @@ from .subscription_selection import (
 ASSIGN_PLAN_FROM_MULTI_KEY = "assign_plan_from_multi_subscriptions"
 
 
+def _clear_web_bind_dialog_state(dialog_manager: DialogManager) -> None:
+    for key in [
+        "web_bind_target_telegram_id",
+        "web_bind_target_exists",
+        "web_bind_target_name",
+        "web_bind_target_web_login",
+        "web_bind_source_subscriptions",
+        "web_bind_target_subscriptions",
+        "web_bind_keep_subscription_ids",
+    ]:
+        dialog_manager.dialog_data.pop(key, None)
+
+
+async def on_open_web_cabinet(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    _clear_web_bind_dialog_state(dialog_manager)
+    await dialog_manager.switch_to(DashboardUser.WEB_CABINET)
+
+
+async def on_web_cabinet_back_to_main(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    _clear_web_bind_dialog_state(dialog_manager)
+    await dialog_manager.switch_to(DashboardUser.MAIN)
+
+
+async def on_web_bind_back_to_cabinet(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    _clear_web_bind_dialog_state(dialog_manager)
+    await dialog_manager.switch_to(DashboardUser.WEB_CABINET)
+
+
 def _resolve_admin_panel_telegram_id(
     dialog_manager: DialogManager,
     target_user: UserDto,
@@ -2792,6 +2832,7 @@ async def on_web_bind_tg_id_input(
         )
         return
 
+    _clear_web_bind_dialog_state(dialog_manager)
     source_user_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
     try:
         preview = await web_cabinet_admin_service.build_bind_preview(
@@ -2892,16 +2933,7 @@ async def on_web_bind_confirm(
         )
         return
 
-    for key in [
-        "web_bind_target_telegram_id",
-        "web_bind_target_exists",
-        "web_bind_target_name",
-        "web_bind_target_web_login",
-        "web_bind_source_subscriptions",
-        "web_bind_target_subscriptions",
-        "web_bind_keep_subscription_ids",
-    ]:
-        dialog_manager.dialog_data.pop(key, None)
+    _clear_web_bind_dialog_state(dialog_manager)
 
     await notification_service.notify_user(
         user=user,

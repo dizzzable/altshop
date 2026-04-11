@@ -16,6 +16,8 @@ from src.core.enums import BannerFormat
 from src.core.utils.formatters import format_user_log as log
 from src.infrastructure.database.models.dto import UserDto
 
+ALL_BANNER_LOCALE = "all"
+
 SUPPORTED_BANNER_MIME_TYPES: dict[str, str] = {
     "image/jpeg": "jpg",
     "image/png": "png",
@@ -76,6 +78,12 @@ def _delete_existing_banner_versions(path_locale: Path, banner_name: str) -> Non
             old_path.unlink()
 
 
+def _resolve_banner_target_locales(config: AppConfig, locale: str) -> list[str]:
+    if locale == ALL_BANNER_LOCALE:
+        return [item.value for item in config.locales]
+    return [locale]
+
+
 async def on_banner_select(
     callback: CallbackQuery,
     widget: Select,
@@ -104,6 +112,7 @@ async def on_locale_select(
 
     dialog_manager.dialog_data["locale"] = item_id
     logger.info(f"{log(user)} Selected locale '{item_id}' for banner")
+    await dialog_manager.show()
 
 
 async def on_upload_banner(
@@ -140,17 +149,18 @@ async def on_confirm_delete(
         await callback.answer(i18n.get("ntf-banner-not-selected"), show_alert=True)
         return
 
-    path_locale = config.banners_dir / locale
     deleted = False
-    for banner_format in BannerFormat:
-        path = path_locale / f"{banner_name}.{banner_format}"
-        if path.exists():
-            path.unlink()
-            deleted = True
-            logger.info(
-                f"{log(user)} Deleted banner '{banner_name}' "
-                f"({banner_format}) for locale '{locale}'"
-            )
+    for target_locale in _resolve_banner_target_locales(config, locale):
+        path_locale = config.banners_dir / target_locale
+        for banner_format in BannerFormat:
+            path = path_locale / f"{banner_name}.{banner_format}"
+            if path.exists():
+                path.unlink()
+                deleted = True
+                logger.info(
+                    f"{log(user)} Deleted banner '{banner_name}' "
+                    f"({banner_format}) for locale '{target_locale}'"
+                )
 
     if deleted:
         get_banner.cache_clear()
@@ -188,12 +198,22 @@ async def on_banner_upload_input(
         await message.answer(i18n.get("ntf-banner-file-missing"))
         return
 
-    path_locale = config.banners_dir / locale
-    path_locale.mkdir(parents=True, exist_ok=True)
-    _delete_existing_banner_versions(path_locale, banner_name)
+    target_locales = _resolve_banner_target_locales(config, locale)
+    first_locale = target_locales[0]
+    first_path_locale = config.banners_dir / first_locale
+    first_path_locale.mkdir(parents=True, exist_ok=True)
+    _delete_existing_banner_versions(first_path_locale, banner_name)
 
-    new_path = path_locale / f"{banner_name}.{file_ext}"
+    new_path = first_path_locale / f"{banner_name}.{file_ext}"
     await message.bot.download_file(file.file_path, new_path)
+    file_bytes = new_path.read_bytes()
+
+    for target_locale in target_locales[1:]:
+        path_locale = config.banners_dir / target_locale
+        path_locale.mkdir(parents=True, exist_ok=True)
+        _delete_existing_banner_versions(path_locale, banner_name)
+        (path_locale / f"{banner_name}.{file_ext}").write_bytes(file_bytes)
+
     get_banner.cache_clear()
 
     logger.info(f"{log(user)} Uploaded banner '{banner_name}' ({file_ext}) for locale '{locale}'")
@@ -201,7 +221,7 @@ async def on_banner_upload_input(
         i18n.get(
             "ntf-banner-upload-success",
             banner_name=banner_name,
-            locale=locale,
+            locale=locale.upper(),
         )
     )
     await dialog_manager.switch_to(RemnashopBanners.SELECT_BANNER)

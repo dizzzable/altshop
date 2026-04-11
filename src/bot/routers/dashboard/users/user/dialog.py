@@ -87,6 +87,7 @@ from .handlers import (
     on_max_subscriptions_input,
     on_max_subscriptions_select,
     on_max_subscriptions_use_global_toggle,
+    on_open_web_cabinet,
     on_partner,
     on_partner_accrual_strategy_select,
     on_partner_balance,
@@ -135,9 +136,11 @@ from .handlers import (
     on_transaction_select,
     on_transactions,
     on_user_subscription_select,
+    on_web_bind_back_to_cabinet,
     on_web_bind_confirm,
     on_web_bind_subscription_toggle,
     on_web_bind_tg_id_input,
+    on_web_cabinet_back_to_main,
     on_web_login_input,
 )
 
@@ -267,10 +270,10 @@ user = Window(
         ),
     ),
     Row(
-        SwitchTo(
+        Button(
             text=I18nFormat("btn-user-web-cabinet"),
             id="web_cabinet",
-            state=DashboardUser.WEB_CABINET,
+            on_click=on_open_web_cabinet,
             when=F["is_dev"],
         ),
     ),
@@ -296,10 +299,10 @@ referral_attach_search = Window(
         target_id=F["target_telegram_id"],
     ),
     Row(
-        SwitchTo(
+        Button(
             text=I18nFormat("btn-back"),
             id="back",
-            state=DashboardUser.MAIN,
+            on_click=on_web_cabinet_back_to_main,
         ),
     ),
     MessageInput(func=on_referral_attach_search),
@@ -1565,10 +1568,10 @@ web_login = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-user-web-change-login"),
     Row(
-        SwitchTo(
+        Button(
             text=I18nFormat("btn-back"),
             id="back",
-            state=DashboardUser.WEB_CABINET,
+            on_click=on_web_bind_back_to_cabinet,
         ),
     ),
     MessageInput(func=on_web_login_input),
@@ -1637,10 +1640,10 @@ web_bind_preview = Window(
         ),
     ),
     Row(
-        SwitchTo(
+        Button(
             text=I18nFormat("btn-back"),
             id="back",
-            state=DashboardUser.WEB_BIND_TG_ID,
+            on_click=on_web_bind_back_to_cabinet,
         ),
     ),
     IgnoreUpdate(),

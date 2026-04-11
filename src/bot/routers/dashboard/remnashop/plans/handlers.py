@@ -28,6 +28,32 @@ from src.services.subscription import SubscriptionService
 from src.services.user import UserService
 
 
+def _clear_plan_editor_state(dialog_manager: DialogManager) -> None:
+    adapter = DialogDataAdapter(dialog_manager)
+    adapter.clear(PlanDto)
+    dialog_manager.dialog_data.pop("is_edit", None)
+    dialog_manager.dialog_data.pop("selected_duration", None)
+    dialog_manager.dialog_data.pop("selected_currency", None)
+
+
+async def on_plan_create(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    _clear_plan_editor_state(dialog_manager)
+    await dialog_manager.switch_to(state=RemnashopPlans.CONFIGURATOR)
+
+
+async def on_plan_configurator_back(
+    callback: CallbackQuery,
+    widget: Button,
+    dialog_manager: DialogManager,
+) -> None:
+    _clear_plan_editor_state(dialog_manager)
+    await dialog_manager.start(state=RemnashopPlans.MAIN, mode=StartMode.RESET_STACK)
+
+
 @inject
 async def on_plan_select(
     callback: CallbackQuery,
@@ -44,6 +70,7 @@ async def on_plan_select(
     logger.info(f"{log(user)} Selected plan ID '{plan.id}'")
 
     adapter = DialogDataAdapter(sub_manager.manager)
+    _clear_plan_editor_state(sub_manager.manager)
     adapter.save(plan)
 
     sub_manager.manager.dialog_data["is_edit"] = True
@@ -1029,5 +1056,6 @@ async def on_confirm_plan(
     if not saved:
         return
 
+    _clear_plan_editor_state(dialog_manager)
     await dialog_manager.reset_stack()
     await dialog_manager.start(state=RemnashopPlans.MAIN)
