@@ -878,6 +878,7 @@ btn-backup-import = 📥 Импортировать бэкап
 btn-backup-delete-local = 🗑️ Удалить локальную копию
 
 btn-user-web-cabinet = 🏯Web-кабинет
+btn-user-panel-sync-id = 🔁TG ID панели для синхронизации
 btn-user-web-bind-tg = ⚓️Привязать TG ID к web-аккаунту
 btn-user-web-change-login = 🪝Сменить web-логин
 btn-user-web-bind-confirm = ✅Применить привязку и merge

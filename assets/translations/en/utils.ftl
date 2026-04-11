@@ -74,6 +74,7 @@ frg-user-details =
     <blockquote>
     • <b>Internal ID</b>: <code>{ $user_id }</code>
     • <b>Identity</b>: { identity-kind }
+    • <b>Panel sync ID</b>: <code>{ $effective_panel_telegram_id }</code>
     { $has_linked_telegram_id ->
     [1] • <b>Linked Telegram ID</b>: <code>{ $linked_telegram_id }</code>
     *[0] { empty }
@@ -184,10 +185,10 @@ role =
 
 identity-kind = 
     { $identity_kind ->
-    [WEB_ONLY] Web-only
-    [TELEGRAM_PROVISIONAL] Telegram provisional
-    [TELEGRAM_LINKED] Telegram linked
-    *[TELEGRAM_ONLY] Telegram only
+    [WEB_ONLY] 🌐 Web-only
+    [TELEGRAM_PROVISIONAL] 📱 Telegram provisional
+    [TELEGRAM_LINKED] 🔗 Telegram linked
+    *[TELEGRAM_ONLY] 💬 Telegram only
 }
 
 

@@ -865,6 +865,7 @@ btn-backup-import = 📥 Import backup
 btn-backup-delete-local = 🗑️ Delete local copy
 
 btn-user-web-cabinet = 🏯Web Cabinet
+btn-user-panel-sync-id = 🔁Panel TG ID for sync
 btn-user-web-bind-tg = ⚓️Bind TG ID to web account
 btn-user-web-change-login = 🪝Change web login
 btn-user-web-bind-confirm = ✅Apply bind and merge

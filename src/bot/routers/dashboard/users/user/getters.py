@@ -4,12 +4,13 @@ from aiogram_dialog import DialogManager
 from dishka import FromDishka
 from dishka.integrations.aiogram_dialog import inject
 from fluentogram import TranslatorRunner
+from loguru import logger
 from remnawave import RemnawaveSDK
 from remnawave.models import GetAllInternalSquadsResponseDto
 
 from src.core.config import AppConfig
 from src.core.constants import DATETIME_FORMAT
-from src.core.enums import PartnerAccrualStrategy, PartnerRewardType, UserRole
+from src.core.enums import PartnerAccrualStrategy, PartnerRewardType, SubscriptionStatus, UserRole
 from src.core.i18n.keys import ByteUnitKey
 from src.core.utils.formatters import (
     i18n_format_bytes_to_unit,
@@ -75,11 +76,107 @@ def _resolve_panel_telegram_id_from_dialog(
     dialog_manager: DialogManager,
     target_user: UserDto,
 ) -> int:
-    raw_value = dialog_manager.dialog_data.get("panel_telegram_id")
+    raw_value = (
+        dialog_manager.dialog_data.get("effective_panel_telegram_id")
+        or dialog_manager.dialog_data.get("panel_sync_override_telegram_id")
+        or dialog_manager.dialog_data.get("panel_telegram_id")
+    )
     if isinstance(raw_value, int):
         return raw_value
     if isinstance(raw_value, str) and raw_value.lstrip("-").isdigit():
         return int(raw_value)
+    return target_user.telegram_id
+
+
+async def _infer_panel_telegram_id_from_local_subscriptions(
+    *,
+    target_user: UserDto,
+    subscription_service: SubscriptionService,
+    remnawave_service: RemnawaveService,
+) -> int | None:
+    all_subscriptions = await subscription_service.get_all_by_user(target_user.telegram_id)
+    subscriptions = [
+        subscription
+        for subscription in all_subscriptions
+        if subscription.status != SubscriptionStatus.DELETED and subscription.user_remna_id
+    ]
+    if not subscriptions:
+        return None
+
+    current_subscription_id = (
+        target_user.current_subscription.id if target_user.current_subscription else None
+    )
+    subscriptions.sort(
+        key=lambda subscription: (
+            0 if subscription.id == current_subscription_id else 1,
+            subscription.id or 0,
+        )
+    )
+
+    inferred_ids: set[int] = set()
+    for subscription in subscriptions:
+        try:
+            remna_user = await remnawave_service.get_user(subscription.user_remna_id)
+        except Exception as exception:
+            logger.warning(
+                f"Failed to infer panel sync identity for local user "
+                f"'{target_user.telegram_id}' from subscription "
+                f"'{subscription.id}': {exception}"
+            )
+            return None
+        if remna_user is None or not remna_user.telegram_id:
+            continue
+
+        raw_telegram_id = str(remna_user.telegram_id).strip()
+        if not raw_telegram_id.lstrip("-").isdigit():
+            continue
+
+        inferred_ids.add(int(raw_telegram_id))
+        if len(inferred_ids) > 1:
+            logger.warning(
+                f"Ambiguous panel sync identity for local user "
+                f"'{target_user.telegram_id}': {sorted(inferred_ids)}"
+            )
+            return None
+
+    return next(iter(inferred_ids), None)
+
+
+async def _resolve_effective_panel_telegram_id(
+    *,
+    dialog_manager: DialogManager,
+    target_user: UserDto,
+    web_account_service: WebAccountService,
+    subscription_service: SubscriptionService,
+    remnawave_service: RemnawaveService,
+) -> int:
+    override_value = dialog_manager.dialog_data.get("panel_sync_override_telegram_id")
+    if isinstance(override_value, int):
+        return override_value
+    if isinstance(override_value, str) and override_value.lstrip("-").isdigit():
+        return int(override_value)
+
+    web_account = await web_account_service.get_by_user_telegram_id(target_user.telegram_id)
+    linked_telegram_id = (
+        target_user.telegram_id
+        if target_user.telegram_id > 0
+        else (
+            web_account.user_telegram_id
+            if web_account and web_account.user_telegram_id > 0
+            else None
+        )
+    )
+    if linked_telegram_id is not None:
+        return linked_telegram_id
+
+    inferred_telegram_id = await _infer_panel_telegram_id_from_local_subscriptions(
+        target_user=target_user,
+        subscription_service=subscription_service,
+        remnawave_service=remnawave_service,
+    )
+    if inferred_telegram_id is not None:
+        return inferred_telegram_id
+
     return target_user.telegram_id
 
 
@@ -123,6 +220,7 @@ async def user_getter(
     user_service: FromDishka[UserService],
     web_account_service: FromDishka[WebAccountService],
     subscription_service: FromDishka[SubscriptionService],
+    remnawave_service: FromDishka[RemnawaveService],
     settings_service: FromDishka[SettingsService],
     referral_service: FromDishka[ReferralService],
     partner_service: FromDishka[PartnerService],
@@ -153,8 +251,15 @@ async def user_getter(
         web_account and web_account.credentials_bootstrapped_at is not None
     )
     public_username = target_user.username or None
-    panel_telegram_id = linked_telegram_id or target_user.telegram_id
+    panel_telegram_id = await _resolve_effective_panel_telegram_id(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        web_account_service=web_account_service,
+        subscription_service=subscription_service,
+        remnawave_service=remnawave_service,
+    )
     dialog_manager.dialog_data["panel_telegram_id"] = panel_telegram_id
+    dialog_manager.dialog_data["effective_panel_telegram_id"] = panel_telegram_id
     subscription_owner = await _resolve_subscription_owner(
         dialog_manager=dialog_manager,
         target_user=target_user,
@@ -201,7 +306,15 @@ async def user_getter(
         "has_web_login": bool(web_login),
         "linked_telegram_id": str(linked_telegram_id) if linked_telegram_id is not None else False,
         "has_linked_telegram_id": linked_telegram_id is not None,
-        "panel_telegram_id": str(panel_telegram_id),
+        "effective_panel_telegram_id": str(panel_telegram_id),
+        "has_panel_sync_override": bool(
+            dialog_manager.dialog_data.get("panel_sync_override_telegram_id") is not None
+        ),
+        "panel_sync_override_telegram_id": (
+            str(dialog_manager.dialog_data["panel_sync_override_telegram_id"])
+            if dialog_manager.dialog_data.get("panel_sync_override_telegram_id") is not None
+            else False
+        ),
         "identity_kind": _resolve_identity_kind(
             target_user,
             web_login=web_login,
@@ -1450,6 +1563,8 @@ async def web_cabinet_getter(
     dialog_manager: DialogManager,
     user_service: FromDishka[UserService],
     web_account_service: FromDishka[WebAccountService],
+    subscription_service: FromDishka[SubscriptionService],
+    remnawave_service: FromDishka[RemnawaveService],
     **kwargs: Any,
 ) -> dict[str, Any]:
     target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
@@ -1458,6 +1573,15 @@ async def web_cabinet_getter(
         raise ValueError(f"User '{target_telegram_id}' not found")
 
     web_account = await web_account_service.get_by_user_telegram_id(target_telegram_id)
+    effective_panel_telegram_id = await _resolve_effective_panel_telegram_id(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        web_account_service=web_account_service,
+        subscription_service=subscription_service,
+        remnawave_service=remnawave_service,
+    )
+    dialog_manager.dialog_data["panel_telegram_id"] = effective_panel_telegram_id
+    dialog_manager.dialog_data["effective_panel_telegram_id"] = effective_panel_telegram_id
     return {
         "target_name": target_user.name,
         "target_telegram_id": str(target_user.telegram_id),
@@ -1472,6 +1596,15 @@ async def web_cabinet_getter(
         "linked_telegram_id": (
             str(web_account.user_telegram_id)
             if web_account and web_account.user_telegram_id > 0
+            else False
+        ),
+        "effective_panel_telegram_id": str(effective_panel_telegram_id),
+        "has_panel_sync_override": bool(
+            dialog_manager.dialog_data.get("panel_sync_override_telegram_id") is not None
+        ),
+        "panel_sync_override_telegram_id": (
+            str(dialog_manager.dialog_data["panel_sync_override_telegram_id"])
+            if dialog_manager.dialog_data.get("panel_sync_override_telegram_id") is not None
             else False
         ),
     }
@@ -1497,6 +1630,45 @@ async def web_login_getter(
         "has_web_account": bool(web_account),
         "web_account_provisional": bool(
             web_account and web_account.credentials_bootstrapped_at is None
+        ),
+    }
+
+
+@inject
+async def panel_sync_id_getter(
+    dialog_manager: DialogManager,
+    user_service: FromDishka[UserService],
+    web_account_service: FromDishka[WebAccountService],
+    subscription_service: FromDishka[SubscriptionService],
+    remnawave_service: FromDishka[RemnawaveService],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    target_telegram_id = dialog_manager.dialog_data["target_telegram_id"]
+    target_user = await user_service.get(telegram_id=target_telegram_id)
+    if not target_user:
+        raise ValueError(f"User '{target_telegram_id}' not found")
+
+    effective_panel_telegram_id = await _resolve_effective_panel_telegram_id(
+        dialog_manager=dialog_manager,
+        target_user=target_user,
+        web_account_service=web_account_service,
+        subscription_service=subscription_service,
+        remnawave_service=remnawave_service,
+    )
+    dialog_manager.dialog_data["panel_telegram_id"] = effective_panel_telegram_id
+    dialog_manager.dialog_data["effective_panel_telegram_id"] = effective_panel_telegram_id
+
+    return {
+        "target_name": target_user.name,
+        "target_telegram_id": str(target_user.telegram_id),
+        "effective_panel_telegram_id": str(effective_panel_telegram_id),
+        "has_panel_sync_override": bool(
+            dialog_manager.dialog_data.get("panel_sync_override_telegram_id") is not None
+        ),
+        "panel_sync_override_telegram_id": (
+            str(dialog_manager.dialog_data["panel_sync_override_telegram_id"])
+            if dialog_manager.dialog_data.get("panel_sync_override_telegram_id") is not None
+            else False
         ),
     }
 

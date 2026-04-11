@@ -100,7 +100,11 @@ def _resolve_admin_panel_telegram_id(
     dialog_manager: DialogManager,
     target_user: UserDto,
 ) -> int:
-    raw_value = dialog_manager.dialog_data.get("panel_telegram_id")
+    raw_value = (
+        dialog_manager.dialog_data.get("effective_panel_telegram_id")
+        or dialog_manager.dialog_data.get("panel_sync_override_telegram_id")
+        or dialog_manager.dialog_data.get("panel_telegram_id")
+    )
     if isinstance(raw_value, int):
         return raw_value
     if isinstance(raw_value, str) and raw_value.lstrip("-").isdigit():
@@ -2805,6 +2809,57 @@ async def on_web_login_input(
         ),
     )
     await dialog_manager.switch_to(DashboardUser.WEB_CABINET)
+
+
+@inject
+async def on_panel_sync_id_input(
+    message: Message,
+    widget: MessageInput,
+    dialog_manager: DialogManager,
+    config: FromDishka[AppConfig],
+    notification_service: FromDishka[NotificationService],
+) -> None:
+    user: UserDto = dialog_manager.middleware_data[USER_KEY]
+    if user.role != UserRole.DEV and user.telegram_id not in config.bot.dev_id:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-error"),
+        )
+        return
+
+    raw_value = (message.text or "").strip()
+    if raw_value.lower() in {"auto", "reset", "default", "авто", "сброс"}:
+        dialog_manager.dialog_data.pop("panel_sync_override_telegram_id", None)
+        dialog_manager.dialog_data.pop("effective_panel_telegram_id", None)
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(i18n_key="ntf-user-panel-sync-id-cleared"),
+        )
+        await dialog_manager.switch_to(DashboardUser.MAIN)
+        return
+
+    target_panel_telegram_id = parse_int(raw_value)
+    if target_panel_telegram_id is None:
+        await notification_service.notify_user(
+            user=user,
+            payload=MessagePayload(
+                i18n_key="ntf-user-panel-sync-id-failed",
+                i18n_kwargs={"error": "Invalid Telegram ID."},
+            ),
+        )
+        return
+
+    dialog_manager.dialog_data["panel_sync_override_telegram_id"] = target_panel_telegram_id
+    dialog_manager.dialog_data["effective_panel_telegram_id"] = target_panel_telegram_id
+    dialog_manager.dialog_data["panel_telegram_id"] = target_panel_telegram_id
+    await notification_service.notify_user(
+        user=user,
+        payload=MessagePayload(
+            i18n_key="ntf-user-panel-sync-id-updated",
+            i18n_kwargs={"telegram_id": str(target_panel_telegram_id)},
+        ),
+    )
+    await dialog_manager.switch_to(DashboardUser.MAIN)
 
 
 @inject

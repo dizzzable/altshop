@@ -150,6 +150,7 @@ class DashboardUser(StatesGroup):
     REFERRAL_INVITE_REFILL_AMOUNT = State()
     WEB_CABINET = State()
     WEB_LOGIN = State()
+    WEB_PANEL_SYNC_ID = State()
     WEB_BIND_TG_ID = State()
     WEB_BIND_PREVIEW = State()
 

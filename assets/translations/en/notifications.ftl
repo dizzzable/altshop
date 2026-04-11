@@ -796,6 +796,9 @@ ntf-user-web-login-updated = Web login updated: <code>{ $username }</code>
 ntf-user-web-login-update-failed = Failed to update web login: { $error }
 ntf-user-web-bind-success = Web account <code>{ $web_login }</code> is now bound to TG ID <code>{ $linked_telegram_id }</code>. Kept subscriptions: <b>{ $kept }</b>, deleted: <b>{ $deleted }</b>.
 ntf-user-web-bind-failed = Failed to complete Web / Telegram merge: { $error }
+ntf-user-panel-sync-id-updated = Panel sync ID override for this session is now <code>{ $telegram_id }</code>.
+ntf-user-panel-sync-id-cleared = Panel sync ID override was cleared. Automatic detection is active again.
+ntf-user-panel-sync-id-failed = Failed to update Panel sync ID override: { $error }
 
 ntf-event-user-expiring-summary =
     <b>Warning! { $subscriptions_count } subscriptions expire in { unit-day }.</b>

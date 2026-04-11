@@ -235,13 +235,6 @@ def _parse_telegram_id(remna_user: UserResponseDto) -> int | None:
         )
         return None
 
-    if telegram_id <= 0:
-        logger.warning(
-            f"Skipping panel profile '{remna_user.uuid}': invalid telegram_id "
-            f"'{remna_user.telegram_id}'"
-        )
-        return None
-
     return telegram_id
 
 

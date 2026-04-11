@@ -2636,16 +2636,37 @@ msg-user-web-cabinet =
 
     { $has_web_account ->
     [1] - <b>Web login</b>: <code>{ $web_login }</code>
+        - <b>Local profile ID</b>: <code>{ $target_telegram_id }</code>
+        - <b>Panel sync ID</b>: <code>{ $effective_panel_telegram_id }</code>
         - <b>Account state</b>: { $web_account_provisional ->
             [1] provisional Mini App account
             *[0] bootstrapped
           }
+        { $has_panel_sync_override ->
+        [1] - <b>Session override</b>: <code>{ $panel_sync_override_telegram_id }</code>
+        *[0]
+        }
         { $linked_telegram_id ->
         [0]
         *[other] - <b>Linked Telegram ID</b>: <code>{ $linked_telegram_id }</code>
         }
     *[0] This user does not have a web account yet.
     }
+
+msg-user-panel-sync-id =
+    <b>🔁 Panel TG ID for sync</b>
+
+    - <b>Local profile ID</b>: <code>{ $target_telegram_id }</code>
+    - <b>Effective panel sync ID</b>: <code>{ $effective_panel_telegram_id }</code>
+    { $has_panel_sync_override ->
+    [1] - <b>Session override</b>: <code>{ $panel_sync_override_telegram_id }</code>
+    *[0] - <b>Session override</b>: auto
+    }
+
+    Send the Remnawave <code>telegram_id</code> that this admin card should use for sync and profile reads.
+    Negative IDs are allowed.
+
+    Send <code>auto</code> to clear the session override and return to automatic detection.
 
 msg-user-web-change-login =
     <b>Change web login</b>

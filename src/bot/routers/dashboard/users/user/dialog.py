@@ -35,6 +35,7 @@ from .getters import (
     give_subscription_getter,
     internal_squads_getter,
     max_subscriptions_getter,
+    panel_sync_id_getter,
     partner_accrual_strategy_getter,
     partner_balance_getter,
     partner_fixed_getter,
@@ -88,6 +89,7 @@ from .handlers import (
     on_max_subscriptions_select,
     on_max_subscriptions_use_global_toggle,
     on_open_web_cabinet,
+    on_panel_sync_id_input,
     on_partner,
     on_partner_accrual_strategy_select,
     on_partner_balance,
@@ -184,6 +186,14 @@ user = Window(
             text=I18nFormat("btn-user-give-subscription"),
             id="give_subscription",
             on_click=on_give_subscription,
+        ),
+    ),
+    Row(
+        SwitchTo(
+            text=I18nFormat("btn-user-panel-sync-id"),
+            id="panel_sync_id",
+            state=DashboardUser.WEB_PANEL_SYNC_ID,
+            when=F["is_dev"],
         ),
     ),
     Row(
@@ -1580,6 +1590,22 @@ web_login = Window(
     getter=web_login_getter,
 )
 
+panel_sync_id = Window(
+    Banner(BannerName.DASHBOARD),
+    I18nFormat("msg-user-panel-sync-id"),
+    Row(
+        Button(
+            text=I18nFormat("btn-back"),
+            id="back",
+            on_click=on_web_cabinet_back_to_main,
+        ),
+    ),
+    MessageInput(func=on_panel_sync_id_input),
+    IgnoreUpdate(),
+    state=DashboardUser.WEB_PANEL_SYNC_ID,
+    getter=panel_sync_id_getter,
+)
+
 web_bind_tg_id = Window(
     Banner(BannerName.DASHBOARD),
     I18nFormat("msg-user-web-bind-tg"),
@@ -1694,6 +1720,7 @@ router = Dialog(
     referral_invite_refill_amount,
     web_cabinet,
     web_login,
+    panel_sync_id,
     web_bind_tg_id,
     web_bind_preview,
 )

@@ -75,6 +75,7 @@ frg-user-details =
     <blockquote>
     • <b>Внутренний ID</b>: <code>{ $user_id }</code>
     • <b>Тип профиля</b>: { identity-kind }
+    • <b>ID синхронизации в панели</b>: <code>{ $effective_panel_telegram_id }</code>
     { $has_linked_telegram_id ->
     [1] • <b>Привязанный Telegram ID</b>: <code>{ $linked_telegram_id }</code>
     *[0] { empty }
@@ -185,10 +186,10 @@ role =
 
 identity-kind = 
     { $identity_kind ->
-    [WEB_ONLY] Только web
-    [TELEGRAM_PROVISIONAL] Временный Mini App
-    [TELEGRAM_LINKED] Telegram привязан
-    *[TELEGRAM_ONLY] Только Telegram
+    [WEB_ONLY] 🌐 Только web
+    [TELEGRAM_PROVISIONAL] 📱 Временный Mini App
+    [TELEGRAM_LINKED] 🔗 Telegram привязан
+    *[TELEGRAM_ONLY] 💬 Только Telegram
 }
 
 

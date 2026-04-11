@@ -824,6 +824,9 @@ ntf-user-web-login-updated = Web login обновлен: <code>{ $username }</co
 ntf-user-web-login-update-failed = Не удалось обновить web login: { $error }
 ntf-user-web-bind-success = Web-аккаунт <code>{ $web_login }</code> теперь привязан к TG ID <code>{ $linked_telegram_id }</code>. Оставлено подписок: <b>{ $kept }</b>, удалено: <b>{ $deleted }</b>.
 ntf-user-web-bind-failed = Не удалось завершить merge Web / Telegram: { $error }
+ntf-user-panel-sync-id-updated = Сессионный ID синхронизации в панели теперь равен <code>{ $telegram_id }</code>.
+ntf-user-panel-sync-id-cleared = Сессионный ручной ID синхронизации в панели сброшен. Снова используется автоматическое определение.
+ntf-user-panel-sync-id-failed = Не удалось обновить ID синхронизации в панели: { $error }
 
 ntf-event-user-expiring-summary =
     <b>Внимание! Через { unit-day } истекают { $subscriptions_count } подписки.</b>

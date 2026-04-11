@@ -2818,16 +2818,37 @@ msg-user-web-cabinet =
 
     { $has_web_account ->
     [1] - <b>Web login</b>: <code>{ $web_login }</code>
+        - <b>Локальный ID профиля</b>: <code>{ $target_telegram_id }</code>
+        - <b>ID синхронизации в панели</b>: <code>{ $effective_panel_telegram_id }</code>
         - <b>Состояние аккаунта</b>: { $web_account_provisional ->
             [1] временный Mini App аккаунт
             *[0] bootstrap завершён
           }
+        { $has_panel_sync_override ->
+        [1] - <b>Сессионный ручной ID</b>: <code>{ $panel_sync_override_telegram_id }</code>
+        *[0]
+        }
         { $linked_telegram_id ->
         [0]
         *[other] - <b>Привязан к TG ID</b>: <code>{ $linked_telegram_id }</code>
         }
     *[0] У пользователя пока нет web-аккаунта.
     }
+
+msg-user-panel-sync-id =
+    <b>🔁 TG ID панели для синхронизации</b>
+
+    - <b>Локальный ID профиля</b>: <code>{ $target_telegram_id }</code>
+    - <b>Текущий ID синхронизации в панели</b>: <code>{ $effective_panel_telegram_id }</code>
+    { $has_panel_sync_override ->
+    [1] - <b>Сессионный ручной ID</b>: <code>{ $panel_sync_override_telegram_id }</code>
+    *[0] - <b>Сессионный ручной ID</b>: auto
+    }
+
+    Отправьте <code>telegram_id</code> из Remnawave, который эта карточка должна использовать для синхронизации и чтения профилей.
+    Отрицательные ID тоже поддерживаются.
+
+    Отправьте <code>auto</code>, чтобы сбросить ручной ID и вернуть автоматическое определение.
 
 msg-user-web-change-login =
     <b>Смена web-логина</b>

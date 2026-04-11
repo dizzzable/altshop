@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.30] - 2026-04-11
+
+### Changed
+
+- admin user cards now track an explicit effective `panel sync ID`, with a DEV-only session override for repair flows where the Remnawave profile lives under a different positive or negative `telegram_id`
+- identity labels now use clearer emoji-rich copy so admins can distinguish `🌐 Web-only`, `📱 Telegram provisional`, and `🔗 Telegram linked` profiles faster during sync and bind work
+
+### Fixed
+
+- manual panel sync for `web-first` accounts no longer gets stuck on the local shadow/web identity when the actual Remnawave profile belongs to another `telegram_id`
+- bulk restore/import from Remnawave now accepts negative `telegram_id` values instead of dropping those panel profiles before sync
+
 ## [1.2.29] - 2026-04-11
 
 ### Fixed
