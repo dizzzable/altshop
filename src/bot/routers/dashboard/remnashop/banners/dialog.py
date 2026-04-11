@@ -20,7 +20,6 @@ from src.core.enums import BannerName
 
 from .getters import (
     banner_confirm_delete_getter,
-    banner_locale_scope_getter,
     banner_select_getter,
     banner_upload_getter,
     banners_getter,
@@ -41,6 +40,7 @@ banners_main = Window(
         Select(
             text=I18nFormat(
                 "btn-banner-item",
+                icon=F["item"]["icon"],
                 name=F["item"]["display_name"],
             ),
             id="banner_select",
@@ -64,9 +64,9 @@ banners_main = Window(
     getter=banners_getter,
 )
 
-banner_locale_scope = Window(
+banner_select = Window(
     Banner(BannerName.DASHBOARD),
-    I18nFormat("msg-banner-locale-scope"),
+    I18nFormat("msg-banner-select"),
     Column(
         Select(
             text=I18nFormat(
@@ -80,21 +80,6 @@ banner_locale_scope = Window(
             on_click=on_locale_select,
         ),
     ),
-    Row(
-        SwitchTo(
-            text=I18nFormat("btn-back"),
-            id="back",
-            state=RemnashopBanners.MAIN,
-        ),
-    ),
-    IgnoreUpdate(),
-    state=RemnashopBanners.SELECT_LOCALE,
-    getter=banner_locale_scope_getter,
-)
-
-banner_select = Window(
-    Banner(BannerName.DASHBOARD),
-    I18nFormat("msg-banner-select"),
     Format("{scope_summary}"),
     Row(
         Button(
@@ -113,7 +98,7 @@ banner_select = Window(
         SwitchTo(
             text=I18nFormat("btn-back"),
             id="back",
-            state=RemnashopBanners.SELECT_LOCALE,
+            state=RemnashopBanners.MAIN,
         ),
     ),
     IgnoreUpdate(),
@@ -162,7 +147,6 @@ banner_confirm_delete = Window(
 
 router = Dialog(
     banners_main,
-    banner_locale_scope,
     banner_select,
     banner_upload,
     banner_confirm_delete,

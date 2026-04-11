@@ -6,6 +6,19 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.28] - 2026-04-11
+
+### Changed
+
+- DEV Web Cabinet bind is now authoritative for recovery work: the chosen source web account becomes canonical for the target TG ID, and any old target-side web account is replaced during merge instead of blocking the bind preview
+- banner management now returns to a one-screen editor after category selection, showing locale selector plus visible upload/delete actions together instead of the extra locale-only step
+
+### Fixed
+
+- DEV bind no longer dead-ends on “target TG ID already occupied” when the operator intentionally wants to replace the old web account for that TG profile
+- kept subscriptions in DEV bind continue to sync against the target TG profile in Remnawave while the old target-side web account/auth state is cleaned out
+- Mini App / menu / subscription flows now treat only real webapp URLs as `WebAppInfo` targets, preventing `BUTTON_URL_INVALID` regressions from `t.me` or `tg://` links
+
 ## [1.2.27] - 2026-04-11
 
 ### Changed

@@ -117,7 +117,7 @@ async def on_banner_select(
     dialog_manager.dialog_data["locale"] = config.default_locale.value
 
     logger.info(f"{log(user)} Selected banner '{item_id}' for editing")
-    await dialog_manager.switch_to(RemnashopBanners.SELECT_LOCALE)
+    await dialog_manager.switch_to(RemnashopBanners.SELECT_BANNER)
 
 
 async def on_locale_select(

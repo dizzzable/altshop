@@ -26,6 +26,7 @@ from src.core.enums import (
     SubscriptionStatus,
 )
 from src.core.utils.adapter import DialogDataAdapter
+from src.core.utils.bot_menu import BOT_MENU_URL_KIND_WEB_APP, classify_bot_menu_url_kind
 from src.core.utils.formatters import (
     i18n_format_days,
     i18n_format_device_limit,
@@ -282,7 +283,9 @@ async def subscription_details_getter(
         )
         can_renew = action_policy.can_renew and not subscription.is_unlimited
     mini_app_url = _resolve_mini_app_entry_url(config)
-    is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
+    is_app_enabled = config.bot.has_configured_mini_app_url and (
+        classify_bot_menu_url_kind(mini_app_url) == BOT_MENU_URL_KIND_WEB_APP
+    )
 
     return {
         "subscription_index": subscription_index,
@@ -886,7 +889,9 @@ async def getter_connect(
     if not user.current_subscription:
         raise ValueError(f"User '{user.telegram_id}' has no active subscription after purchase")
     mini_app_url = _resolve_mini_app_entry_url(config)
-    is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
+    is_app_enabled = config.bot.has_configured_mini_app_url and (
+        classify_bot_menu_url_kind(mini_app_url) == BOT_MENU_URL_KIND_WEB_APP
+    )
 
     return {
         "is_app": is_app_enabled,
@@ -917,7 +922,9 @@ async def success_payment_getter(
     ]
     subscriptions_count = len(active_subscriptions)
     mini_app_url = _resolve_mini_app_entry_url(config)
-    is_app_enabled = config.bot.has_configured_mini_app_url and bool(mini_app_url)
+    is_app_enabled = config.bot.has_configured_mini_app_url and (
+        classify_bot_menu_url_kind(mini_app_url) == BOT_MENU_URL_KIND_WEB_APP
+    )
 
     return {
         "purchase_type": purchase_type,

@@ -386,7 +386,7 @@ btn-user-max-subscriptions-use-global = { $use_global ->
     }
 
 # Banners
-btn-banner-item = 🖼️ { $name }
+btn-banner-item = { $icon } { $name }
 btn-banner-locale-choice = { $selected ->
     [1] 🔘
     *[0] ⚪

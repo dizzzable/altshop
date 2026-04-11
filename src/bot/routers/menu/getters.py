@@ -115,7 +115,7 @@ async def menu_getter(
         config=config,
     )
     mini_app_url = bot_menu_state.mini_app_url
-    is_app_enabled = bool(mini_app_url)
+    is_app_enabled = bot_menu_state.mini_app_url_kind == BOT_MENU_URL_KIND_WEB_APP
     support_username = config.bot.support_username.get_secret_value()
     support_link = format_username_to_url(support_username, i18n.get("contact-support-help"))
     access_mode = settings.access_mode

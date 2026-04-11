@@ -46,7 +46,14 @@ def _translate_banner_meta(dialog_manager: DialogManager, config: AppConfig, key
     is_ru = _resolve_admin_locale(dialog_manager, config).startswith("ru")
     values = {
         "section_all": "📣 Для всех" if is_ru else "📣 For all",
+        "section_menu": "🖼️ Меню" if is_ru else "🖼️ Menu",
+        "section_dashboard": "🖼️ Dashboard",
+        "section_subscription": "🖼️ Подписки" if is_ru else "🖼️ Subscription",
+        "section_promocode": "🖼️ Промокоды" if is_ru else "🖼️ Promocode",
+        "section_referral": "🖼️ Рефералка" if is_ru else "🖼️ Referral",
         "locale_all": "Для всех локалей" if is_ru else "All locales",
+        "locale_ru": "🇷🇺 RU",
+        "locale_en": "🇬🇧 EN",
         "scope_empty": "Нет выбранных целей" if is_ru else "No targets selected",
         "scope_progress": "Загружено целей" if is_ru else "Uploaded targets",
     }
@@ -60,7 +67,14 @@ def _resolve_section_display_name(
 ) -> str:
     if section_key == ALL_BANNER_SECTION:
         return _translate_banner_meta(dialog_manager, config, "section_all")
-    return section_key.replace("_", " ").title()
+    section_map = {
+        BannerName.MENU.value: "section_menu",
+        BannerName.DASHBOARD.value: "section_dashboard",
+        BannerName.SUBSCRIPTION.value: "section_subscription",
+        BannerName.PROMOCODE.value: "section_promocode",
+        BannerName.REFERRAL.value: "section_referral",
+    }
+    return _translate_banner_meta(dialog_manager, config, section_map[section_key])
 
 
 def _resolve_locale_display_name(
@@ -70,6 +84,10 @@ def _resolve_locale_display_name(
 ) -> str:
     if locale_key == ALL_BANNER_LOCALE:
         return _translate_banner_meta(dialog_manager, config, "locale_all")
+    if locale_key.lower() == "ru":
+        return _translate_banner_meta(dialog_manager, config, "locale_ru")
+    if locale_key.lower() == "en":
+        return _translate_banner_meta(dialog_manager, config, "locale_en")
     return locale_key.upper()
 
 
@@ -123,6 +141,7 @@ async def banners_getter(
     banners: list[dict[str, Any]] = [
         {
             "name": banner_name.value,
+            "icon": "📣" if banner_name.value == ALL_BANNER_SECTION else "🖼️",
             "display_name": _resolve_section_display_name(
                 banner_name.value,
                 dialog_manager,
@@ -134,6 +153,7 @@ async def banners_getter(
     banners.append(
         {
             "name": ALL_BANNER_SECTION,
+            "icon": "📣",
             "display_name": _resolve_section_display_name(
                 ALL_BANNER_SECTION,
                 dialog_manager,

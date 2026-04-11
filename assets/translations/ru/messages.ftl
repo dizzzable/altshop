@@ -2865,17 +2865,18 @@ msg-user-web-bind-preview =
     { $target_web_account_exists ->
     [1] - <b>Целевой web-аккаунт</b>: { $target_web_account_reclaimable ->
             [1] временный Mini App аккаунт, доступный для поглощения
-            *[0] существующий защищённый аккаунт
+            *[0] существующий аккаунт, который будет заменён через DEV bind
           }
     *[0]
     }
 
+    DEV-привязка здесь является авторитетной: выбранный source web-аккаунт станет каноническим аккаунтом для этого TG ID.
     Нажимайте на подписки ниже, чтобы выбрать итоговый набор, который останется после merge.
 
 msg-user-web-bind-target-existing = Целевой Telegram-пользователь уже существует локально.
 msg-user-web-bind-target-missing = Локальный Telegram-пользователь будет создан во время merge.
 msg-user-web-bind-target-occupied-provisional = Целевой TG ID занят пустым временным Mini App аккаунтом и может быть автоматически поглощён во время merge.
-msg-user-web-bind-target-occupied-real = Целевой TG ID уже занят полноценным web-аккаунтом с данными. Автоматический takeover заблокирован.
+msg-user-web-bind-target-occupied-real = Целевой TG ID уже занят web-аккаунтом. DEV bind заменит его и оставит выбранный source web login каноническим.
 msg-user-web-bind-source-summary = <b>Подписки web/shadow</b>: { $count }
 msg-user-web-bind-target-summary = <b>Подписки Telegram</b>: { $count }
 msg-user-web-bind-selection-summary = <b>Останется после merge</b>: { $selected } / { $total }

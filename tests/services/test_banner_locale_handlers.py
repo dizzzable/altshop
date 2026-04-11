@@ -8,14 +8,15 @@ from unittest.mock import AsyncMock
 from src.bot.routers.dashboard.remnashop.banners.getters import (
     ALL_BANNER_LOCALE,
     ALL_BANNER_SECTION,
-    banner_locale_scope_getter,
     banner_select_getter,
 )
 from src.bot.routers.dashboard.remnashop.banners.handlers import (
     _resolve_banner_target_locales,
     _resolve_banner_target_sections,
+    on_banner_select,
     on_locale_select,
 )
+from src.bot.states import RemnashopBanners
 from src.core.enums import BannerName
 
 
@@ -70,10 +71,41 @@ def test_banner_select_getter_exposes_all_locale_option() -> None:
     payload = run_async(banner_select_getter(dialog_manager))
 
     assert payload["locale"] == "ru"
+    assert payload["locale_display_name"] == "🇷🇺 RU"
     assert "scope_summary" in payload
+    assert payload["banner_display_name"] == "🖼️ Menu"
 
 
-def test_banner_locale_scope_getter_exposes_all_locale_option() -> None:
+def test_on_banner_select_opens_editor_screen_directly() -> None:
+    config = SimpleNamespace(
+        banners_dir=Path("."),
+        locales=[SimpleNamespace(value="ru"), SimpleNamespace(value="en")],
+        default_locale=SimpleNamespace(value="ru"),
+    )
+    dialog_manager = SimpleNamespace(
+        dialog_data={},
+        middleware_data={
+            "config": config,
+            "user": SimpleNamespace(telegram_id=1, name="Dev", role="DEV"),
+        },
+        switch_to=AsyncMock(),
+    )
+
+    run_async(
+        on_banner_select(
+            SimpleNamespace(),
+            SimpleNamespace(),
+            dialog_manager,
+            BannerName.MENU.value,
+        )
+    )
+
+    assert dialog_manager.dialog_data["banner_name"] == BannerName.MENU.value
+    assert dialog_manager.dialog_data["locale"] == "ru"
+    dialog_manager.switch_to.assert_awaited_once_with(RemnashopBanners.SELECT_BANNER)
+
+
+def test_banner_select_getter_formats_bulk_scope_and_all_locales() -> None:
     config = SimpleNamespace(
         banners_dir=Path("."),
         locales=[SimpleNamespace(value="ru"), SimpleNamespace(value="en")],
@@ -84,7 +116,7 @@ def test_banner_locale_scope_getter_exposes_all_locale_option() -> None:
         middleware_data={"config": config, "user": SimpleNamespace(language="en")},
     )
 
-    payload = run_async(banner_locale_scope_getter(dialog_manager))
+    payload = run_async(banner_select_getter(dialog_manager))
 
-    assert payload["locale_scope_items"][0]["locale"] == ALL_BANNER_LOCALE
+    assert payload["locale_display_name"] == "All locales"
     assert payload["banner_display_name"] == "📣 For all"

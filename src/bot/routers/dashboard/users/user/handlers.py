@@ -61,7 +61,7 @@ def _clear_web_bind_dialog_state(dialog_manager: DialogManager) -> None:
         "web_bind_target_web_account_reclaimable",
         "web_bind_target_web_account_bootstrapped",
         "web_bind_target_has_material_data",
-        "web_bind_target_bind_blocked_reason",
+        "web_bind_target_account_will_be_replaced",
         "web_bind_source_subscriptions",
         "web_bind_target_subscriptions",
         "web_bind_keep_subscription_ids",
@@ -2872,8 +2872,8 @@ async def on_web_bind_tg_id_input(
     dialog_manager.dialog_data["web_bind_target_has_material_data"] = (
         preview.target_has_material_data
     )
-    dialog_manager.dialog_data["web_bind_target_bind_blocked_reason"] = (
-        preview.target_bind_blocked_reason
+    dialog_manager.dialog_data["web_bind_target_account_will_be_replaced"] = (
+        preview.target_account_will_be_replaced
     )
     dialog_manager.dialog_data["web_bind_source_subscriptions"] = [
         asdict(item) for item in preview.source_subscriptions

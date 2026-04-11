@@ -481,6 +481,13 @@ class WebAccountService:
     ) -> Optional[WebAccountDto]:
         return await self.update(account_id, user_telegram_id=target_telegram_id)
 
+    async def delete_by_id(self, *, account_id: int) -> bool:
+        async with self.uow:
+            deleted = await self.uow.repository.web_accounts.delete(account_id)
+            if deleted:
+                await self.uow.commit()
+            return deleted
+
     async def inspect_telegram_account_occupancy(
         self,
         *,

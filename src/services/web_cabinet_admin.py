@@ -41,7 +41,7 @@ class WebCabinetBindPreview:
     target_web_account: WebAccountDto | None
     target_has_material_data: bool
     target_account_reclaimable: bool
-    target_bind_blocked_reason: str | None
+    target_account_will_be_replaced: bool
     source_subscriptions: tuple[WebCabinetSubscriptionPreviewItem, ...]
     target_subscriptions: tuple[WebCabinetSubscriptionPreviewItem, ...]
 
@@ -115,14 +115,7 @@ class WebCabinetAdminService:
             target_web_account=target_occupancy.web_account,
             target_has_material_data=target_occupancy.has_material_data,
             target_account_reclaimable=target_occupancy.is_reclaimable_provisional,
-            target_bind_blocked_reason=(
-                None
-                if (
-                    target_occupancy.web_account is None
-                    or target_occupancy.is_reclaimable_provisional
-                )
-                else "TARGET_TELEGRAM_ALREADY_LINKED"
-            ),
+            target_account_will_be_replaced=target_occupancy.web_account is not None,
             source_subscriptions=tuple(source_subscriptions),
             target_subscriptions=tuple(target_subscriptions),
         )
@@ -138,10 +131,6 @@ class WebCabinetAdminService:
             source_user_telegram_id=source_user_telegram_id,
             target_telegram_id=target_telegram_id,
         )
-        if preview.target_bind_blocked_reason is not None:
-            raise WebCabinetAdminError(
-                "Target Telegram ID is already occupied by a bootstrapped or material web account"
-            )
         keep_ids = {int(subscription_id) for subscription_id in kept_subscription_ids}
         known_ids = set(preview.all_subscription_ids)
         invalid_ids = sorted(keep_ids - known_ids)
@@ -150,10 +139,12 @@ class WebCabinetAdminService:
 
         source_user = preview.source_user
         target_user = preview.target_user
-        if preview.target_account_reclaimable:
-            await self.web_account_service.delete_reclaimable_account_for_telegram_id(
-                telegram_id=target_telegram_id,
-                exclude_account_id=preview.web_account.id,
+        if preview.target_web_account and preview.target_web_account.id != preview.web_account.id:
+            target_web_account_id = preview.target_web_account.id
+            if target_web_account_id is None:
+                raise WebCabinetAdminError("Target web account is missing an ID")
+            await self.web_account_service.delete_by_id(
+                account_id=target_web_account_id,
             )
             target_user = await self.user_service.get(target_telegram_id)
         if target_user is None:

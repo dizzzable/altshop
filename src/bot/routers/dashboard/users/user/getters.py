@@ -1570,14 +1570,14 @@ async def web_bind_preview_getter(
     target_has_material_data = bool(
         dialog_manager.dialog_data.get("web_bind_target_has_material_data")
     )
-    target_bind_blocked_reason = dialog_manager.dialog_data.get(
-        "web_bind_target_bind_blocked_reason"
+    target_account_will_be_replaced = bool(
+        dialog_manager.dialog_data.get("web_bind_target_account_will_be_replaced")
     )
 
-    if target_bind_blocked_reason:
-        target_state_summary = i18n.get("msg-user-web-bind-target-occupied-real")
-    elif target_web_account_reclaimable:
+    if target_web_account_reclaimable:
         target_state_summary = i18n.get("msg-user-web-bind-target-occupied-provisional")
+    elif target_account_will_be_replaced:
+        target_state_summary = i18n.get("msg-user-web-bind-target-occupied-real")
     elif target_exists:
         target_state_summary = i18n.get("msg-user-web-bind-target-existing")
     else:
@@ -1592,9 +1592,9 @@ async def web_bind_preview_getter(
         "target_web_account_reclaimable": target_web_account_reclaimable,
         "target_web_account_bootstrapped": target_web_account_bootstrapped,
         "target_has_material_data": target_has_material_data,
-        "target_bind_blocked_reason": target_bind_blocked_reason or False,
+        "target_account_will_be_replaced": target_account_will_be_replaced,
         "target_state_summary": target_state_summary,
-        "can_confirm_bind": not bool(target_bind_blocked_reason),
+        "can_confirm_bind": True,
         "source_summary": i18n.get("msg-user-web-bind-source-summary", count=len(source_rows)),
         "target_summary": i18n.get("msg-user-web-bind-target-summary", count=len(target_rows)),
         "selection_summary": i18n.get(

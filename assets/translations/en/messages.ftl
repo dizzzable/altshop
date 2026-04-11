@@ -2683,17 +2683,18 @@ msg-user-web-bind-preview =
     { $target_web_account_exists ->
     [1] - <b>Target web account</b>: { $target_web_account_reclaimable ->
             [1] reclaimable provisional Mini App account
-            *[0] existing protected account
+            *[0] existing account that will be replaced by DEV bind
           }
     *[0]
     }
 
+    DEV bind is authoritative here: the selected source web account will become the canonical account for this TG ID.
     Tap the subscriptions below to choose which ones should remain after the merge.
 
 msg-user-web-bind-target-existing = The target Telegram user already exists locally.
 msg-user-web-bind-target-missing = The local Telegram user will be created during the merge.
 msg-user-web-bind-target-occupied-provisional = The target Telegram ID is occupied by an empty provisional Mini App account and can be reclaimed during merge.
-msg-user-web-bind-target-occupied-real = The target Telegram ID is already occupied by a bootstrapped or material web account. Automatic takeover is blocked.
+msg-user-web-bind-target-occupied-real = The target Telegram ID already has a web account. DEV bind will replace that account and keep the selected source web login as canonical.
 msg-user-web-bind-source-summary = <b>Web/shadow subscriptions</b>: { $count }
 msg-user-web-bind-target-summary = <b>Telegram subscriptions</b>: { $count }
 msg-user-web-bind-selection-summary = <b>Selected to keep</b>: { $selected } / { $total }
