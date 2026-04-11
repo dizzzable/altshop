@@ -59,16 +59,13 @@ from .subscription_purchase_policy import (
 
 PurchaseErrorDetail = str | dict[str, str]
 ARCHIVED_PLAN_NOT_PURCHASABLE_CODE = "ARCHIVED_PLAN_NOT_PURCHASABLE"
-ARCHIVED_PLAN_NOT_PURCHASABLE_MESSAGE = (
-    "Archived plans cannot be purchased as a new subscription"
-)
+ARCHIVED_PLAN_NOT_PURCHASABLE_MESSAGE = "Archived plans cannot be purchased as a new subscription"
 TRIAL_UPGRADE_REQUIRED_CODE = "TRIAL_UPGRADE_REQUIRED"
-TRIAL_UPGRADE_REQUIRED_MESSAGE = (
-    "An existing trial subscription can only be continued via upgrade"
-)
+TRIAL_UPGRADE_REQUIRED_MESSAGE = "An existing trial subscription can only be continued via upgrade"
 TRIAL_UPGRADE_SELECTION_REQUIRED_CODE = "TRIAL_UPGRADE_SELECTION_REQUIRED"
 TRIAL_UPGRADE_SELECTION_REQUIRED_MESSAGE = (
-    "Multiple active trial subscriptions found. Open subscriptions and upgrade the required one explicitly."
+    "Multiple active trial subscriptions found. "
+    "Open subscriptions and upgrade the required one explicitly."
 )
 TRIAL_UPGRADE_QUANTITY_UNSUPPORTED_CODE = "TRIAL_UPGRADE_QUANTITY_UNSUPPORTED"
 TRIAL_UPGRADE_QUANTITY_UNSUPPORTED_MESSAGE = (
@@ -469,9 +466,7 @@ class SubscriptionPurchaseService:
         if request.purchase_type != PurchaseType.NEW:
             return request
 
-        trial_subscriptions = await self._get_active_trial_subscriptions(
-            current_user=current_user
-        )
+        trial_subscriptions = await self._get_active_trial_subscriptions(current_user=current_user)
         if not trial_subscriptions:
             return request
 

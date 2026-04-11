@@ -30,6 +30,7 @@ from src.core.enums import (
     TransactionStatus,
     UserRole,
 )
+from src.core.security.password import hash_password, verify_password
 from src.infrastructure.database.models.sql.plan import Plan, PlanDuration, PlanPrice
 from src.infrastructure.database.models.sql.promocode import Promocode
 from src.infrastructure.database.models.sql.referral import ReferralInvite
@@ -248,8 +249,7 @@ def test_create_backup_marks_degraded_archives_in_message_and_metadata(tmp_path:
                     {
                         "code": "missing_subscription_rows",
                         "message": (
-                            "Users reference current subscriptions that are "
-                            "absent from the export"
+                            "Users reference current subscriptions that are absent from the export"
                         ),
                     }
                 ],
@@ -288,9 +288,7 @@ def test_restore_assets_backup_merges_files_without_deleting_unrelated(tmp_path:
 
     assert restored is True
     assert "Assets restored successfully!" in restore_message
-    restored_banner = (target_assets_dir / "branding" / "banner.txt").read_text(
-        encoding="utf-8"
-    )
+    restored_banner = (target_assets_dir / "branding" / "banner.txt").read_text(encoding="utf-8")
 
     assert restored_banner == "banner-v1"
     assert unrelated_file.read_text(encoding="utf-8") == "keep-me"
@@ -908,6 +906,127 @@ def test_dump_database_json_includes_referral_invites_and_web_accounts(tmp_path:
     assert dump_info["tables_count"] == len(service.BACKUP_MODELS)
     assert dump_payload["data"]["referral_invites"][0]["token"] == "invite-token"
     assert dump_payload["data"]["web_accounts"][0]["username"] == "demo_user"
+
+
+def test_model_to_dict_preserves_web_account_auth_fields(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    password_hash = hash_password("secret-123")
+    verified_at = datetime(2026, 4, 11, 12, 30, tzinfo=timezone.utc)
+    bootstrap_at = datetime(2026, 4, 11, 12, 45, tzinfo=timezone.utc)
+    temp_password_expires_at = datetime(2026, 4, 12, 9, 0, tzinfo=timezone.utc)
+    snooze_until = datetime(2026, 4, 20, 9, 0, tzinfo=timezone.utc)
+    web_account = WebAccount(
+        id=2,
+        user_telegram_id=123,
+        username="demo_user",
+        password_hash=password_hash,
+        email="demo@example.com",
+        email_normalized="demo@example.com",
+        email_verified_at=verified_at,
+        credentials_bootstrapped_at=bootstrap_at,
+        token_version=4,
+        requires_password_change=True,
+        temporary_password_expires_at=temp_password_expires_at,
+        link_prompt_snooze_until=snooze_until,
+    )
+
+    serialized = service._model_to_dict(web_account, WebAccount)
+
+    assert serialized["password_hash"] == password_hash
+    assert serialized["token_version"] == 4
+    assert serialized["requires_password_change"] is True
+    assert serialized["email_verified_at"] == verified_at.isoformat()
+    assert serialized["credentials_bootstrapped_at"] == bootstrap_at.isoformat()
+    assert serialized["temporary_password_expires_at"] == temp_password_expires_at.isoformat()
+    assert serialized["link_prompt_snooze_until"] == snooze_until.isoformat()
+
+
+def test_process_record_data_restores_web_account_auth_fields(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    password_hash = hash_password("secret-123")
+    verified_at = datetime(2026, 4, 11, 12, 30, tzinfo=timezone.utc)
+    bootstrap_at = datetime(2026, 4, 11, 12, 45, tzinfo=timezone.utc)
+    temp_password_expires_at = datetime(2026, 4, 12, 9, 0, tzinfo=timezone.utc)
+    snooze_until = datetime(2026, 4, 20, 9, 0, tzinfo=timezone.utc)
+
+    processed = service._process_record_data(
+        {
+            "id": 2,
+            "user_telegram_id": 123,
+            "username": "demo_user",
+            "password_hash": password_hash,
+            "email": "demo@example.com",
+            "email_normalized": "demo@example.com",
+            "email_verified_at": verified_at.isoformat(),
+            "credentials_bootstrapped_at": bootstrap_at.isoformat(),
+            "token_version": "4",
+            "requires_password_change": True,
+            "temporary_password_expires_at": temp_password_expires_at.isoformat(),
+            "link_prompt_snooze_until": snooze_until.isoformat(),
+        },
+        WebAccount,
+        "web_accounts",
+    )
+
+    assert processed["password_hash"] == password_hash
+    assert processed["token_version"] == 4
+    assert processed["requires_password_change"] is True
+    assert processed["email_verified_at"] == verified_at
+    assert processed["credentials_bootstrapped_at"] == bootstrap_at
+    assert processed["temporary_password_expires_at"] == temp_password_expires_at
+    assert processed["link_prompt_snooze_until"] == snooze_until
+
+
+def test_restore_table_records_preserves_restored_web_account_hash(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    password_hash = hash_password("secret-123")
+    captured_instances: list[WebAccount] = []
+    session = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None)),
+        add=lambda instance: captured_instances.append(instance),
+        no_autoflush=nullcontext(),
+    )
+
+    restored_count = run_async(
+        service._restore_table_records(
+            session,
+            WebAccount,
+            "web_accounts",
+            [
+                {
+                    "id": 2,
+                    "user_telegram_id": 123,
+                    "username": "demo_user",
+                    "password_hash": password_hash,
+                    "email": "demo@example.com",
+                    "email_normalized": "demo@example.com",
+                    "email_verified_at": datetime(
+                        2026, 4, 11, 12, 30, tzinfo=timezone.utc
+                    ).isoformat(),
+                    "credentials_bootstrapped_at": datetime(
+                        2026, 4, 11, 12, 45, tzinfo=timezone.utc
+                    ).isoformat(),
+                    "token_version": 4,
+                    "requires_password_change": True,
+                    "temporary_password_expires_at": datetime(
+                        2026, 4, 12, 9, 0, tzinfo=timezone.utc
+                    ).isoformat(),
+                    "link_prompt_snooze_until": datetime(
+                        2026, 4, 20, 9, 0, tzinfo=timezone.utc
+                    ).isoformat(),
+                }
+            ],
+            False,
+        )
+    )
+
+    assert restored_count == 1
+    assert len(captured_instances) == 1
+    restored_account = captured_instances[0]
+    assert restored_account.password_hash == password_hash
+    assert verify_password("secret-123", restored_account.password_hash) is True
+    assert restored_account.token_version == 4
+    assert restored_account.requires_password_change is True
 
 
 def test_recover_legacy_missing_plans_from_snapshots_and_durations(tmp_path: Path) -> None:

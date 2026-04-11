@@ -12,8 +12,8 @@ from remnawave import RemnawaveSDK
 from remnawave.models import (
     GetAllHostsResponseDto,
     GetAllInboundsResponseDto,
-    GetMetadataResponseDto,
     GetAllNodesResponseDto,
+    GetMetadataResponseDto,
     GetStatsResponseDto,
 )
 

@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.25] - 2026-04-11
+
+### Changed
+
+- the release now fixes the remaining local cleanup-only diffs in the Remnawave dashboard getter, subscription purchase service, and their related tests so the worktree matches the published state
+
+### Fixed
+
+- backup and restore now have focused regression coverage for `web_accounts` auth fields, including `password_hash`, `token_version`, `credentials_bootstrapped_at`, `requires_password_change`, `temporary_password_expires_at`, and `link_prompt_snooze_until`
+- restoring a backup is now explicitly protected against losing the password hash needed for web login, so web-account access survives the backup round-trip without extra manual repair
+
+
 ## [1.2.24] - 2026-04-11
 
 ### Changed
