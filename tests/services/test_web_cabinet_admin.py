@@ -188,6 +188,59 @@ def test_build_bind_preview_marks_bootstrapped_target_account_for_replacement() 
     assert preview.target_account_will_be_replaced is True
 
 
+def test_build_bind_preview_prefers_batched_remnawave_profiles_for_owner_subscriptions() -> None:
+    source_user = build_user(-12, "web-user", current_subscription_id=1)
+    target_user = build_user(12, "tg-user", current_subscription_id=2)
+    web_account = WebAccountDto(id=7, user_telegram_id=-12, username="alice", password_hash="hash")
+    source_subscription = build_subscription(1, -12, "Starter")
+    target_subscription = build_subscription(2, 12, "Family")
+    remnawave_service = SimpleNamespace(
+        get_users_map_by_telegram_id=AsyncMock(
+            side_effect=[
+                {source_subscription.user_remna_id: SimpleNamespace(username="rs_web_sub")},
+                {target_subscription.user_remna_id: SimpleNamespace(username="rs_tg_sub")},
+            ]
+        ),
+        get_user=AsyncMock(),
+    )
+    service = WebCabinetAdminService(
+        user_service=SimpleNamespace(
+            get=AsyncMock(
+                side_effect=lambda telegram_id: source_user if telegram_id == -12 else target_user
+            )
+        ),
+        web_account_service=SimpleNamespace(
+            get_by_user_telegram_id=AsyncMock(return_value=web_account),
+            inspect_telegram_account_occupancy=AsyncMock(
+                return_value=SimpleNamespace(
+                    web_account=None,
+                    has_material_data=False,
+                    is_reclaimable_provisional=False,
+                )
+            ),
+        ),
+        subscription_service=SimpleNamespace(
+            get_all_by_user=AsyncMock(
+                side_effect=lambda telegram_id: (
+                    [source_subscription] if telegram_id == -12 else [target_subscription]
+                )
+            )
+        ),
+        remnawave_service=remnawave_service,
+        telegram_link_service=SimpleNamespace(),
+    )
+
+    preview = run_async(
+        service.build_bind_preview(source_user_telegram_id=-12, target_telegram_id=12)
+    )
+
+    assert preview.source_subscriptions[0].profile_name == "rs_web_sub"
+    assert preview.target_subscriptions[0].profile_name == "rs_tg_sub"
+    remnawave_service.get_users_map_by_telegram_id.assert_any_await(-12)
+    remnawave_service.get_users_map_by_telegram_id.assert_any_await(12)
+    remnawave_service.get_user.assert_not_awaited()
+
+
 def test_apply_bind_merge_deletes_unselected_and_reassigns_current_subscription() -> None:
     source_user = build_user(-12, "web-user", current_subscription_id=1)
     target_user = build_user(12, "tg-user", current_subscription_id=2)

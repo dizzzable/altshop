@@ -22,6 +22,7 @@ import { useI18n } from '@/components/common/I18nProvider'
 import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
 import { api, clearLegacyAuthStorage } from '@/lib/api'
 import { resolveAccessCapabilities } from '@/lib/access-capabilities'
+import { buildStaticQueryOptions } from '@/lib/query-defaults'
 import { getPaymentGatewayDisplayName } from '@/lib/payment-gateway-icons'
 import { readLocaleOverride } from '@/lib/locale'
 import { openTelegramDeepLinkWithFallback } from '@/lib/openTelegramDeepLink'
@@ -184,13 +185,17 @@ export function SettingsPage() {
     queryKey: ['user-profile'],
     queryFn: () => api.user.me().then((response) => response.data),
     initialData: user || undefined,
+    ...buildStaticQueryOptions({ staleTime: 30_000 }),
   })
 
   const { data: operationHistoryData, isLoading: operationHistoryLoading } = useQuery({
     queryKey: ['user-transactions', operationHistoryPage, OPERATION_HISTORY_PAGE_SIZE],
     queryFn: () =>
       api.user.transactions(operationHistoryPage, OPERATION_HISTORY_PAGE_SIZE).then((response) => response.data),
-    enabled: operationHistoryOpen,
+    ...buildStaticQueryOptions({
+      enabled: operationHistoryOpen,
+      staleTime: 30_000,
+    }),
   })
 
   const {

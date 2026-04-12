@@ -59,12 +59,20 @@ async def _build_expiry_summary_lines(
     remnawave_service: RemnawaveService,
 ) -> str:
     lines: list[str] = []
+    owner_telegram_id = subscriptions[0].user_telegram_id if subscriptions else None
+    remna_users_by_uuid = {}
+    if owner_telegram_id is not None and hasattr(remnawave_service, "get_users_map_by_telegram_id"):
+        remna_users_by_uuid = await remnawave_service.get_users_map_by_telegram_id(
+            owner_telegram_id
+        )
     for subscription in subscriptions:
         profile_name = str(subscription.user_remna_id)
-        try:
-            remna_user = await remnawave_service.get_user(subscription.user_remna_id)
-        except Exception:
-            remna_user = None
+        remna_user = remna_users_by_uuid.get(subscription.user_remna_id)
+        if remna_user is None:
+            try:
+                remna_user = await remnawave_service.get_user(subscription.user_remna_id)
+            except Exception:
+                remna_user = None
         if remna_user is not None and getattr(remna_user, "username", None):
             profile_name = str(getattr(remna_user, "username"))
         lines.append(

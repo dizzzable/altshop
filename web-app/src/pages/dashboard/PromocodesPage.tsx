@@ -6,6 +6,7 @@ import { useI18n } from '@/components/common/I18nProvider'
 import { translateWithLocale, type TranslationParams } from '@/i18n/runtime'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
+import { buildStaticQueryOptions } from '@/lib/query-defaults'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -265,12 +266,13 @@ export function PromocodesPage() {
   const { data: previewHistoryData, isLoading: previewHistoryLoading } = useQuery({
     queryKey: ['promocode-activations-preview', HISTORY_PREVIEW_LIMIT],
     queryFn: () => api.promocode.history(1, HISTORY_PREVIEW_LIMIT).then((r) => r.data),
+    ...buildStaticQueryOptions({ staleTime: 30_000 }),
   })
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['promocode-activations', historyPage, HISTORY_PAGE_SIZE],
     queryFn: () => api.promocode.history(historyPage, HISTORY_PAGE_SIZE).then((r) => r.data),
-    enabled: historyDialogOpen,
+    ...buildStaticQueryOptions({ enabled: historyDialogOpen, staleTime: 30_000 }),
   })
 
   const previewHistoryItems = previewHistoryData?.activations || []

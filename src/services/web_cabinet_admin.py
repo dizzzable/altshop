@@ -265,16 +265,24 @@ class WebCabinetAdminService:
             for subscription in await self.subscription_service.get_all_by_user(owner.telegram_id)
             if subscription.id is not None and subscription.status.value != "DELETED"
         ]
+        if hasattr(self.remnawave_service, "get_users_map_by_telegram_id"):
+            remna_users_by_uuid = await self.remnawave_service.get_users_map_by_telegram_id(
+                owner.telegram_id
+            )
+        else:
+            remna_users_by_uuid = {}
         items: list[WebCabinetSubscriptionPreviewItem] = []
         current_subscription_id = (
             owner.current_subscription.id if owner.current_subscription else None
         )
         for subscription in subscriptions:
             profile_name = None
-            try:
-                remna_user = await self.remnawave_service.get_user(subscription.user_remna_id)
-            except Exception:
-                remna_user = None
+            remna_user = remna_users_by_uuid.get(subscription.user_remna_id)
+            if remna_user is None and hasattr(self.remnawave_service, "get_user"):
+                try:
+                    remna_user = await self.remnawave_service.get_user(subscription.user_remna_id)
+                except Exception:
+                    remna_user = None
             if remna_user is not None:
                 raw_username = getattr(remna_user, "username", None)
                 if raw_username:

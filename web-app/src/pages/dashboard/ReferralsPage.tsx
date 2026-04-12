@@ -7,6 +7,7 @@ import { useI18n } from '@/components/common/I18nProvider'
 import { translateWithLocale, type TranslationParams } from '@/i18n/runtime'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
+import { buildStaticQueryOptions } from '@/lib/query-defaults'
 import { api } from '@/lib/api'
 import { cn, copyToClipboard, formatRelativeTime } from '@/lib/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -149,7 +150,7 @@ export function ReferralsPage() {
   const { data: exchangeOptions, isLoading: exchangeLoading } = useQuery({
     queryKey: ['referral-exchange-options'],
     queryFn: () => api.referral.exchangeOptions().then((response) => response.data),
-    enabled: !isPartnerActive,
+    ...buildStaticQueryOptions({ enabled: !isPartnerActive, staleTime: 30_000 }),
   })
 
   const { data: subscriptionsData = [] } = useSubscriptionsQuery({
@@ -159,7 +160,10 @@ export function ReferralsPage() {
   const { data: qrBlob, isLoading: qrLoading } = useQuery<Blob>({
     queryKey: ['referral-qr', qrTarget],
     queryFn: () => api.referral.qr(qrTarget).then((response) => response.data),
-    enabled: qrDialogOpen && !isPartnerActive,
+    ...buildStaticQueryOptions({
+      enabled: qrDialogOpen && !isPartnerActive,
+      staleTime: 30_000,
+    }),
   })
 
   const qrImageUrl = useMemo(() => (qrBlob ? URL.createObjectURL(qrBlob) : null), [qrBlob])

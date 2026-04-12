@@ -7,6 +7,7 @@ import { SubscriptionUsageCard } from '@/components/dashboard/SubscriptionUsageC
 import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { buildStaticQueryOptions } from '@/lib/query-defaults'
 import {
   Dialog,
   DialogContent,
@@ -77,12 +78,12 @@ export function DashboardPage() {
   const referralQuery = useQuery({
     queryKey: ['referral-info'],
     queryFn: () => api.referral.info().then((response) => response.data),
-    enabled: !isPartnerActive,
+    ...buildStaticQueryOptions({ enabled: !isPartnerActive, staleTime: 30_000 }),
   })
   const partnerQuery = useQuery<PartnerInfo>({
     queryKey: ['partner-info'],
     queryFn: () => api.partner.info().then((response) => response.data),
-    enabled: isPartnerActive,
+    ...buildStaticQueryOptions({ enabled: isPartnerActive, staleTime: 30_000 }),
   })
 
   if (authLoading) {
