@@ -16,6 +16,7 @@ from src.api.presenters.web_auth import _build_auth_me_response
 from src.bot.routers.dashboard.users.user.getters import _resolve_identity_kind
 from src.core.enums import Locale, UserRole
 from src.infrastructure.database.models.dto import UserDto, WebAccountDto
+from src.infrastructure.database.repositories.user import UserRepository
 from src.services.telegram_link import TelegramLinkService
 from src.services.user import UserService
 from src.services.user_profile import UserProfileService
@@ -51,6 +52,14 @@ class DummyUow:
     async def __aexit__(self, exc_type, exc, tb):
         del exc_type, exc, tb
         return False
+
+
+class FakeScalarResult:
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    def scalar_one_or_none(self) -> object:
+        return self._value
 
 
 def make_user_model(telegram_id: int, *, username: str | None, name: str):
@@ -317,7 +326,7 @@ def test_telegram_link_wraps_integrity_error_during_reference_merge() -> None:
     assert getattr(error, "code", None) == "MANUAL_MERGE_REQUIRED"
 
 
-def test_telegram_link_deletes_shadow_source_user_after_reference_reassign() -> None:
+def test_telegram_link_deletes_shadow_source_user_after_referral_invite_merge_reassign() -> None:
     uow = DummyUow()
     service = TelegramLinkService(
         uow=uow,
@@ -349,8 +358,8 @@ def test_telegram_link_deletes_shadow_source_user_after_reference_reassign() -> 
     service._assert_telegram_not_linked_elsewhere = AsyncMock()
     service._get_source_user_or_error = AsyncMock(return_value=source_user)
     service._get_or_create_target_user = AsyncMock(return_value=target_user)
-    service._assert_merge_allowed = AsyncMock(return_value=True)
     service._merge_user_values = AsyncMock()
+    uow.repository.users.has_material_data = AsyncMock(side_effect=[True, False, False])
     uow.repository.users.reassign_telegram_id_references = AsyncMock()
     uow.repository.web_accounts.update = AsyncMock(return_value=updated_account)
 
@@ -362,6 +371,20 @@ def test_telegram_link_deletes_shadow_source_user_after_reference_reassign() -> 
         target_telegram_id=412289221,
     )
     uow.repository.users.delete.assert_awaited_once_with(-4)
+
+
+def test_user_repository_has_material_data_counts_referral_invites_as_mergeable_data() -> None:
+    session = SimpleNamespace(execute=AsyncMock(return_value=FakeScalarResult(True)))
+    repository = UserRepository(session)
+
+    result = run_async(repository.has_material_data(-4, include_referrals=True))
+
+    assert result is True
+    statement = str(session.execute.await_args.args[0])
+    params = session.execute.await_args.args[1]
+    assert "FROM referral_invites ri" in statement
+    assert "ri.inviter_telegram_id = :telegram_id" in statement
+    assert params == {"telegram_id": -4}
 
 
 def test_web_login_contract_normalizes_supported_values() -> None:

@@ -103,6 +103,37 @@ def _resolve_banner_target_locales(config: AppConfig, locale_key: str) -> list[s
     return [locale_key]
 
 
+def _build_locale_scope_items(
+    *,
+    dialog_manager: DialogManager,
+    config: AppConfig,
+    selected_locale: str,
+) -> list[dict[str, Any]]:
+    return [
+        {
+            "locale": ALL_BANNER_LOCALE,
+            "display_name": _resolve_locale_display_name(
+                ALL_BANNER_LOCALE,
+                dialog_manager,
+                config,
+            ),
+            "selected": 1 if selected_locale == ALL_BANNER_LOCALE else 0,
+        },
+        *[
+            {
+                "locale": locale.value,
+                "display_name": _resolve_locale_display_name(
+                    locale.value,
+                    dialog_manager,
+                    config,
+                ),
+                "selected": 1 if selected_locale == locale.value else 0,
+            }
+            for locale in config.locales
+        ],
+    ]
+
+
 def _build_scope_summary(
     *,
     banners_dir: Path,
@@ -172,44 +203,6 @@ async def banners_getter(
     }
 
 
-async def banner_locale_scope_getter(
-    dialog_manager: DialogManager,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    config: AppConfig = dialog_manager.middleware_data[CONFIG_KEY]
-    section_key = str(dialog_manager.dialog_data.get("banner_name") or "")
-
-    locale_scope_items = [
-        {
-            "locale": ALL_BANNER_LOCALE,
-            "display_name": _resolve_locale_display_name(
-                ALL_BANNER_LOCALE,
-                dialog_manager,
-                config,
-            ),
-            "selected": 1 if dialog_manager.dialog_data.get("locale") == ALL_BANNER_LOCALE else 0,
-        },
-        *[
-            {
-                "locale": locale.value,
-                "display_name": locale.value.upper(),
-                "selected": 1 if dialog_manager.dialog_data.get("locale") == locale.value else 0,
-            }
-            for locale in config.locales
-        ],
-    ]
-
-    return {
-        "banner_name": section_key,
-        "banner_display_name": _resolve_section_display_name(
-            section_key,
-            dialog_manager,
-            config,
-        ),
-        "locale_scope_items": locale_scope_items,
-    }
-
-
 async def banner_select_getter(
     dialog_manager: DialogManager,
     **kwargs: Any,
@@ -230,6 +223,11 @@ async def banner_select_getter(
             locale_key,
             dialog_manager,
             config,
+        ),
+        "locale_scope_items": _build_locale_scope_items(
+            dialog_manager=dialog_manager,
+            config=config,
+            selected_locale=locale_key,
         ),
         "scope_summary": _build_scope_summary(
             banners_dir=config.banners_dir,

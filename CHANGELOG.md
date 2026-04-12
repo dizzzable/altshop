@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.31] - 2026-04-12
+
+### Fixed
+
+- DEV Web Cabinet bind now treats `referral_invites` ownership as mergeable source data, so provisional source users are reassigned before cleanup and no longer crash on the `referral_invites_inviter_telegram_id_fkey` constraint
+- the Remnashop banner editor now always returns `locale_scope_items` from the active `SELECT_BANNER` getter, keeping the locale selector keyboard renderable after category selection
+
 ## [1.2.30] - 2026-04-11
 
 ### Changed

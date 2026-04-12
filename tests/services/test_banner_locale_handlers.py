@@ -71,9 +71,9 @@ def test_banner_select_getter_exposes_all_locale_option() -> None:
     payload = run_async(banner_select_getter(dialog_manager))
 
     assert payload["locale"] == "ru"
-    assert payload["locale_display_name"] == "🇷🇺 RU"
+    assert payload["locale_display_name"] == "\U0001f1f7\U0001f1fa RU"
     assert "scope_summary" in payload
-    assert payload["banner_display_name"] == "🖼️ Menu"
+    assert payload["banner_display_name"] == "\U0001f5bc\ufe0f Menu"
 
 
 def test_on_banner_select_opens_editor_screen_directly() -> None:
@@ -119,4 +119,25 @@ def test_banner_select_getter_formats_bulk_scope_and_all_locales() -> None:
     payload = run_async(banner_select_getter(dialog_manager))
 
     assert payload["locale_display_name"] == "All locales"
-    assert payload["banner_display_name"] == "📣 For all"
+    assert payload["banner_display_name"] == "\U0001f4e3 For all"
+
+
+def test_banner_select_getter_includes_locale_scope_items_for_locale_selector() -> None:
+    config = SimpleNamespace(
+        banners_dir=Path("."),
+        locales=[SimpleNamespace(value="ru"), SimpleNamespace(value="en")],
+        default_locale=SimpleNamespace(value="ru"),
+    )
+    dialog_manager = SimpleNamespace(
+        dialog_data={"banner_name": BannerName.MENU.value, "locale": "ru"},
+        middleware_data={"config": config, "user": SimpleNamespace(language="en")},
+    )
+
+    payload = run_async(banner_select_getter(dialog_manager))
+
+    assert [item["locale"] for item in payload["locale_scope_items"]] == [
+        ALL_BANNER_LOCALE,
+        "ru",
+        "en",
+    ]
+    assert payload["locale_scope_items"][1]["selected"] == 1

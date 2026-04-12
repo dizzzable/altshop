@@ -72,6 +72,8 @@ class UserRepository(BaseRepository):
         referrals_clause = (
             "OR EXISTS(SELECT 1 FROM referrals r "
             "WHERE r.referrer_telegram_id = :telegram_id OR r.referred_telegram_id = :telegram_id)"
+            "OR EXISTS(SELECT 1 FROM referral_invites ri "
+            "WHERE ri.inviter_telegram_id = :telegram_id)"
             if include_referrals
             else ""
         )
