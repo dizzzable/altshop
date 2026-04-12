@@ -5,6 +5,7 @@ import { useI18n } from '@/components/common/I18nProvider'
 import { useDocumentVisibility } from '@/hooks/useDocumentVisibility'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { buildVisiblePollingQueryOptions } from '@/lib/query-defaults'
 import {
   Dialog,
   DialogContent,
@@ -14,7 +15,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { api } from '@/lib/api'
-import type { UserNotificationItem } from '@/types'
+import type { UnreadCountResponse, UserNotificationItem, UserNotificationListResponse } from '@/types'
 
 const PAGE_SIZE = 20
 const UNREAD_POLL_MS = 60_000
@@ -47,24 +48,26 @@ export function NotificationCenterDialog() {
   const [page, setPage] = useState(1)
   const isDocumentVisible = useDocumentVisibility()
 
-  const unreadQuery = useQuery({
+  const unreadQuery = useQuery<UnreadCountResponse>({
     queryKey: ['notifications', 'unread-count'],
     queryFn: () => api.notifications.unreadCount().then((response) => response.data),
-    enabled: true,
-    refetchInterval: isDocumentVisible ? UNREAD_POLL_MS : false,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
-    retryDelay: (attemptIndex) => Math.min(1_000 * (2 ** attemptIndex), 300_000),
+    ...buildVisiblePollingQueryOptions({
+      enabled: true,
+      active: isDocumentVisible,
+      intervalMs: UNREAD_POLL_MS,
+      refetchOnWindowFocus: true,
+    }),
   })
 
-  const listQuery = useQuery({
+  const listQuery = useQuery<UserNotificationListResponse>({
     queryKey: ['notifications', 'list', page, PAGE_SIZE],
     queryFn: () => api.notifications.list(page, PAGE_SIZE).then((response) => response.data),
-    enabled: open,
-    refetchInterval: open && isDocumentVisible ? UNREAD_POLL_MS : false,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
-    retryDelay: (attemptIndex) => Math.min(1_000 * (2 ** attemptIndex), 300_000),
+    ...buildVisiblePollingQueryOptions({
+      enabled: open,
+      active: open && isDocumentVisible,
+      intervalMs: UNREAD_POLL_MS,
+      refetchOnWindowFocus: true,
+    }),
   })
 
   const markReadMutation = useMutation({

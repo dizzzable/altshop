@@ -83,6 +83,56 @@ def test_get_external_squads_safe_falls_back_to_raw_http_on_validation_error() -
     service._get_external_squads_raw.assert_awaited_once()
 
 
+def test_try_connection_raw_uses_shared_request_helper() -> None:
+    service = RemnawaveService(
+        config=MagicMock(),
+        bot=MagicMock(),
+        redis_client=MagicMock(),
+        redis_repository=MagicMock(),
+        translator_hub=MagicMock(),
+        remnawave=MagicMock(),
+        user_service=MagicMock(),
+        subscription_service=MagicMock(),
+        plan_service=MagicMock(),
+        settings_service=MagicMock(),
+    )
+    service._request_raw_api_response = AsyncMock()  # type: ignore[method-assign]
+
+    run_async(service._try_connection_raw())
+
+    service._request_raw_api_response.assert_awaited_once()
+    assert service._request_raw_api_response.await_args.args[0] == "/system/stats"
+
+
+def test_get_external_squads_raw_uses_shared_request_helper() -> None:
+    service = RemnawaveService(
+        config=MagicMock(),
+        bot=MagicMock(),
+        redis_client=MagicMock(),
+        redis_repository=MagicMock(),
+        translator_hub=MagicMock(),
+        remnawave=MagicMock(),
+        user_service=MagicMock(),
+        subscription_service=MagicMock(),
+        plan_service=MagicMock(),
+        settings_service=MagicMock(),
+    )
+    service._request_raw_api_json = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "response": {
+                "externalSquads": [
+                    {"uuid": "00000000-0000-0000-0000-000000000001", "name": "Team"},
+                ]
+            }
+        }
+    )
+
+    result = run_async(service._get_external_squads_raw())
+
+    assert result == [{"uuid": UUID("00000000-0000-0000-0000-000000000001"), "name": "Team"}]
+    service._request_raw_api_json.assert_awaited_once_with("/external-squads")
+
+
 def test_pick_group_sync_current_subscription_id_prefers_active_latest_subscription() -> None:
     now = datetime.now(timezone.utc)
     plan = PlanSnapshotDto(

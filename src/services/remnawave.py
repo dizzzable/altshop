@@ -5,7 +5,7 @@ from uuid import UUID
 
 from aiogram import Bot
 from fluentogram import TranslatorHub
-from httpx import AsyncClient, Timeout
+from httpx import AsyncClient, Response, Timeout
 from loguru import logger
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -143,15 +143,50 @@ class RemnawaveService(BaseService):
     def _build_raw_api_base_url(self) -> str:
         return f"{self.config.remnawave.url.get_secret_value()}/api"
 
-    async def _try_connection_raw(self) -> None:
-        async with AsyncClient(
+    @staticmethod
+    def _build_raw_api_timeout(
+        *,
+        connect: float = 15.0,
+        read: float = 25.0,
+        write: float = 10.0,
+        pool: float = 5.0,
+    ) -> Timeout:
+        return Timeout(connect=connect, read=read, write=write, pool=pool)
+
+    def _build_raw_api_client(self, *, timeout: Timeout | None = None) -> AsyncClient:
+        return AsyncClient(
             base_url=self._build_raw_api_base_url(),
             headers=self._build_raw_api_headers(),
             cookies=self.config.remnawave.cookies,
-            timeout=Timeout(15.0, connect=5.0),
-        ) as client:
-            response = await client.get("/system/stats")
+            verify=True,
+            timeout=timeout or self._build_raw_api_timeout(),
+        )
+
+    async def _request_raw_api_response(
+        self,
+        path: str,
+        *,
+        timeout: Timeout | None = None,
+    ) -> Response:
+        async with self._build_raw_api_client(timeout=timeout) as client:
+            response = await client.get(path)
             response.raise_for_status()
+            return response
+
+    async def _request_raw_api_json(
+        self,
+        path: str,
+        *,
+        timeout: Timeout | None = None,
+    ) -> Any:
+        response = await self._request_raw_api_response(path, timeout=timeout)
+        return response.json()
+
+    async def _try_connection_raw(self) -> None:
+        await self._request_raw_api_response(
+            "/system/stats",
+            timeout=self._build_raw_api_timeout(connect=5.0, read=15.0, write=10.0, pool=5.0),
+        )
 
     @staticmethod
     def _normalize_platform_to_device_type(platform: str | None) -> DeviceType:
@@ -198,28 +233,7 @@ class RemnawaveService(BaseService):
         return await self._get_external_squads_raw()
 
     async def _get_external_squads_raw(self) -> list[dict[str, Any]]:
-        config = self.config
-
-        headers: dict[str, str] = {
-            "Authorization": f"Bearer {config.remnawave.token.get_secret_value()}",
-            "X-Api-Key": config.remnawave.caddy_token.get_secret_value(),
-        }
-
-        if not config.remnawave.is_external:
-            headers["x-forwarded-proto"] = "https"
-            headers["x-forwarded-for"] = "127.0.0.1"
-
-        async with AsyncClient(
-            base_url=f"{config.remnawave.url.get_secret_value()}/api",
-            headers=headers,
-            cookies=config.remnawave.cookies,
-            verify=True,
-            timeout=Timeout(connect=15.0, read=25.0, write=10.0, pool=5.0),
-        ) as client:
-            response = await client.get("/external-squads")
-            response.raise_for_status()
-            data = response.json()
-
+        data = await self._request_raw_api_json("/external-squads")
         return self._parse_external_squads_payload(data)
 
     @staticmethod

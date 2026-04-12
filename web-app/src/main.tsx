@@ -3,15 +3,11 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App.tsx'
 import { AppErrorBoundary } from './components/common/AppErrorBoundary.tsx'
+import { APP_QUERY_CLIENT_DEFAULT_OPTIONS } from './lib/query-defaults.ts'
 import './index.css'
 
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
-  },
+  defaultOptions: APP_QUERY_CLIENT_DEFAULT_OPTIONS,
 })
 const TELEGRAM_MIN_TOP_OFFSET_MOBILE_PX = 56
 

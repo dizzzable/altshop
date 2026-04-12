@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useDocumentVisibility } from '@/hooks/useDocumentVisibility'
+import { buildVisiblePollingQueryOptions } from '@/lib/query-defaults'
 import type { Subscription } from '@/types'
 
 function normalizeSubscriptions(value: unknown): Subscription[] {
@@ -22,7 +23,6 @@ export function useSubscriptionsQuery(options?: {
   const enabled = options?.enabled ?? true
   const pollWhenVisible = options?.pollWhenVisible ?? false
   const isDocumentVisible = useDocumentVisibility()
-  const refetchInterval = pollWhenVisible && enabled && isDocumentVisible ? 60_000 : false
 
   return useQuery<unknown, Error, Subscription[]>({
     queryKey: ['subscriptions'],
@@ -31,11 +31,11 @@ export function useSubscriptionsQuery(options?: {
       return response.data
     },
     select: normalizeSubscriptions,
-    enabled,
-    refetchInterval,
-    refetchIntervalInBackground: false,
-    refetchOnWindowFocus: true,
-    retryDelay: (attemptIndex) => Math.min(1_000 * (2 ** attemptIndex), 300_000),
-    staleTime: 10_000,
+    ...buildVisiblePollingQueryOptions({
+      enabled,
+      active: pollWhenVisible && isDocumentVisible,
+      staleTime: 10_000,
+      refetchOnWindowFocus: true,
+    }),
   })
 }

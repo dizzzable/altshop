@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { useI18n } from '@/components/common/I18nProvider'
+import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
 import { api, clearLegacyAuthStorage } from '@/lib/api'
 import { resolveAccessCapabilities } from '@/lib/access-capabilities'
 import { getPaymentGatewayDisplayName } from '@/lib/payment-gateway-icons'
@@ -196,10 +197,7 @@ export function SettingsPage() {
     data: accessStatus,
     isLoading: accessStatusLoading,
     refetch: refetchAccessStatus,
-  } = useQuery({
-    queryKey: ['auth-access-status'],
-    queryFn: () => api.auth.getAccessStatus().then((response) => response.data),
-  })
+  } = useAccessStatusQuery()
 
   useEffect(() => {
     if (userProfile?.linked_telegram_id && !telegramId) {
