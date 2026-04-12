@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.2.32] - 2026-04-12
+
+### Changed
+
+- system/operator events now use richer payload context with source, surface, operation, build metadata, and next-step hints, and duplicate backend error alerts are throttled before they spam dev notifications
+- the event coverage surface is now documented in `docs/EVENT_COVERAGE_MATRIX.md`, including current bot/web/mini app coverage and explicitly deferred gaps
+- web registration/link, subscription purchase events, and bot invite-policy events now carry clearer operator context about where the action originated
+
+### Fixed
+
+- generic backend error events, Remnawave connectivity failures, and webhook failures now render far more informative event cards without requiring the operator to open the attached traceback first
+- admin Web Cabinet bind now emits the same `WEB_ACCOUNT_LINKED` operator event family as web auth, with an explicit `ADMIN_BIND` source
+- the current banner/backup/settings in-progress stabilization work is included in this patch release rather than left as unreleased local drift
+
 ## [1.2.31] - 2026-04-12
 
 ### Fixed

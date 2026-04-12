@@ -19,6 +19,7 @@ from src.core.utils.bot_menu import (
 )
 from src.core.utils.iterables import chunked
 from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import build_system_event_payload, normalize_system_event_kwargs
 from src.core.utils.types import RemnaUserDto
 from src.infrastructure.database.models.dto import SubscriptionDto, UserDto
 from src.infrastructure.taskiq.broker import broker
@@ -183,6 +184,42 @@ async def send_error_notification_task(
     payload: MessagePayload,
     notification_service: FromDishka[NotificationService],
 ) -> None:
+    event_kwargs = normalize_system_event_kwargs(
+        payload.i18n_kwargs,
+        severity="ERROR",
+        event_source=str(payload.i18n_kwargs.get("event_source", "backend")),
+        entry_surface=str(payload.i18n_kwargs.get("entry_surface", "BACKEND")),
+        operation=str(payload.i18n_kwargs.get("operation", "unhandled_error")),
+        impact=str(
+            payload.i18n_kwargs.get(
+                "impact",
+                "An internal failure was captured by the backend. "
+                "The attached traceback contains full details.",
+            )
+        ),
+        operator_hint=str(
+            payload.i18n_kwargs.get(
+                "operator_hint",
+                "Open the attached traceback, verify the latest user "
+                "action or dependency call, and retry only after the "
+                "root cause is understood.",
+            )
+        ),
+    )
+    payload = build_system_event_payload(
+        i18n_key=payload.i18n_key,
+        i18n_kwargs={**event_kwargs, "error_id": str(error_id)},
+        severity=str(event_kwargs["severity"]),
+        event_source=str(event_kwargs["event_source"]),
+        entry_surface=str(event_kwargs["entry_surface"]),
+        operation=str(event_kwargs["operation"]),
+        impact=str(event_kwargs["impact"]),
+        operator_hint=str(event_kwargs["operator_hint"]),
+        error_type=str(event_kwargs.get("error_type") or "") or None,
+        error_message=str(event_kwargs.get("error_message") or "") or None,
+        reply_markup=payload.reply_markup,
+        message_effect=payload.message_effect,
+    )
     file_data = BufferedInputFile(
         file=traceback_str.encode(),
         filename=f"error_{error_id}.txt",

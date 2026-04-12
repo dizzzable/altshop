@@ -34,6 +34,7 @@ class SystemNotificationDto(TrackableDto):  # == SystemNotificationType
     user_registered: bool = True
     web_user_registered: bool = True
     web_account_linked: bool = True
+    access_policy: bool = True
     subscription: bool = True
     promocode_activated: bool = True
     trial_getted: bool = True

@@ -131,7 +131,7 @@ wheels = [
 
 [[package]]
 name = "altshop"
-version = "1.2.31"
+version = "1.2.32"
 source = { virtual = "." }
 dependencies = [
     { name = "aiofiles" },

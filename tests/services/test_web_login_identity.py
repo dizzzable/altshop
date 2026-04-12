@@ -10,7 +10,11 @@ from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
 from src.api.contracts.web_auth import RegisterRequest, WebAccountBootstrapRequest
-from src.api.endpoints.web_auth import _resolve_trusted_telegram_id_for_auto_link
+from src.api.endpoints.web_auth import (
+    _notify_web_account_linked,
+    _notify_web_user_registered,
+    _resolve_trusted_telegram_id_for_auto_link,
+)
 from src.api.presenters.user_account import _build_user_profile_response
 from src.api.presenters.web_auth import _build_auth_me_response
 from src.bot.routers.dashboard.users.user.getters import _resolve_identity_kind
@@ -404,6 +408,46 @@ def test_auto_link_uses_trusted_positive_telegram_id_only() -> None:
         _resolve_trusted_telegram_id_for_auto_link(UserDto(telegram_id=-555, name="Shadow User"))
         is None
     )
+
+
+def test_notify_web_user_registered_keeps_auth_source_in_system_event_payload() -> None:
+    notification_service = SimpleNamespace(system_notify=AsyncMock())
+    user = UserDto(telegram_id=412289221, name="Alina", username="tg_alina")
+
+    run_async(
+        _notify_web_user_registered(
+            notification_service=notification_service,
+            user=user,
+            web_username="alice",
+            auth_source="WEB_TELEGRAM_WEBAPP",
+        )
+    )
+
+    payload = notification_service.system_notify.await_args.kwargs["payload"]
+    assert payload.i18n_key == "ntf-event-web-user-registered"
+    assert payload.i18n_kwargs["auth_source"] == "WEB_TELEGRAM_WEBAPP"
+    assert payload.i18n_kwargs["entry_surface"] == "MINI_APP"
+
+
+def test_notify_web_account_linked_keeps_link_source_in_system_event_payload() -> None:
+    notification_service = SimpleNamespace(system_notify=AsyncMock())
+    linked_user = UserDto(telegram_id=412289221, name="Alina", username="tg_alina")
+
+    run_async(
+        _notify_web_account_linked(
+            notification_service=notification_service,
+            linked_user=linked_user,
+            web_username="alice",
+            old_user_id=-555,
+            linked_telegram_id=412289221,
+            link_source="ADMIN_BIND",
+        )
+    )
+
+    payload = notification_service.system_notify.await_args.kwargs["payload"]
+    assert payload.i18n_key == "ntf-event-web-account-linked"
+    assert payload.i18n_kwargs["link_source"] == "ADMIN_BIND"
+    assert payload.i18n_kwargs["event_source"] == "api.web_auth"
 
 
 def test_inspect_telegram_account_occupancy_marks_empty_bootstrapless_account_reclaimable() -> None:

@@ -12,7 +12,7 @@ from remnawave.models.webhook import NodeDto, UserDto, UserHwidDeviceEventDto
 
 from src.core.config import AppConfig
 from src.core.constants import API_V1, REMNAWAVE_WEBHOOK_PATH
-from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import build_system_event_payload
 from src.infrastructure.taskiq.tasks.notifications import send_error_notification_task
 from src.services.remnawave import RemnawaveService
 from src.services.subscription_device import SubscriptionDeviceService
@@ -83,12 +83,24 @@ async def remnawave_webhook(
         await send_error_notification_task.kiq(
             error_id=str(uuid.uuid4()),
             traceback_str=traceback_str,
-            payload=MessagePayload.not_deleted(
+            payload=build_system_event_payload(
                 i18n_key="ntf-event-error",
                 i18n_kwargs={
                     "user": False,
                     "error": f"{error_type_name}: {error_message.as_html()}",
                 },
+                severity="ERROR",
+                event_source="api.remnawave",
+                entry_surface="WEBHOOK",
+                operation=f"remnawave_webhook:{payload.event}",
+                impact=(
+                    "Panel-originated sync events may be skipped "
+                    "until webhook processing is restored."
+                ),
+                operator_hint=(
+                    "Check the Remnawave payload, event type, and "
+                    "downstream service health before replaying."
+                ),
             ),
         )
 

@@ -7,7 +7,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import SendMessage
 
 from src.core.config import AppConfig
-from src.core.enums import UserRole
+from src.core.enums import SystemNotificationType, UserRole
 from src.core.utils.message_payload import MessagePayload
 from src.infrastructure.database.models.dto.user import UserDto
 from src.services.notification import NotificationService
@@ -84,3 +84,42 @@ def test_send_text_message_truncates_oversized_html_payload() -> None:
     assert len(sent_text) == service.TELEGRAM_TEXT_LIMIT
     assert "<i>" not in sent_text
     assert sent_text.endswith("...")
+
+
+def test_system_notify_skips_duplicate_event_payloads() -> None:
+    bot = MagicMock()
+    user_service = MagicMock()
+    user_service.get_by_role = AsyncMock(
+        return_value=[UserDto(telegram_id=123, name="Dev", role=UserRole.DEV)]
+    )
+    settings_service = MagicMock()
+    settings_service.is_notification_enabled = AsyncMock(return_value=True)
+    redis_client = MagicMock()
+    redis_client.set = AsyncMock(return_value=False)
+
+    service = NotificationService(
+        config=AppConfig.get(),
+        bot=bot,
+        redis_client=redis_client,
+        redis_repository=MagicMock(),
+        translator_hub=MagicMock(),
+        user_service=user_service,
+        settings_service=settings_service,
+        user_notification_event_service=MagicMock(),
+    )
+    service._send_message = AsyncMock()  # type: ignore[method-assign]
+
+    results = run_async(
+        service.system_notify(
+            payload=MessagePayload.not_deleted(
+                i18n_key="ntf-event-error",
+                i18n_kwargs={"error": "RuntimeError: boom"},
+                dedupe_key="event|duplicate",
+                dedupe_ttl_seconds=300,
+            ),
+            ntf_type=SystemNotificationType.BOT_LIFETIME,
+        )
+    )
+
+    assert results == []
+    service._send_message.assert_not_awaited()

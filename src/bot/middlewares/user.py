@@ -10,7 +10,7 @@ from src.bot.keyboards import get_user_keyboard
 from src.core.config import AppConfig
 from src.core.constants import CONTAINER_KEY, IS_NEW_USER, IS_SUPER_DEV_KEY, USER_KEY
 from src.core.enums import MiddlewareEventType, SystemNotificationType
-from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import build_system_event_payload
 from src.infrastructure.database.models.dto import UserDto
 from src.services.notification import NotificationService
 from src.services.partner import PartnerService
@@ -83,9 +83,18 @@ class UserMiddleware(EventTypedMiddleware):
                 referrer_i18n_kwargs = {"has_referrer": False}
 
             await notification_service.system_notify(
-                payload=MessagePayload.not_deleted(
+                payload=build_system_event_payload(
                     i18n_key="ntf-event-new-user",
                     i18n_kwargs={**base_i18n_kwargs, **referrer_i18n_kwargs},
+                    severity="INFO",
+                    event_source="bot.middleware.user",
+                    entry_surface="BOT",
+                    operation="user_registration",
+                    impact="A brand-new Telegram user profile was created in the bot runtime.",
+                    operator_hint=(
+                        "Review the referrer block if this registration "
+                        "was expected to come from an invite or referral link."
+                    ),
                     reply_markup=get_user_keyboard(user.telegram_id),
                 ),
                 ntf_type=SystemNotificationType.USER_REGISTERED,

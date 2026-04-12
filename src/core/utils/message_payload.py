@@ -9,6 +9,8 @@ from src.core.utils.types import AnyInputFile, AnyKeyboard
 class MessagePayload(BaseModel):
     i18n_key: str
     i18n_kwargs: dict[str, Any] = {}
+    dedupe_key: Optional[str] = None
+    dedupe_ttl_seconds: Optional[int] = None
 
     media: Optional[AnyInputFile] = None
     media_id: Optional[str] = None
@@ -30,6 +32,8 @@ class MessagePayload(BaseModel):
         cls,
         i18n_key: str,
         i18n_kwargs: dict[str, Any] = {},
+        dedupe_key: Optional[str] = None,
+        dedupe_ttl_seconds: Optional[int] = None,
         media: Optional[AnyInputFile] = None,
         media_id: Optional[str] = None,
         media_type: Optional[MediaType] = None,
@@ -41,6 +45,8 @@ class MessagePayload(BaseModel):
         data = {
             "i18n_key": i18n_key,
             "i18n_kwargs": i18n_kwargs,
+            "dedupe_key": dedupe_key,
+            "dedupe_ttl_seconds": dedupe_ttl_seconds,
             "media": media,
             "media_id": media_id,
             "media_type": media_type,

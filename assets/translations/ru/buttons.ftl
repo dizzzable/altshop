@@ -548,6 +548,7 @@ btn-notifications-system-choice = { $enabled ->
     [USER_REGISTERED] Регистрация пользователя
     [WEB_USER_REGISTERED] Web-регистрация пользователя
     [WEB_ACCOUNT_LINKED] Синхронизация Web↔Telegram
+    [ACCESS_POLICY] Invite-политика доступа
     [SUBSCRIPTION] Оформление подписки
     [PROMOCODE_ACTIVATED] Активация промокода
     [TRIAL_GETTED] Получение пробника

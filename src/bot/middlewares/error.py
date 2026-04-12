@@ -17,6 +17,7 @@ from src.bot.keyboards import get_user_keyboard
 from src.core.constants import CONTAINER_KEY
 from src.core.enums import Locale, MiddlewareEventType
 from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import build_system_event_payload
 from src.infrastructure.database.models.dto import UserDto
 from src.infrastructure.taskiq.tasks.notifications import send_error_notification_task
 from src.infrastructure.taskiq.tasks.redirects import redirect_to_main_menu_task
@@ -134,12 +135,20 @@ class ErrorMiddleware(EventTypedMiddleware):
         await send_error_notification_task.kiq(
             error_id=user_id or error_event.update.update_id,
             traceback_str=traceback_str,
-            payload=MessagePayload.not_deleted(
+            payload=build_system_event_payload(
                 i18n_key="ntf-event-error",
                 i18n_kwargs={
                     **user_data,
                     "error": f"{error_type_name}: {error_message.as_html()}",
                 },
+                severity="ERROR",
+                event_source="bot.middleware.error",
+                entry_surface="BOT",
+                operation="update_dispatch",
+                impact="A user-triggered bot update failed before the flow could complete.",
+                operator_hint=(
+                    "Inspect the attached traceback and replay the last bot action for this user."
+                ),
                 reply_markup=reply_markup,
             ),
         )

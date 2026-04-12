@@ -29,34 +29,33 @@ ntf-event-error =
     *[0] { space }
     }
 
-    { hdr-error }
-    <blockquote>
-    { $error }
-    </blockquote>
+    { $impact_block }
+    { $event_context_block }
+    { $build_info_block }
+    { $error_block }
+    { $operator_hint_block }
 
 ntf-event-error-remnawave =
     #EventError
 
     <b>🔅 Event: Error connecting to Remnawave!</b>
 
-    <blockquote>
-    Proper bot operation is impossible without an active connection!
-    </blockquote>
-
-    { hdr-error }
-    <blockquote>
-    { $error }
-    </blockquote>
+    { $impact_block }
+    { $event_context_block }
+    { $build_info_block }
+    { $error_block }
+    { $operator_hint_block }
 
 ntf-event-error-webhook =
     #EventError
 
     <b>🔅 Event: Webhook error detected!</b>
 
-    { hdr-error }
-    <blockquote>
-    { $error }
-    </blockquote>
+    { $impact_block }
+    { $event_context_block }
+    { $build_info_block }
+    { $error_block }
+    { $operator_hint_block }
 
 ntf-event-bot-startup =
     #EventBotStarted
@@ -122,6 +121,9 @@ ntf-event-new-user =
     }
     </blockquote>
     }
+
+    { $event_context_block }
+    { $build_info_block }
     
 ntf-event-subscription-trial =
     #EventTrialGetted
@@ -147,6 +149,8 @@ ntf-event-subscription-new =
 
     { hdr-plan }
     { frg-plan-snapshot }
+    { $event_context_block }
+    { $build_info_block }
 
 ntf-event-subscription-renew =
     #EventSubscriptionRenew
@@ -161,6 +165,8 @@ ntf-event-subscription-renew =
 
     { hdr-plan }
     { frg-plan-snapshot }
+    { $event_context_block }
+    { $build_info_block }
 
 ntf-event-subscription-upgrade =
     #EventSubscriptionUpgrade
@@ -175,6 +181,8 @@ ntf-event-subscription-upgrade =
 
     { hdr-plan }
     { frg-plan-snapshot }
+    { $event_context_block }
+    { $build_info_block }
 
 ntf-event-subscription-additional =
     #EventSubscriptionAdditional
@@ -189,6 +197,8 @@ ntf-event-subscription-additional =
 
     { hdr-plan }
     { frg-plan-snapshot }
+    { $event_context_block }
+    { $build_info_block }
 
 ntf-event-node-connection-lost =
     #EventNode
@@ -744,6 +754,8 @@ ntf-event-web-user-registered =
     • <b>Web login</b>: <code>{ $web_username }</code>
     • <b>Source</b>: { $auth_source }
     </blockquote>
+    { $event_context_block }
+    { $build_info_block }
 
 ntf-event-web-account-linked =
     #EventWebAccountLinked
@@ -759,6 +771,21 @@ ntf-event-web-account-linked =
     • <b>Previous profile ID</b>: <code>{ $old_user_id }</code>
     • <b>Linked Telegram ID</b>: <code>{ $linked_telegram_id }</code>
     </blockquote>
+    { $event_context_block }
+    { $build_info_block }
+
+ntf-event-access-policy =
+    #EventAccessPolicy
+
+    <b>🔅 Event: Invite access policy triggered!</b>
+
+    { hdr-user }
+    { frg-user-info }
+
+    { $impact_block }
+    { $event_context_block }
+    { $operator_hint_block }
+    { $build_info_block }
 
 ntf-user-web-password-reset-issued =
     🔐 Temporary web password issued.

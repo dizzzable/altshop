@@ -14,7 +14,7 @@ from src.api.utils.request_ip import resolve_client_ip
 from src.core.constants import API_V1, PAYMENTS_WEBHOOK_PATH
 from src.core.enums import PaymentGatewayType
 from src.core.observability import emit_counter
-from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import build_system_event_payload
 from src.infrastructure.payment_gateways.platega import PlategaWebhookResolutionError
 from src.infrastructure.payment_gateways.yoomoney import (
     YoomoneyGateway,
@@ -187,12 +187,24 @@ async def payments_webhook(
         await send_error_notification_task.kiq(
             error_id=str(uuid.uuid4()),
             traceback_str=traceback_str,
-            payload=MessagePayload.not_deleted(
+            payload=build_system_event_payload(
                 i18n_key="ntf-event-error",
                 i18n_kwargs={
                     "user": False,
                     "error": f"{error_type_name}: {error_message.as_html()}",
                 },
+                severity="ERROR",
+                event_source="api.payments",
+                entry_surface="WEBHOOK",
+                operation=f"payment_webhook:{gateway_type}",
+                impact=(
+                    "Incoming payment status updates may stop "
+                    "reconciling until webhook handling recovers."
+                ),
+                operator_hint=(
+                    "Inspect the gateway payload and replay the webhook "
+                    "only after the root cause is understood."
+                ),
             ),
         )
 

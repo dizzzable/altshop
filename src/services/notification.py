@@ -25,6 +25,7 @@ from src.core.i18n.translator import get_translated_kwargs, safe_i18n_get
 from src.core.utils.branding import resolve_project_name
 from src.core.utils.formatters import i18n_postprocess_text
 from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import normalize_system_event_kwargs, render_system_event_blocks
 from src.core.utils.types import AnyKeyboard
 from src.infrastructure.database.models.dto import UserDto
 from src.infrastructure.database.models.dto.user import BaseUserDto
@@ -149,6 +150,13 @@ class NotificationService(BaseService):
             logger.debug("Skipping system notification: notification type is disabled in settings")
             return []
 
+        if payload.dedupe_key and not await self._acquire_system_event_dedupe(
+            dedupe_key=payload.dedupe_key,
+            ttl_seconds=payload.dedupe_ttl_seconds,
+        ):
+            logger.debug("Skipping duplicated system notification '{}'", payload.dedupe_key)
+            return []
+
         logger.debug(
             f"Attempting to send system notification '{payload.i18n_key}' to '{len(devs)}' devs"
         )
@@ -160,6 +168,25 @@ class NotificationService(BaseService):
         results = await asyncio.gather(*tasks)
 
         return cast(list[bool], results)
+
+    async def _acquire_system_event_dedupe(
+        self,
+        *,
+        dedupe_key: str,
+        ttl_seconds: int | None,
+    ) -> bool:
+        try:
+            return bool(
+                await self.redis_client.set(
+                    f"system_event:{dedupe_key}",
+                    "1",
+                    ex=ttl_seconds or 300,
+                    nx=True,
+                )
+            )
+        except Exception as exc:
+            logger.warning("System event dedupe unavailable for '{}': {}", dedupe_key, exc)
+            return True
 
     async def notify_super_dev(self, payload: MessagePayload) -> bool:
         dev = await self.user_service.get(telegram_id=self.config.bot.dev_id[0])
@@ -429,7 +456,12 @@ class NotificationService(BaseService):
             return i18n_key
 
         i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-        kwargs = get_translated_kwargs(i18n, i18n_kwargs)
+        if i18n_key.startswith("ntf-event-"):
+            enriched_kwargs = normalize_system_event_kwargs(i18n_kwargs)
+            enriched_kwargs.update(render_system_event_blocks(locale, enriched_kwargs))
+        else:
+            enriched_kwargs = i18n_kwargs
+        kwargs = get_translated_kwargs(i18n, enriched_kwargs)
         return i18n_postprocess_text(safe_i18n_get(i18n, i18n_key, **kwargs))
 
     def _translate_keyboard_texts(self, keyboard: AnyKeyboard, locale: Locale) -> AnyKeyboard:

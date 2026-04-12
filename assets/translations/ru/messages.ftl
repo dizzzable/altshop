@@ -928,8 +928,15 @@ msg-banners-main =
 
     Выберите раздел баннеров:
 
-msg-banner-section-all = 📣 Для всех
+msg-banner-section-all = Для всех
+msg-banner-section-menu = Меню
+msg-banner-section-dashboard = Dashboard
+msg-banner-section-subscription = Подписки
+msg-banner-section-promocode = Промокоды
+msg-banner-section-referral = Рефералка
 msg-banner-locale-all = Для всех локалей
+msg-banner-locale-ru = RU
+msg-banner-locale-en = EN
 msg-banner-scope-status-empty = Нет выбранных целей
 msg-banner-scope-status-progress = Загружено целей: { $uploaded } / { $total }
 

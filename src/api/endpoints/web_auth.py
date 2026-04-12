@@ -84,7 +84,7 @@ from src.core.security.jwt_handler import (
 )
 from src.core.utils.bot_menu import resolve_bot_menu_url
 from src.core.utils.branding import normalize_text, resolve_project_name
-from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import build_system_event_payload
 from src.infrastructure.database.models.dto import UserDto, WebAccountDto
 from src.services.email_recovery import EmailRecoveryService
 from src.services.notification import NotificationService
@@ -319,13 +319,22 @@ async def _notify_web_user_registered(
         return
 
     await notification_service.system_notify(
-        payload=MessagePayload.not_deleted(
+        payload=build_system_event_payload(
             i18n_key="ntf-event-web-user-registered",
             i18n_kwargs={
                 **_build_user_i18n_kwargs(user),
                 "web_username": web_username,
                 "auth_source": auth_source,
             },
+            severity="INFO",
+            event_source="api.web_auth",
+            operation="user_registration",
+            auth_source=auth_source,
+            impact="A new user account was created through the web authentication surface.",
+            operator_hint=(
+                "Check whether the source and linked profile state "
+                "match the expected registration path."
+            ),
             reply_markup=get_user_keyboard(user.telegram_id),
         ),
         ntf_type=SystemNotificationType.WEB_USER_REGISTERED,
@@ -339,12 +348,13 @@ async def _notify_web_account_linked(
     web_username: str,
     old_user_id: int,
     linked_telegram_id: int,
+    link_source: str,
 ) -> None:
     if notification_service is None:
         return
 
     await notification_service.system_notify(
-        payload=MessagePayload.not_deleted(
+        payload=build_system_event_payload(
             i18n_key="ntf-event-web-account-linked",
             i18n_kwargs={
                 **_build_user_i18n_kwargs(linked_user),
@@ -352,6 +362,18 @@ async def _notify_web_account_linked(
                 "old_user_id": str(old_user_id),
                 "linked_telegram_id": str(linked_telegram_id),
             },
+            severity="INFO",
+            event_source="api.web_auth",
+            operation="account_link",
+            link_source=link_source,
+            impact=(
+                "A web login is now bound to a Telegram profile "
+                "and will use that identity going forward."
+            ),
+            operator_hint=(
+                "Verify that the previous profile ID and the linked "
+                "Telegram ID match the intended merge target."
+            ),
             reply_markup=get_user_keyboard(linked_telegram_id),
         ),
         ntf_type=SystemNotificationType.WEB_ACCOUNT_LINKED,
@@ -1132,6 +1154,7 @@ async def confirm_telegram_link_code(
             web_username=result.web_account.username,
             old_user_id=web_account.user_telegram_id,
             linked_telegram_id=result.linked_telegram_id,
+            link_source="WEB_CONFIRM",
         )
 
     branding = await settings_service.get_branding_settings()

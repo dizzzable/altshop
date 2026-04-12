@@ -11,15 +11,17 @@ from redis.asyncio import Redis
 from src.bot.keyboards import CALLBACK_CHANNEL_CONFIRM, CALLBACK_RULES_ACCEPT
 from src.core.config import AppConfig
 from src.core.constants import PURCHASE_PREFIX, REFERRAL_PREFIX
-from src.core.enums import AccessMode, Locale
+from src.core.enums import AccessMode, Locale, SystemNotificationType
 from src.core.i18n.translator import safe_i18n_get
 from src.core.storage.keys import AccessWaitListKey
 from src.core.utils.formatters import i18n_postprocess_text
+from src.core.utils.system_events import build_system_event_payload
 from src.infrastructure.database.models.dto import UserDto
 from src.infrastructure.redis.repository import RedisRepository
 from src.infrastructure.taskiq.tasks.notifications import (
     send_access_denied_notification_task,
     send_access_opened_notifications_task,
+    send_system_notification_task,
 )
 from src.services.access_policy import AccessModePolicyService
 from src.services.referral import ReferralService
@@ -104,6 +106,30 @@ class AccessService(BaseService):
             event, aiogram_user.id
         ):
             logger.info(f"Access allowed for referral event for user '{aiogram_user.id}'")
+            await send_system_notification_task.kiq(
+                ntf_type=SystemNotificationType.ACCESS_POLICY,
+                payload=build_system_event_payload(
+                    i18n_key="ntf-event-access-policy",
+                    i18n_kwargs={
+                        "user": True,
+                        "user_id": str(aiogram_user.id),
+                        "user_name": aiogram_user.full_name,
+                        "username": aiogram_user.username or False,
+                    },
+                    severity="INFO",
+                    event_source="services.access",
+                    entry_surface="BOT",
+                    operation="invite_gate_allow",
+                    impact=(
+                        "A new user was allowed through the invite gate "
+                        "because the entry event carried referral context."
+                    ),
+                    operator_hint=(
+                        "Confirm the start parameter or referral event "
+                        "matches the intended invite source."
+                    ),
+                ),
+            )
             return True
 
         if mode == AccessMode.INVITED:
@@ -172,6 +198,30 @@ class AccessService(BaseService):
             logger.info(
                 f"Access denied for locked invite-only user '{user.telegram_id}' "
                 "(product action blocked)"
+            )
+            await send_system_notification_task.kiq(
+                ntf_type=SystemNotificationType.ACCESS_POLICY,
+                payload=build_system_event_payload(
+                    i18n_key="ntf-event-access-policy",
+                    i18n_kwargs={
+                        "user": True,
+                        "user_id": str(user.telegram_id),
+                        "user_name": user.name,
+                        "username": user.username or False,
+                    },
+                    severity="WARNING",
+                    event_source="services.access",
+                    entry_surface="BOT",
+                    operation="invite_gate_deny",
+                    impact=(
+                        "An invite-locked user attempted a product action "
+                        "blocked by the current access mode."
+                    ),
+                    operator_hint=(
+                        "Check whether the user should be grandfathered, "
+                        "invited, or moved out of invite-only mode."
+                    ),
+                ),
             )
             await self._deny_existing_user(
                 user=user,

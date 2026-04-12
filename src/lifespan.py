@@ -15,6 +15,7 @@ from src.__version__ import __version__
 from src.api.endpoints import TelegramWebhookEndpoint
 from src.core.enums import SystemNotificationType
 from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import build_system_event_payload
 from src.infrastructure.taskiq.tasks.notifications import (
     send_error_notification_task,
     send_remnashop_notification_task,
@@ -61,9 +62,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.critical(f"Webhook has a last error message: '{webhook_info.last_error_message}'")
         await send_system_notification_task.kiq(
             ntf_type=SystemNotificationType.BOT_LIFETIME,
-            payload=MessagePayload.not_deleted(
+            payload=build_system_event_payload(
                 i18n_key="ntf-event-error-webhook",
-                i18n_kwargs={"error": webhook_info.last_error_message},
+                i18n_kwargs={"error": webhook_info.last_error_message or "Unknown webhook error"},
+                severity="ERROR",
+                event_source="lifespan.webhook",
+                entry_surface="WEBHOOK",
+                operation="webhook_setup",
+                impact=(
+                    "Telegram updates may stop reaching the bot "
+                    "until webhook health is restored."
+                ),
+                operator_hint=(
+                    "Check the webhook URL, HTTPS availability, "
+                    "and the last Telegram webhook error."
+                ),
             ),
         )
 
@@ -117,11 +130,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await send_error_notification_task.kiq(
             error_id=str(uuid.uuid4()),
             traceback_str=traceback.format_exc(),
-            payload=MessagePayload.not_deleted(
+            payload=build_system_event_payload(
                 i18n_key="ntf-event-error-remnawave",
                 i18n_kwargs={
                     "error": f"{error_type_name}: {error_message.as_html()}",
                 },
+                severity="ERROR",
+                event_source="lifespan.remnawave",
+                entry_surface="BACKGROUND",
+                operation="startup_connection_check",
+                impact=(
+                    "Without a healthy Remnawave connection, bot and "
+                    "panel synchronization can degrade or stop."
+                ),
+                operator_hint=(
+                    "Verify Remnawave availability, credentials, "
+                    "cookies, and reverse-proxy connectivity."
+                ),
             ),
         )
 

@@ -42,6 +42,11 @@ from src.infrastructure.redis import RedisRepository
 from src.infrastructure.redis.cache import redis_cache
 
 from .base import BaseService
+from .settings_helpers import (
+    normalize_settings_for_update,
+    resolve_effective_max_subscriptions,
+    resolve_partner_balance_currency,
+)
 
 
 class SettingsService(BaseService):
@@ -95,27 +100,7 @@ class SettingsService(BaseService):
         return settings
 
     async def update(self, settings: SettingsDto) -> SettingsDto:
-        if settings.user_notifications.changed_data:
-            settings.user_notifications = settings.user_notifications  # FIXME: Fix this shit
-
-        if settings.system_notifications.changed_data:
-            settings.system_notifications = settings.system_notifications
-
-        if settings.referral.changed_data or settings.referral.reward:
-            settings.referral = settings.referral
-
-        if settings.partner.changed_data:
-            settings.partner = settings.partner
-
-        if settings.multi_subscription.changed_data:
-            settings.multi_subscription = settings.multi_subscription
-
-        settings.branding = BrandingSettingsDto.model_validate(settings.branding.model_dump())
-        if settings.branding.changed_data or settings.branding.verification:
-            settings.branding = settings.branding
-
-        settings.bot_menu = BotMenuSettingsDto.model_validate(settings.bot_menu.model_dump())
-
+        settings = normalize_settings_for_update(settings)
         changed_data = settings.prepare_changed_data()
         db_updated_settings = await self.uow.repository.settings.update(**changed_data)
         await self._clear_cache()
@@ -172,12 +157,7 @@ class SettingsService(BaseService):
 
     async def resolve_partner_balance_currency(self, user: UserDto) -> Currency:
         settings = await self.get()
-        resolved = (
-            user.partner_balance_currency_override or settings.default_currency or Currency.RUB
-        )
-        if resolved == Currency.XTR:
-            return Currency.RUB
-        return resolved
+        return resolve_partner_balance_currency(settings.default_currency, user)
 
     #
 
@@ -296,53 +276,12 @@ class SettingsService(BaseService):
         2. Global multi-subscription settings
         3. Hard safety ceiling (MAX_SUBSCRIPTIONS_PER_USER)
         """
-        hard_ceiling = MAX_SUBSCRIPTIONS_PER_USER
-
-        def _normalize_and_clamp(raw_limit: int, source: str) -> int:
-            normalized = raw_limit
-            if normalized < 1:
-                logger.warning(
-                    f"Invalid max subscriptions value '{raw_limit}' from {source}. "
-                    "Falling back to 1."
-                )
-                normalized = 1
-
-            effective_limit = min(normalized, hard_ceiling)
-            if effective_limit != normalized:
-                logger.warning(
-                    f"Max subscriptions from {source} is '{normalized}', "
-                    f"clamped to hard ceiling '{hard_ceiling}'"
-                )
-
-            return effective_limit
-
-        # Use user-level override when present.
-        if user.max_subscriptions is not None:
-            if user.max_subscriptions == -1:
-                logger.warning(
-                    f"User '{user.telegram_id}' has unlimited individual subscriptions, "
-                    f"clamped to hard ceiling '{hard_ceiling}'"
-                )
-                return hard_ceiling
-
-            effective_limit = _normalize_and_clamp(
-                raw_limit=user.max_subscriptions,
-                source=f"user:{user.telegram_id}",
-            )
-            logger.debug(
-                f"User '{user.telegram_id}' effective max subscriptions: {effective_limit}"
-            )
-            return effective_limit
-
         settings = await self.get()
-
-        if not settings.multi_subscription.enabled:
-            logger.debug(f"Multi-subscription disabled, user '{user.telegram_id}' limited to 1")
-            return 1
-
-        effective_limit = _normalize_and_clamp(
-            raw_limit=settings.multi_subscription.default_max_subscriptions,
-            source="settings.multi_subscription.default_max_subscriptions",
+        effective_limit = resolve_effective_max_subscriptions(
+            user=user,
+            multi_subscription_enabled=settings.multi_subscription.enabled,
+            default_max_subscriptions=settings.multi_subscription.default_max_subscriptions,
+            hard_ceiling=MAX_SUBSCRIPTIONS_PER_USER,
         )
         logger.debug(f"User '{user.telegram_id}' effective max subscriptions: {effective_limit}")
         return effective_limit

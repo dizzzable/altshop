@@ -914,8 +914,15 @@ msg-banners-main =
 
     Select a banner section:
 
-msg-banner-section-all = 📣 For all
+msg-banner-section-all = For all
+msg-banner-section-menu = Menu
+msg-banner-section-dashboard = Dashboard
+msg-banner-section-subscription = Subscription
+msg-banner-section-promocode = Promocode
+msg-banner-section-referral = Referral
 msg-banner-locale-all = All locales
+msg-banner-locale-ru = RU
+msg-banner-locale-en = EN
 msg-banner-scope-status-empty = No targets selected
 msg-banner-scope-status-progress = Uploaded targets: { $uploaded } / { $total }
 

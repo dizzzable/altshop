@@ -137,6 +137,11 @@ def test_existing_locked_user_gets_callback_alert_without_redirect(monkeypatch) 
         "src.services.access.send_access_denied_notification_task.kiq",
         notify_mock,
     )
+    access_event_mock = AsyncMock()
+    monkeypatch.setattr(
+        "src.services.access.send_system_notification_task.kiq",
+        access_event_mock,
+    )
     monkeypatch.setattr(
         service,
         "_render_plain_i18n",
@@ -154,6 +159,7 @@ def test_existing_locked_user_gets_callback_alert_without_redirect(monkeypatch) 
     assert result is False
     answer_mock.assert_awaited_once_with(text="Access denied", show_alert=True)
     notify_mock.assert_not_awaited()
+    access_event_mock.assert_awaited_once()
 
 
 def test_purchase_blocked_message_event_sends_notice_without_redirect(monkeypatch) -> None:
@@ -241,3 +247,33 @@ def test_set_mode_still_notifies_waitlist_users(monkeypatch) -> None:
     service.settings_service.set_access_mode.assert_awaited_once_with(AccessMode.PUBLIC)
     access_opened_mock.assert_awaited_once_with(waiting_users)
     service.clear_all_waiting_users.assert_awaited_once()
+
+
+def test_invited_referral_event_emits_access_policy_system_event(monkeypatch) -> None:
+    service = build_access_service(SettingsDto(access_mode=AccessMode.INVITED))
+    service.referral_service.is_referral_event = AsyncMock(return_value=True)
+    access_event_mock = AsyncMock()
+    aiogram_user = SimpleNamespace(
+        id=700,
+        full_name="Invite User",
+        username="invite_user",
+        language_code="ru",
+    )
+
+    monkeypatch.setattr(
+        "src.services.access.send_system_notification_task.kiq",
+        access_event_mock,
+    )
+
+    result = run_async(
+        service._handle_new_user_access(
+            aiogram_user=aiogram_user,
+            event=build_message("/start ref_token"),
+            mode=AccessMode.INVITED,
+        )
+    )
+
+    assert result is True
+    payload = access_event_mock.await_args.kwargs["payload"]
+    assert payload.i18n_key == "ntf-event-access-policy"
+    assert payload.i18n_kwargs["operation"] == "invite_gate_allow"

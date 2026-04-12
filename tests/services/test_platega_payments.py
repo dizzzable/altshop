@@ -11,6 +11,7 @@ from src.core.enums import (
     Currency,
     MessageEffect,
     PaymentGatewayType,
+    PurchaseChannel,
     PurchaseType,
     TransactionStatus,
 )
@@ -182,6 +183,7 @@ def test_send_subscription_notification_uses_upgrade_template_and_confetti_effec
     transaction = SimpleNamespace(
         payment_id=uuid4(),
         purchase_type=PurchaseType.UPGRADE,
+        channel=PurchaseChannel.TELEGRAM,
         gateway_type=PaymentGatewayType.PLATEGA,
         pricing=SimpleNamespace(
             final_amount=250,
@@ -209,6 +211,8 @@ def test_send_subscription_notification_uses_upgrade_template_and_confetti_effec
     payload = send_task.kiq.await_args.kwargs["payload"]
     assert payload.i18n_key == "ntf-event-subscription-upgrade"
     assert payload.message_effect == MessageEffect.CONFETTI
+    assert payload.i18n_kwargs["purchase_channel"] == "TELEGRAM"
+    assert payload.i18n_kwargs["event_source"] == "services.payment_gateway"
     assert send_task.kiq.await_args.kwargs["ntf_type"].value == "SUBSCRIPTION"
 
 

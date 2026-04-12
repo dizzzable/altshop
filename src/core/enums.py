@@ -198,6 +198,7 @@ class SystemNotificationType(UpperStrEnum):  # == SystemNotificationDto
     USER_REGISTERED = auto()
     WEB_USER_REGISTERED = auto()
     WEB_ACCOUNT_LINKED = auto()
+    ACCESS_POLICY = auto()
     SUBSCRIPTION = auto()
     PROMOCODE_ACTIVATED = auto()
     TRIAL_GETTED = auto()

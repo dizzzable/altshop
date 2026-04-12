@@ -14,13 +14,20 @@ from fluentogram import TranslatorRunner
 from loguru import logger
 from remnawave import RemnawaveSDK
 
-from src.bot.keyboards import get_contact_support_keyboard
+from src.bot.keyboards import get_contact_support_keyboard, get_user_keyboard
 from src.bot.states import DashboardUser
 from src.core.config import AppConfig
 from src.core.constants import DATETIME_FORMAT, USER_KEY
-from src.core.enums import PartnerAccrualStrategy, PartnerRewardType, SubscriptionStatus, UserRole
+from src.core.enums import (
+    PartnerAccrualStrategy,
+    PartnerRewardType,
+    SubscriptionStatus,
+    SystemNotificationType,
+    UserRole,
+)
 from src.core.utils.formatters import format_user_log as log
 from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import build_system_event_payload
 from src.core.utils.time import datetime_now
 from src.core.utils.validators import is_double_click, parse_int
 from src.infrastructure.database.models.dto import UserDto
@@ -3018,6 +3025,31 @@ async def on_web_bind_confirm(
                 "deleted": len(result.deleted_subscription_ids),
                 "web_login": result.web_account.username,
             },
+        ),
+    )
+    await notification_service.system_notify(
+        ntf_type=SystemNotificationType.WEB_ACCOUNT_LINKED,
+        payload=build_system_event_payload(
+            i18n_key="ntf-event-web-account-linked",
+            i18n_kwargs={
+                "user_id": str(result.target_user.telegram_id),
+                "user_name": result.target_user.name or str(result.target_user.telegram_id),
+                "username": result.target_user.username or False,
+                "web_username": result.web_account.username,
+                "old_user_id": str(source_user_telegram_id),
+                "linked_telegram_id": str(result.target_user.telegram_id),
+            },
+            severity="INFO",
+            event_source="bot.dashboard.admin_bind",
+            entry_surface="BOT",
+            operation="account_bind_merge",
+            link_source="ADMIN_BIND",
+            impact="An operator reassigned a web login to another Telegram profile.",
+            operator_hint=(
+                "Verify the kept/deleted subscriptions and confirm "
+                "the target Telegram profile is now canonical."
+            ),
+            reply_markup=get_user_keyboard(result.target_user.telegram_id),
         ),
     )
     await start_user_window(dialog_manager, result.target_user.telegram_id)

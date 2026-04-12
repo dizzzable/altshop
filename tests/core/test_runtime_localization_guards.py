@@ -14,6 +14,9 @@ def test_targeted_bot_runtime_strings_use_i18n_keys() -> None:
     banner_handlers = Path(
         "src/bot/routers/dashboard/remnashop/banners/handlers.py"
     ).read_text(encoding="utf-8")
+    banner_getters = Path(
+        "src/bot/routers/dashboard/remnashop/banners/getters.py"
+    ).read_text(encoding="utf-8")
     menu_getters = Path("src/bot/routers/menu/getters.py").read_text(encoding="utf-8")
     menu_handlers = Path("src/bot/routers/menu/handlers.py").read_text(encoding="utf-8")
     multisubscription_getters = Path(
@@ -49,6 +52,10 @@ def test_targeted_bot_runtime_strings_use_i18n_keys() -> None:
     assert "ntf-backup-creation-started" in backup_handlers
     assert "ntf-backup-imported-success" in backup_handlers
     assert "ntf-banner-upload-success" in banner_handlers
+    assert "msg-banner-section-menu" in banner_getters
+    assert "msg-banner-section-dashboard" in banner_getters
+    assert "msg-banner-locale-all" in banner_getters
+    assert "msg-banner-scope-status-progress" in banner_getters
     assert "msg-common-plan-fallback" in menu_getters
     assert "msg-common-empty-value" in menu_getters
     assert "msg-menu-invite-referral-row" in menu_getters
@@ -80,6 +87,14 @@ def test_targeted_bot_runtime_strings_use_i18n_keys() -> None:
         "Delete local copy": [backup_dialog, backup_getters],
         "Local + Telegram": [backup_getters],
         "Select a banner first.": [banner_handlers],
+        "For all": [banner_getters],
+        "Menu": [banner_getters],
+        "Dashboard": [banner_getters],
+        "Subscription": [banner_getters],
+        "Promocode": [banner_getters],
+        "Referral": [banner_getters],
+        "All locales": [banner_getters],
+        "Uploaded targets": [banner_getters],
         "Project Name": [branding_getters, branding_dialog],
         "Web Title": [branding_getters, branding_dialog],
         "Bot Menu Button": [branding_getters, branding_dialog],

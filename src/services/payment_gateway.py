@@ -30,8 +30,8 @@ from src.core.utils.formatters import (
     i18n_format_device_limit,
     i18n_format_traffic_limit,
 )
-from src.core.utils.message_payload import MessagePayload
 from src.core.utils.mini_app_urls import build_telegram_payment_return_url
+from src.core.utils.system_events import build_system_event_payload
 from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import (
     AnyGatewaySettingsDto,
@@ -654,9 +654,23 @@ class PaymentGatewayService(BaseService):
 
         await send_system_notification_task.kiq(
             ntf_type=SystemNotificationType.SUBSCRIPTION,
-            payload=MessagePayload.not_deleted(
+            payload=build_system_event_payload(
                 i18n_key=i18n_key,
                 i18n_kwargs={**i18n_kwargs, **extra_i18n_kwargs},
+                severity="INFO",
+                event_source="services.payment_gateway",
+                entry_surface=(
+                    "WEB"
+                    if str(i18n_kwargs.get("purchase_channel")) == "WEB"
+                    else "BOT"
+                ),
+                operation=f"subscription_{transaction.purchase_type.value.lower()}",
+                purchase_channel=str(i18n_kwargs.get("purchase_channel") or ""),
+                impact="A subscription payment flow reached the successful notification stage.",
+                operator_hint=(
+                    "Check the payment, user, and plan blocks if the "
+                    "purchase outcome looks inconsistent."
+                ),
                 reply_markup=get_user_keyboard(transaction_user.telegram_id),
                 message_effect=MessageEffect.CONFETTI,
             ),

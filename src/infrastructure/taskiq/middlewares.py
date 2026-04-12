@@ -6,7 +6,7 @@ from loguru import logger
 from taskiq import TaskiqMessage, TaskiqResult
 from taskiq.abc.middleware import TaskiqMiddleware
 
-from src.core.utils.message_payload import MessagePayload
+from src.core.utils.system_events import build_system_event_payload
 
 
 class ErrorMiddleware(TaskiqMiddleware):
@@ -30,11 +30,23 @@ class ErrorMiddleware(TaskiqMiddleware):
         await send_error_notification_task.kiq(
             error_id=message.task_id,
             traceback_str=traceback_str,
-            payload=MessagePayload.not_deleted(
+            payload=build_system_event_payload(
                 i18n_key="ntf-event-error",
                 i18n_kwargs={
                     "user": False,
                     "error": f"{error_type_name}: {error_message.as_html()}",
                 },
+                severity="ERROR",
+                event_source="taskiq.middleware.error",
+                entry_surface="BACKGROUND",
+                operation=message.task_name,
+                impact=(
+                    "A background task failed and may leave "
+                    "asynchronous workflows incomplete until repaired."
+                ),
+                operator_hint=(
+                    "Open the traceback attachment and inspect the "
+                    "failed task arguments or upstream dependency state."
+                ),
             ),
         )
