@@ -10,6 +10,7 @@ from uuid import uuid4
 from src.core.enums import (
     ArchivedPlanRenewMode,
     PlanAvailability,
+    PurchaseChannel,
     PurchaseType,
     SubscriptionRenewMode,
     SubscriptionStatus,
@@ -92,6 +93,12 @@ class FakeSubscriptionService:
 class FakePurchaseAccessService:
     async def assert_can_purchase(self, current_user: UserDto) -> None:
         del current_user
+
+
+class FakeFailingPurchaseAccessService:
+    async def assert_can_purchase(self, current_user: UserDto) -> None:
+        del current_user
+        raise SubscriptionPurchaseError(status_code=403, detail="purchase blocked")
 
 
 class FakeSubscriptionPurchasePolicyService:
@@ -416,6 +423,240 @@ def test_quote_normalizes_trial_new_purchase_before_validation() -> None:
     assert captured_request is not None
     assert captured_request.purchase_type == PurchaseType.UPGRADE
     assert captured_request.renew_subscription_id == subscription.id
+
+
+def test_execute_stops_before_normalization_when_purchase_access_fails() -> None:
+    user = build_user()
+    service = build_service(
+        FakePlanService(available_plans=[], known_plans=[]),
+        purchase_access_service=FakeFailingPurchaseAccessService(),
+    )
+
+    async def should_not_normalize(
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ) -> SubscriptionPurchaseRequest:
+        del request, current_user
+        raise AssertionError("normalize should not be called")
+
+    service._normalize_trial_catalog_purchase_request = should_not_normalize  # type: ignore[method-assign]
+
+    try:
+        run_async(
+            service.execute(
+                request=SubscriptionPurchaseRequest(purchase_type=PurchaseType.NEW, plan_id=1),
+                current_user=user,
+            )
+        )
+    except SubscriptionPurchaseError as error:
+        assert error.status_code == 403
+        assert error.detail == "purchase blocked"
+    else:
+        raise AssertionError("Expected purchase access guard to stop execute")
+
+
+def test_quote_stops_before_normalization_when_purchase_access_fails() -> None:
+    user = build_user()
+    service = build_service(
+        FakePlanService(available_plans=[], known_plans=[]),
+        purchase_access_service=FakeFailingPurchaseAccessService(),
+    )
+
+    async def should_not_normalize(
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ) -> SubscriptionPurchaseRequest:
+        del request, current_user
+        raise AssertionError("normalize should not be called")
+
+    service._normalize_trial_catalog_purchase_request = should_not_normalize  # type: ignore[method-assign]
+
+    try:
+        run_async(
+            service.quote(
+                request=SubscriptionPurchaseRequest(purchase_type=PurchaseType.NEW, plan_id=1),
+                current_user=user,
+            )
+        )
+    except SubscriptionPurchaseError as error:
+        assert error.status_code == 403
+        assert error.detail == "purchase blocked"
+    else:
+        raise AssertionError("Expected purchase access guard to stop quote")
+
+
+def test_execute_renewal_alias_sets_purchase_type_and_default_subscription_id() -> None:
+    user = build_user()
+    base_plan = build_plan(plan_id=1, name="Starter")
+    subscription = build_subscription(base_plan, subscription_id=17)
+    service = build_service(
+        FakePlanService(available_plans=[base_plan], known_plans=[base_plan]),
+        subscription_service=FakeSubscriptionService([subscription]),
+    )
+    captured_request: SubscriptionPurchaseRequest | None = None
+
+    async def fake_execute_without_access_assert(
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ):
+        nonlocal captured_request
+        del current_user
+        captured_request = request
+        return "renew-ok"
+
+    service._execute_without_access_assert = fake_execute_without_access_assert  # type: ignore[method-assign]
+
+    result = run_async(
+        service.execute_renewal_alias(
+            subscription_id=17,
+            request=SubscriptionPurchaseRequest(plan_id=2),
+            current_user=user,
+        )
+    )
+
+    assert result == "renew-ok"
+    assert captured_request is not None
+    assert captured_request.purchase_type == PurchaseType.RENEW
+    assert captured_request.renew_subscription_id == 17
+
+
+def test_execute_upgrade_alias_sets_purchase_type_and_default_subscription_id() -> None:
+    user = build_user()
+    base_plan = build_plan(plan_id=1, name="Starter")
+    subscription = build_subscription(base_plan, subscription_id=17)
+    service = build_service(
+        FakePlanService(available_plans=[base_plan], known_plans=[base_plan]),
+        subscription_service=FakeSubscriptionService([subscription]),
+    )
+    captured_request: SubscriptionPurchaseRequest | None = None
+
+    async def fake_execute_without_access_assert(
+        *,
+        request: SubscriptionPurchaseRequest,
+        current_user: UserDto,
+    ):
+        nonlocal captured_request
+        del current_user
+        captured_request = request
+        return "upgrade-ok"
+
+    service._execute_without_access_assert = fake_execute_without_access_assert  # type: ignore[method-assign]
+
+    result = run_async(
+        service.execute_upgrade_alias(
+            subscription_id=17,
+            request=SubscriptionPurchaseRequest(plan_id=2),
+            current_user=user,
+        )
+    )
+
+    assert result == "upgrade-ok"
+    assert captured_request is not None
+    assert captured_request.purchase_type == PurchaseType.UPGRADE
+    assert captured_request.renew_subscription_id == 17
+
+
+def test_execute_renewal_alias_rejects_missing_subscription() -> None:
+    user = build_user()
+    service = build_service(
+        FakePlanService(available_plans=[], known_plans=[]),
+        subscription_service=FakeSubscriptionService([]),
+    )
+
+    try:
+        run_async(
+            service.execute_renewal_alias(
+                subscription_id=17,
+                request=SubscriptionPurchaseRequest(plan_id=2),
+                current_user=user,
+            )
+        )
+    except SubscriptionPurchaseError as error:
+        assert error.status_code == 404
+        assert error.detail == "Subscription not found"
+    else:
+        raise AssertionError("Expected missing subscription to be rejected")
+
+
+def test_execute_upgrade_alias_rejects_foreign_subscription() -> None:
+    user = build_user()
+    base_plan = build_plan(plan_id=1, name="Starter")
+    subscription = build_subscription(base_plan, subscription_id=17, user_telegram_id=999)
+    service = build_service(
+        FakePlanService(available_plans=[base_plan], known_plans=[base_plan]),
+        subscription_service=FakeSubscriptionService([subscription]),
+    )
+
+    try:
+        run_async(
+            service.execute_upgrade_alias(
+                subscription_id=17,
+                request=SubscriptionPurchaseRequest(plan_id=2),
+                current_user=user,
+            )
+        )
+    except SubscriptionPurchaseError as error:
+        assert error.status_code == 403
+        assert error.detail == "Access denied to this subscription"
+    else:
+        raise AssertionError("Expected foreign subscription to be rejected")
+
+
+def test_get_purchase_options_rejects_invalid_purchase_type_before_policy_service() -> None:
+    user = build_user()
+    base_plan = build_plan(plan_id=1, name="Starter")
+    subscription = build_subscription(base_plan, subscription_id=17)
+    policy_service = cast(Any, object())
+    service = build_service(
+        FakePlanService(available_plans=[base_plan], known_plans=[base_plan]),
+        subscription_service=FakeSubscriptionService([subscription]),
+        subscription_purchase_policy_service=policy_service,
+    )
+
+    try:
+        run_async(
+            service.get_purchase_options(
+                subscription_id=17,
+                purchase_type=PurchaseType.NEW,
+                current_user=user,
+                channel=PurchaseChannel.WEB,
+            )
+        )
+    except SubscriptionPurchaseError as error:
+        assert error.status_code == 400
+        assert error.detail == "purchase_type must be RENEW or UPGRADE"
+    else:
+        raise AssertionError("Expected invalid purchase type to be rejected")
+
+
+def test_get_purchase_options_rejects_foreign_subscription_before_policy_service() -> None:
+    user = build_user()
+    base_plan = build_plan(plan_id=1, name="Starter")
+    subscription = build_subscription(base_plan, subscription_id=17, user_telegram_id=999)
+    policy_service = cast(Any, object())
+    service = build_service(
+        FakePlanService(available_plans=[base_plan], known_plans=[base_plan]),
+        subscription_service=FakeSubscriptionService([subscription]),
+        subscription_purchase_policy_service=policy_service,
+    )
+
+    try:
+        run_async(
+            service.get_purchase_options(
+                subscription_id=17,
+                purchase_type=PurchaseType.RENEW,
+                current_user=user,
+                channel=PurchaseChannel.WEB,
+            )
+        )
+    except SubscriptionPurchaseError as error:
+        assert error.status_code == 403
+        assert error.detail == "Access denied to this subscription"
+    else:
+        raise AssertionError("Expected foreign subscription access to be rejected")
 
 
 def _load_migration_module(file_name: str):

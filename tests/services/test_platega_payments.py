@@ -16,7 +16,11 @@ from src.core.enums import (
     TransactionStatus,
 )
 from src.core.utils.time import datetime_now
-from src.infrastructure.database.models.dto import PaymentGatewayDto, PlategaGatewaySettingsDto
+from src.infrastructure.database.models.dto import (
+    PaymentGatewayDto,
+    PlanSnapshotDto,
+    PlategaGatewaySettingsDto,
+)
 from src.infrastructure.database.models.sql import PaymentWebhookEvent
 from src.infrastructure.payment_gateways.platega import (
     PlategaGateway,
@@ -77,6 +81,94 @@ def build_payment_gateway_service(
         user_service=MagicMock(),
         settings_service=settings_service or SimpleNamespace(get=AsyncMock()),
     )
+
+
+def test_create_payment_free_pricing_creates_transaction_and_returns_empty_url() -> None:
+    transaction_service = SimpleNamespace(create=AsyncMock())
+    gateway_instance = SimpleNamespace(
+        gateway=SimpleNamespace(type=PaymentGatewayType.PLATEGA, currency=Currency.RUB)
+    )
+    service = build_payment_gateway_service(transaction_service=transaction_service)
+    service._get_gateway_instance = AsyncMock(return_value=gateway_instance)  # type: ignore[method-assign]
+    service._resolve_telegram_payment_redirect_urls = AsyncMock(  # type: ignore[method-assign]
+        return_value=("https://ok", "https://fail")
+    )
+
+    payment = run_async(
+        service.create_payment(
+            user=SimpleNamespace(language="en", telegram_id=123),
+            plan=PlanSnapshotDto.test(),
+            pricing=SimpleNamespace(
+                final_amount=0,
+                is_free=True,
+            ),
+            purchase_type=PurchaseType.NEW,
+            gateway_type=PaymentGatewayType.PLATEGA,
+        )
+    )
+
+    assert payment.url is None
+    transaction_service.create.assert_awaited_once()
+
+
+def test_create_payment_fills_telegram_redirect_urls_when_missing() -> None:
+    transaction_service = SimpleNamespace(create=AsyncMock())
+    translator = SimpleNamespace(get=lambda *args, **kwargs: "details")
+    gateway_instance = SimpleNamespace(
+        gateway=SimpleNamespace(type=PaymentGatewayType.PLATEGA, currency=Currency.RUB),
+        handle_create_payment=AsyncMock(return_value=SimpleNamespace(id=uuid4(), url="https://pay.test")),
+    )
+    service = build_payment_gateway_service(transaction_service=transaction_service)
+    service.translator_hub = SimpleNamespace(get_translator_by_locale=lambda locale: translator)
+    service._get_gateway_instance = AsyncMock(return_value=gateway_instance)  # type: ignore[method-assign]
+    service._resolve_telegram_payment_redirect_urls = AsyncMock(  # type: ignore[method-assign]
+        return_value=("https://ok", "https://fail")
+    )
+
+    run_async(
+        service.create_payment(
+            user=SimpleNamespace(language="en", telegram_id=123),
+            plan=PlanSnapshotDto.test(),
+            pricing=SimpleNamespace(final_amount=10, is_free=False),
+            purchase_type=PurchaseType.NEW,
+            gateway_type=PaymentGatewayType.PLATEGA,
+            channel=PurchaseChannel.TELEGRAM,
+        )
+    )
+
+    gateway_instance.handle_create_payment.assert_awaited_once()
+    assert (
+        gateway_instance.handle_create_payment.await_args.kwargs["success_redirect_url"]
+        == "https://ok"
+    )
+    assert (
+        gateway_instance.handle_create_payment.await_args.kwargs["fail_redirect_url"]
+        == "https://fail"
+    )
+
+
+def test_handle_payment_succeeded_short_circuits_for_completed_transaction() -> None:
+    transaction = SimpleNamespace(
+        user=SimpleNamespace(telegram_id=123),
+        is_completed=True,
+        status=TransactionStatus.COMPLETED,
+        is_test=False,
+    )
+    transaction_service = SimpleNamespace(
+        get=AsyncMock(return_value=transaction),
+        update=AsyncMock(),
+    )
+    service = build_payment_gateway_service(transaction_service=transaction_service)
+    service._consume_purchase_discount_if_needed = AsyncMock()  # type: ignore[method-assign]
+    service._resolve_subscriptions_for_purchase = AsyncMock()  # type: ignore[method-assign]
+    service._send_subscription_notification = AsyncMock()  # type: ignore[method-assign]
+
+    run_async(service.handle_payment_succeeded(uuid4()))
+
+    transaction_service.update.assert_not_awaited()
+    service._consume_purchase_discount_if_needed.assert_not_awaited()
+    service._resolve_subscriptions_for_purchase.assert_not_awaited()
+    service._send_subscription_notification.assert_not_awaited()
 
 
 def test_platega_webhook_resolves_internal_payment_id_from_transaction_payload() -> None:
@@ -205,7 +297,7 @@ def test_send_subscription_notification_uses_upgrade_template_and_confetti_effec
         ),
     )
 
-    with patch("src.services.payment_gateway.send_system_notification_task", send_task):
+    with patch("src.services.payment_gateway_lifecycle.send_system_notification_task", send_task):
         run_async(service._send_subscription_notification(transaction=transaction))
 
     payload = send_task.kiq.await_args.kwargs["payload"]

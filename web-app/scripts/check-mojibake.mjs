@@ -2,18 +2,55 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const ROOT = process.cwd()
-const SRC_ROOT = path.join(ROOT, 'src')
-const FILE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.css', '.md'])
+const TARGETS = [
+  'src',
+  'tests',
+  'assets/translations',
+  'web-app/src',
+  'web-app/scripts',
+  'web-app/AUTH_SYSTEM.md',
+  'web-app/LANDING_PAGE.md',
+]
+const FILE_EXTENSIONS = new Set([
+  '.py',
+  '.ftl',
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.css',
+  '.md',
+  '.mjs',
+])
+const SKIP_DIR_NAMES = new Set([
+  '.git',
+  '.venv',
+  '.mypy_cache',
+  '.pytest_cache',
+  '.ruff_cache',
+  '__pycache__',
+  'node_modules',
+  'dist',
+])
+const ALLOWED_FILES = new Set([
+  'tests/core/test_translation_assets.py',
+  'tests/core/test_main_menu_render.py',
+  'tests/core/test_runtime_localization_guards.py',
+  'web-app/scripts/check-mojibake.mjs',
+])
 
 const suspiciousFragments = [
-  'РќР',
-  'РџР',
-  'РЎР',
-  'РўР',
-  'РёР',
+  'РЎ',
+  'Рџ',
+  'Рќ',
+  'Р”',
   'СЃ',
   'С‚',
   'СЊ',
+  'вЂ',
+  'вќ',
+  'рџ',
+  'пёЏ',
 ]
 
 function walkFiles(dirPath, result = []) {
@@ -21,7 +58,7 @@ function walkFiles(dirPath, result = []) {
   for (const entry of entries) {
     const fullPath = path.join(dirPath, entry.name)
     if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name === 'dist') {
+      if (SKIP_DIR_NAMES.has(entry.name)) {
         continue
       }
       walkFiles(fullPath, result)
@@ -33,6 +70,23 @@ function walkFiles(dirPath, result = []) {
     }
     result.push(fullPath)
   }
+  return result
+}
+
+function collectFiles(targetPath, result = []) {
+  if (!fs.existsSync(targetPath)) {
+    return result
+  }
+
+  const stat = fs.statSync(targetPath)
+  if (stat.isDirectory()) {
+    return walkFiles(targetPath, result)
+  }
+
+  if (FILE_EXTENSIONS.has(path.extname(targetPath))) {
+    result.push(targetPath)
+  }
+
   return result
 }
 
@@ -48,23 +102,27 @@ function findSuspiciousLines(content) {
   return found
 }
 
-const files = walkFiles(SRC_ROOT)
+const files = TARGETS.flatMap((target) => collectFiles(path.join(ROOT, target)))
 const issues = []
 
 for (const filePath of files) {
+  const relativePath = path.relative(ROOT, filePath).replaceAll('\\', '/')
+  if (ALLOWED_FILES.has(relativePath)) {
+    continue
+  }
+
   const content = fs.readFileSync(filePath, 'utf8')
   const found = findSuspiciousLines(content)
   if (found.length > 0) {
-    issues.push({ filePath, found })
+    issues.push({ filePath: relativePath, found })
   }
 }
 
 if (issues.length > 0) {
   console.error('Found suspicious mojibake-like fragments:')
   for (const issue of issues) {
-    const relativePath = path.relative(ROOT, issue.filePath).replaceAll('\\', '/')
     for (const hit of issue.found.slice(0, 10)) {
-      console.error(`- ${relativePath}:${hit.lineNumber}: ${hit.line.trim()}`)
+      console.error(`- ${issue.filePath}:${hit.lineNumber}: ${hit.line.trim()}`)
     }
     if (issue.found.length > 10) {
       console.error(`  ... and ${issue.found.length - 10} more lines`)

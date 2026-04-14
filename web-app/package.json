@@ -1,7 +1,7 @@
 {
   "name": "altshop-web",
   "private": true,
-  "version": "1.2.32",
+  "version": "1.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

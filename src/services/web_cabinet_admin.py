@@ -9,6 +9,10 @@ from remnawave.exceptions import NotFoundError
 from src.infrastructure.database.models.dto import UserDto, WebAccountDto
 
 from .remnawave import RemnawaveService
+from .remnawave_profile_lookup import (
+    load_owner_remna_users_by_uuid,
+    resolve_subscription_profile_name,
+)
 from .subscription import SubscriptionService
 from .telegram_link import TelegramLinkService
 from .user import UserService
@@ -265,28 +269,15 @@ class WebCabinetAdminService:
             for subscription in await self.subscription_service.get_all_by_user(owner.telegram_id)
             if subscription.id is not None and subscription.status.value != "DELETED"
         ]
-        if hasattr(self.remnawave_service, "get_users_map_by_telegram_id"):
-            remna_users_by_uuid = await self.remnawave_service.get_users_map_by_telegram_id(
-                owner.telegram_id
-            )
-        else:
-            remna_users_by_uuid = {}
+        remna_users_by_uuid = await load_owner_remna_users_by_uuid(
+            owner_telegram_id=owner.telegram_id,
+            remnawave_service=self.remnawave_service,
+        )
         items: list[WebCabinetSubscriptionPreviewItem] = []
         current_subscription_id = (
             owner.current_subscription.id if owner.current_subscription else None
         )
         for subscription in subscriptions:
-            profile_name = None
-            remna_user = remna_users_by_uuid.get(subscription.user_remna_id)
-            if remna_user is None and hasattr(self.remnawave_service, "get_user"):
-                try:
-                    remna_user = await self.remnawave_service.get_user(subscription.user_remna_id)
-                except Exception:
-                    remna_user = None
-            if remna_user is not None:
-                raw_username = getattr(remna_user, "username", None)
-                if raw_username:
-                    profile_name = str(raw_username)
             items.append(
                 WebCabinetSubscriptionPreviewItem(
                     subscription_id=subscription.id or 0,
@@ -294,7 +285,11 @@ class WebCabinetAdminService:
                     owner_telegram_id=owner.telegram_id,
                     owner_name=owner.name or str(owner.telegram_id),
                     plan_name=subscription.plan.name,
-                    profile_name=profile_name,
+                    profile_name=await resolve_subscription_profile_name(
+                        subscription=subscription,
+                        remna_users_by_uuid=remna_users_by_uuid,
+                        remnawave_service=self.remnawave_service,
+                    ),
                     remna_uuid=str(subscription.user_remna_id),
                     status=subscription.status.value,
                     expire_at=subscription.expire_at.isoformat(),

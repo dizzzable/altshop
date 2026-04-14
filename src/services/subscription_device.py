@@ -1,21 +1,56 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 
-from loguru import logger
 from pydantic import BaseModel
 
 from src.core.enums import DeviceType, RemnaUserHwidDevicesEvent
-from src.core.observability import emit_counter
-from src.core.storage.keys import SubscriptionDeviceListSnapshotKey
-from src.core.utils.time import datetime_now
 from src.infrastructure.database.models.dto import SubscriptionDto
 from src.infrastructure.redis import RedisRepository
 from src.services.remnawave import RemnawaveService
 from src.services.subscription import SubscriptionService
 from src.services.subscription_runtime import SubscriptionRuntimeService
+
+from .subscription_device_cache import (
+    apply_device_event_to_cached_list as _apply_device_event_to_cached_list_impl,
+)
+from .subscription_device_cache import (
+    get_cached_device_list as _get_cached_device_list_impl,
+)
+from .subscription_device_cache import (
+    is_cached_device_list_fresh as _is_cached_device_list_fresh_impl,
+)
+from .subscription_device_cache import (
+    map_panel_device_to_device_item as _map_panel_device_to_device_item_impl,
+)
+from .subscription_device_cache import (
+    normalize_platform_to_device_type as _normalize_platform_to_device_type_impl,
+)
+from .subscription_device_cache import (
+    resolve_cached_devices_count as _resolve_cached_devices_count_impl,
+)
+from .subscription_device_cache import (
+    store_cached_device_list as _store_cached_device_list_impl,
+)
+from .subscription_device_operations import (
+    generate_device_link as _generate_device_link_impl,
+)
+from .subscription_device_operations import (
+    get_owned_subscription as _get_owned_subscription_impl,
+)
+from .subscription_device_operations import (
+    list_devices as _list_devices_impl,
+)
+from .subscription_device_operations import (
+    persist_subscription_url_if_changed as _persist_subscription_url_if_changed_impl,
+)
+from .subscription_device_operations import (
+    resolve_requested_device_type as _resolve_requested_device_type_impl,
+)
+from .subscription_device_operations import (
+    revoke_device as _revoke_device_impl,
+)
 
 SUBSCRIPTION_DEVICE_LIST_CACHE_TTL_SECONDS = 30
 
@@ -97,70 +132,116 @@ class SubscriptionDeviceService:
         self.remnawave_service = remnawave_service
         self.redis_repository = redis_repository
 
+    @staticmethod
+    def _device_list_cache_ttl_seconds() -> int:
+        return SUBSCRIPTION_DEVICE_LIST_CACHE_TTL_SECONDS
+
+    @staticmethod
+    def _device_list_snapshot_type() -> type[SubscriptionDeviceListSnapshot]:
+        return SubscriptionDeviceListSnapshot
+
+    @staticmethod
+    def _device_list_snapshot(
+        *,
+        user_remna_id: str,
+        devices: list[SubscriptionDeviceItem],
+        refreshed_at: datetime,
+    ) -> SubscriptionDeviceListSnapshot:
+        return SubscriptionDeviceListSnapshot(
+            user_remna_id=user_remna_id,
+            devices=devices,
+            refreshed_at=refreshed_at,
+        )
+
+    @staticmethod
+    def _device_item(
+        *,
+        hwid: str,
+        device_type: str,
+        first_connected: str | None,
+        last_connected: str | None,
+        country: str | None = None,
+        ip: str | None = None,
+    ) -> SubscriptionDeviceItem:
+        return SubscriptionDeviceItem(
+            hwid=hwid,
+            device_type=device_type,
+            first_connected=first_connected,
+            last_connected=last_connected,
+            country=country,
+            ip=ip,
+        )
+
+    @staticmethod
+    def _device_list_result(
+        *,
+        devices: list[SubscriptionDeviceItem],
+        subscription_id: int,
+        device_limit: int,
+        devices_count: int,
+    ) -> SubscriptionDeviceListResult:
+        return SubscriptionDeviceListResult(
+            devices=devices,
+            subscription_id=subscription_id,
+            device_limit=device_limit,
+            devices_count=devices_count,
+        )
+
+    @staticmethod
+    def _generated_device_link(
+        *,
+        hwid: str,
+        connection_url: str,
+        device_type: str,
+    ) -> GeneratedSubscriptionDeviceLink:
+        return GeneratedSubscriptionDeviceLink(
+            hwid=hwid,
+            connection_url=connection_url,
+            device_type=device_type,
+        )
+
+    @staticmethod
+    def _revoked_device(*, success: bool, message: str) -> RevokedSubscriptionDevice:
+        return RevokedSubscriptionDevice(success=success, message=message)
+
+    @staticmethod
+    def _not_found_error(message: str) -> SubscriptionDeviceNotFoundError:
+        return SubscriptionDeviceNotFoundError(message)
+
+    @staticmethod
+    def _access_denied_error(message: str) -> SubscriptionDeviceAccessDeniedError:
+        return SubscriptionDeviceAccessDeniedError(message)
+
+    @staticmethod
+    def _limit_reached_error(
+        *,
+        devices_count: int,
+        device_limit: int,
+    ) -> SubscriptionDeviceLimitReachedError:
+        return SubscriptionDeviceLimitReachedError(devices_count, device_limit)
+
+    @staticmethod
+    def _operation_error(message: str) -> SubscriptionDeviceOperationError:
+        return SubscriptionDeviceOperationError(message)
+
+    @staticmethod
+    def _deleted_device_event() -> RemnaUserHwidDevicesEvent:
+        return RemnaUserHwidDevicesEvent.DELETED
+
+    @staticmethod
+    def _is_device_error(exception: Exception) -> bool:
+        return isinstance(exception, SubscriptionDeviceError)
+
     async def list_devices(
         self,
         *,
         subscription_id: int,
         user_telegram_id: int,
     ) -> SubscriptionDeviceListResult:
-        subscription = await self._get_owned_subscription(
+        return await _list_devices_impl(
+            self,
             subscription_id=subscription_id,
             user_telegram_id=user_telegram_id,
-        )
-
-        cached_devices_snapshot = await self.get_cached_device_list(subscription.user_remna_id)
-        if cached_devices_snapshot and self.is_cached_device_list_fresh(cached_devices_snapshot):
-            emit_counter("subscription_device_list_cache_hits_total")
-            return SubscriptionDeviceListResult(
-                devices=list(cached_devices_snapshot.devices),
-                subscription_id=subscription_id,
-                device_limit=subscription.device_limit,
-                devices_count=len(cached_devices_snapshot.devices),
-            )
-
-        if cached_devices_snapshot:
-            emit_counter("subscription_device_list_cache_stale_total")
-        else:
-            emit_counter("subscription_device_list_cache_misses_total")
-
-        devices: list[SubscriptionDeviceItem] = []
-        devices_count = await self._resolve_cached_devices_count(subscription)
-        try:
-            hwid_devices = await self.remnawave_service.get_devices_by_subscription_uuid(
-                subscription.user_remna_id
-            )
-            devices = [
-                SubscriptionDeviceItem(
-                    hwid=device.hwid,
-                    device_type=self._normalize_platform_to_device_type(device.platform),
-                    first_connected=device.created_at.isoformat() if device.created_at else None,
-                    last_connected=device.updated_at.isoformat() if device.updated_at else None,
-                )
-                for device in hwid_devices
-            ]
-            devices_count = len(hwid_devices)
-            await self._store_cached_device_list(
-                user_remna_id=subscription.user_remna_id,
-                devices=devices,
-            )
-            await self.subscription_runtime_service.apply_observed_devices_count_to_cached_runtime(
-                user_remna_id=subscription.user_remna_id,
-                devices_count=devices_count,
-            )
-        except Exception as exception:
-            logger.warning(
-                f"Failed to fetch devices from Remnawave for subscription '{subscription.id}' "
-                f"(remna_id='{subscription.user_remna_id}'): {exception}"
-            )
-            if cached_devices_snapshot is not None:
-                devices = list(cached_devices_snapshot.devices)
-                devices_count = max(len(devices), devices_count)
-
-        return SubscriptionDeviceListResult(
-            devices=devices,
-            subscription_id=subscription_id,
-            device_limit=subscription.device_limit,
-            devices_count=devices_count,
         )
 
     async def generate_device_link(
@@ -170,55 +251,12 @@ class SubscriptionDeviceService:
         user_telegram_id: int,
         device_type: DeviceType | None,
     ) -> GeneratedSubscriptionDeviceLink:
-        subscription = await self._get_owned_subscription(
+        return await _generate_device_link_impl(
+            self,
             subscription_id=subscription_id,
             user_telegram_id=user_telegram_id,
+            device_type=device_type,
         )
-        subscription = await self.subscription_runtime_service.prepare_for_detail(subscription)
-        actual_devices_count = max(subscription.devices_count, 0)
-
-        if subscription.device_limit > 0 and actual_devices_count >= subscription.device_limit:
-            raise SubscriptionDeviceLimitReachedError(
-                devices_count=actual_devices_count,
-                device_limit=subscription.device_limit,
-            )
-
-        try:
-            normalized_subscription_url = (subscription.url or "").strip()
-            if not normalized_subscription_url:
-                subscription_url = await self.remnawave_service.get_subscription_url(
-                    subscription.user_remna_id
-                )
-                normalized_subscription_url = subscription_url.strip() if subscription_url else ""
-
-            if not normalized_subscription_url:
-                raise SubscriptionDeviceOperationError(
-                    "Failed to get subscription URL from Remnawave"
-                )
-
-            await self._persist_subscription_url_if_changed(
-                subscription=subscription,
-                normalized_subscription_url=normalized_subscription_url,
-            )
-
-            resolved_device_type = self._resolve_requested_device_type(device_type)
-            hwid_source = (
-                f"{subscription.user_remna_id}:{user_telegram_id}:{resolved_device_type}"
-            )
-            hwid = hashlib.md5(hwid_source.encode()).hexdigest()[:16]
-
-            return GeneratedSubscriptionDeviceLink(
-                hwid=hwid,
-                connection_url=normalized_subscription_url,
-                device_type=resolved_device_type,
-            )
-        except SubscriptionDeviceError:
-            raise
-        except Exception as exception:
-            logger.exception(f"Failed to generate device link: {exception}")
-            raise SubscriptionDeviceOperationError(
-                f"Failed to generate connection link: {exception}"
-            ) from exception
 
     async def revoke_device(
         self,
@@ -227,55 +265,24 @@ class SubscriptionDeviceService:
         user_telegram_id: int,
         hwid: str,
     ) -> RevokedSubscriptionDevice:
-        subscription = await self._get_owned_subscription(
+        return await _revoke_device_impl(
+            self,
             subscription_id=subscription_id,
             user_telegram_id=user_telegram_id,
-        )
-
-        try:
-            deleted_count = await self.remnawave_service.delete_device_by_subscription_uuid(
-                user_remna_id=subscription.user_remna_id,
-                hwid=hwid,
-            )
-        except Exception as exception:
-            logger.exception(f"Failed to revoke device: {exception}")
-            raise SubscriptionDeviceOperationError(
-                f"Failed to revoke device: {exception}"
-            ) from exception
-
-        if deleted_count is None or deleted_count == 0:
-            raise SubscriptionDeviceNotFoundError(f"Device {hwid} not found")
-
-        cached_devices_snapshot = await self.apply_device_event_to_cached_list(
-            user_remna_id=subscription.user_remna_id,
-            event=RemnaUserHwidDevicesEvent.DELETED,
-            hwid_device=type("DeletedDeviceEvent", (), {"hwid": hwid})(),
-        )
-        if cached_devices_snapshot is not None:
-            await self.subscription_runtime_service.apply_observed_devices_count_to_cached_runtime(
-                user_remna_id=subscription.user_remna_id,
-                devices_count=len(cached_devices_snapshot.devices),
-            )
-
-        return RevokedSubscriptionDevice(
-            success=True,
-            message=f"Device {hwid} revoked successfully",
+            hwid=hwid,
         )
 
     async def get_cached_device_list(
         self,
         user_remna_id: object,
     ) -> SubscriptionDeviceListSnapshot | None:
-        return await self.redis_repository.get(
-            SubscriptionDeviceListSnapshotKey(user_remna_id=str(user_remna_id)),
-            SubscriptionDeviceListSnapshot,
-            default=None,
-        )
+        return await _get_cached_device_list_impl(self, user_remna_id)
 
     @staticmethod
     def is_cached_device_list_fresh(snapshot: SubscriptionDeviceListSnapshot) -> bool:
-        return datetime_now() - snapshot.refreshed_at <= timedelta(
-            seconds=SUBSCRIPTION_DEVICE_LIST_CACHE_TTL_SECONDS
+        return _is_cached_device_list_fresh_impl(
+            snapshot,
+            ttl_seconds=SUBSCRIPTION_DEVICE_LIST_CACHE_TTL_SECONDS,
         )
 
     async def apply_device_event_to_cached_list(
@@ -285,36 +292,12 @@ class SubscriptionDeviceService:
         event: str,
         hwid_device: object | None,
     ) -> SubscriptionDeviceListSnapshot | None:
-        snapshot = await self.get_cached_device_list(user_remna_id)
-        if snapshot is None:
-            return None
-
-        try:
-            normalized_event = RemnaUserHwidDevicesEvent(event)
-        except ValueError:
-            return None
-
-        next_devices = list(snapshot.devices)
-        hwid = (getattr(hwid_device, "hwid", None) or "").strip()
-        if not hwid:
-            return None
-
-        if normalized_event == RemnaUserHwidDevicesEvent.ADDED:
-            device_item = self._map_panel_device_to_device_item(hwid_device)
-            next_devices = [device for device in next_devices if device.hwid != device_item.hwid]
-            next_devices.append(device_item)
-        else:
-            next_devices = [device for device in next_devices if device.hwid != hwid]
-
-        snapshot.devices = next_devices
-        snapshot.refreshed_at = datetime_now()
-        await self._store_cached_device_list(
+        return await _apply_device_event_to_cached_list_impl(
+            self,
             user_remna_id=user_remna_id,
-            devices=next_devices,
-            refreshed_at=snapshot.refreshed_at,
+            event=event,
+            hwid_device=hwid_device,
         )
-        emit_counter("subscription_device_list_cache_mutations_total", event=event)
-        return snapshot
 
     async def _get_owned_subscription(
         self,
@@ -322,21 +305,14 @@ class SubscriptionDeviceService:
         subscription_id: int,
         user_telegram_id: int,
     ) -> SubscriptionDto:
-        subscription = await self.subscription_service.get(subscription_id)
-        if not subscription:
-            raise SubscriptionDeviceNotFoundError("Subscription not found")
-        if subscription.user_telegram_id != user_telegram_id:
-            raise SubscriptionDeviceAccessDeniedError("Access denied to this subscription")
-        return subscription
+        return await _get_owned_subscription_impl(
+            self,
+            subscription_id=subscription_id,
+            user_telegram_id=user_telegram_id,
+        )
 
     async def _resolve_cached_devices_count(self, subscription: SubscriptionDto) -> int:
-        devices_count = max(subscription.devices_count, 0)
-        cached_runtime = await self.subscription_runtime_service.get_cached_runtime(
-            subscription.user_remna_id
-        )
-        if cached_runtime is not None:
-            return max(cached_runtime.devices_count, 0)
-        return devices_count
+        return await _resolve_cached_devices_count_impl(self, subscription)
 
     async def _store_cached_device_list(
         self,
@@ -345,14 +321,11 @@ class SubscriptionDeviceService:
         devices: list[SubscriptionDeviceItem],
         refreshed_at: datetime | None = None,
     ) -> None:
-        await self.redis_repository.set(
-            SubscriptionDeviceListSnapshotKey(user_remna_id=str(user_remna_id)),
-            SubscriptionDeviceListSnapshot(
-                user_remna_id=str(user_remna_id),
-                devices=devices,
-                refreshed_at=refreshed_at or datetime_now(),
-            ),
-            ex=SUBSCRIPTION_DEVICE_LIST_CACHE_TTL_SECONDS,
+        await _store_cached_device_list_impl(
+            self,
+            user_remna_id=user_remna_id,
+            devices=devices,
+            refreshed_at=refreshed_at,
         )
 
     async def _persist_subscription_url_if_changed(
@@ -361,46 +334,19 @@ class SubscriptionDeviceService:
         subscription: SubscriptionDto,
         normalized_subscription_url: str,
     ) -> None:
-        if (subscription.url or "").strip() == normalized_subscription_url:
-            return
-
-        subscription.url = normalized_subscription_url
-        try:
-            await self.subscription_service.update(subscription)
-        except Exception as sync_exception:
-            logger.warning(
-                f"Failed to persist refreshed URL after device link generation for "
-                f"subscription '{subscription.id}': {sync_exception}"
-            )
-
-    @staticmethod
-    def _resolve_requested_device_type(device_type: DeviceType | None) -> str:
-        if device_type is None:
-            return "UNKNOWN"
-        return device_type.value if hasattr(device_type, "value") else str(device_type)
-
-    @classmethod
-    def _map_panel_device_to_device_item(cls, device: object) -> SubscriptionDeviceItem:
-        created_at = getattr(device, "created_at", None)
-        updated_at = getattr(device, "updated_at", None)
-        return SubscriptionDeviceItem(
-            hwid=str(getattr(device, "hwid", "")),
-            device_type=cls._normalize_platform_to_device_type(getattr(device, "platform", None)),
-            first_connected=created_at.isoformat() if created_at else None,
-            last_connected=updated_at.isoformat() if updated_at else None,
+        await _persist_subscription_url_if_changed_impl(
+            self,
+            subscription=subscription,
+            normalized_subscription_url=normalized_subscription_url,
         )
 
     @staticmethod
+    def _resolve_requested_device_type(device_type: DeviceType | None) -> str:
+        return _resolve_requested_device_type_impl(device_type)
+
+    def _map_panel_device_to_device_item(self, device: object) -> SubscriptionDeviceItem:
+        return _map_panel_device_to_device_item_impl(self, device)
+
+    @staticmethod
     def _normalize_platform_to_device_type(platform: str | None) -> str:
-        platform_upper = (platform or "").upper()
-
-        if "ANDROID" in platform_upper:
-            return DeviceType.ANDROID.value
-        if "IPHONE" in platform_upper or "IOS" in platform_upper:
-            return DeviceType.IPHONE.value
-        if "WINDOWS" in platform_upper:
-            return DeviceType.WINDOWS.value
-        if any(marker in platform_upper for marker in ("MAC", "MACOS", "OS X", "OSX", "DARWIN")):
-            return DeviceType.MAC.value
-
-        return DeviceType.OTHER.value
+        return _normalize_platform_to_device_type_impl(platform)

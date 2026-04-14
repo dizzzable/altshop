@@ -241,6 +241,52 @@ def test_build_bind_preview_prefers_batched_remnawave_profiles_for_owner_subscri
     remnawave_service.get_user.assert_not_awaited()
 
 
+def test_build_subscription_preview_items_falls_back_to_direct_lookup_on_batch_miss() -> None:
+    owner = build_user(-12, "web-user", current_subscription_id=1)
+    subscription = build_subscription(1, -12, "Starter")
+    service = WebCabinetAdminService(
+        user_service=SimpleNamespace(),
+        web_account_service=SimpleNamespace(),
+        subscription_service=SimpleNamespace(get_all_by_user=AsyncMock(return_value=[subscription])),
+        remnawave_service=SimpleNamespace(
+            get_users_map_by_telegram_id=AsyncMock(return_value={}),
+            get_user=AsyncMock(return_value=SimpleNamespace(username="fallback_profile")),
+        ),
+        telegram_link_service=SimpleNamespace(),
+    )
+
+    items = run_async(
+        service._build_subscription_preview_items(owner=owner, owner_kind="WEB")
+    )
+
+    assert items[0].profile_name == "fallback_profile"
+    service.remnawave_service.get_users_map_by_telegram_id.assert_awaited_once_with(-12)
+    service.remnawave_service.get_user.assert_awaited_once_with(subscription.user_remna_id)
+
+
+def test_build_subscription_preview_items_falls_back_to_direct_lookup_on_batch_failure() -> None:
+    owner = build_user(-12, "web-user", current_subscription_id=1)
+    subscription = build_subscription(1, -12, "Starter")
+    service = WebCabinetAdminService(
+        user_service=SimpleNamespace(),
+        web_account_service=SimpleNamespace(),
+        subscription_service=SimpleNamespace(get_all_by_user=AsyncMock(return_value=[subscription])),
+        remnawave_service=SimpleNamespace(
+            get_users_map_by_telegram_id=AsyncMock(side_effect=RuntimeError("boom")),
+            get_user=AsyncMock(return_value=SimpleNamespace(username="fallback_profile")),
+        ),
+        telegram_link_service=SimpleNamespace(),
+    )
+
+    items = run_async(
+        service._build_subscription_preview_items(owner=owner, owner_kind="WEB")
+    )
+
+    assert items[0].profile_name == "fallback_profile"
+    service.remnawave_service.get_users_map_by_telegram_id.assert_awaited_once_with(-12)
+    service.remnawave_service.get_user.assert_awaited_once_with(subscription.user_remna_id)
+
+
 def test_apply_bind_merge_deletes_unselected_and_reassigns_current_subscription() -> None:
     source_user = build_user(-12, "web-user", current_subscription_id=1)
     target_user = build_user(12, "tg-user", current_subscription_id=2)

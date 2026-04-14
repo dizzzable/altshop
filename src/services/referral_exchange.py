@@ -1,35 +1,61 @@
 from __future__ import annotations
 
-import secrets
-import string
 from dataclasses import dataclass
-from datetime import timedelta
+from typing import Any
 
 from aiogram import Bot
 from fluentogram import TranslatorHub
 from redis.asyncio import Redis
 
 from src.core.config import AppConfig
-from src.core.enums import (
-    PointsExchangeType,
-    PromocodeAvailability,
-    PromocodeRewardType,
-    SubscriptionStatus,
-)
-from src.core.utils.time import datetime_now
+from src.core.enums import PointsExchangeType
 from src.infrastructure.database import UnitOfWork
-from src.infrastructure.database.models.dto import (
-    PlanSnapshotDto,
-    PromocodeDto,
-    SubscriptionDto,
-    UserDto,
-)
+from src.infrastructure.database.models.dto import SubscriptionDto, UserDto
 from src.infrastructure.database.models.dto.settings import ExchangeTypeSettingsDto
 from src.infrastructure.redis import RedisRepository
 
 from .base import BaseService
 from .plan import PlanService
 from .promocode import PromocodeService
+from .referral_exchange_execution import (
+    execute as _execute_impl,
+)
+from .referral_exchange_execution import (
+    execute_discount as _execute_discount_impl,
+)
+from .referral_exchange_execution import (
+    execute_gift_subscription as _execute_gift_subscription_impl,
+)
+from .referral_exchange_execution import (
+    execute_subscription_days as _execute_subscription_days_impl,
+)
+from .referral_exchange_execution import (
+    execute_traffic as _execute_traffic_impl,
+)
+from .referral_exchange_execution import (
+    generate_gift_promocode_code as _generate_gift_promocode_code_impl,
+)
+from .referral_exchange_execution import (
+    get_exchangeable_subscription as _get_exchangeable_subscription_impl,
+)
+from .referral_exchange_options import (
+    get_active_gift_plans as _get_active_gift_plans_impl,
+)
+from .referral_exchange_options import (
+    get_exchangeable_subscriptions as _get_exchangeable_subscriptions_impl,
+)
+from .referral_exchange_options import (
+    get_options as _get_options_impl,
+)
+from .referral_exchange_options import (
+    resolve_availability_reason as _resolve_availability_reason_impl,
+)
+from .referral_exchange_values import (
+    compute_value as _compute_value_impl,
+)
+from .referral_exchange_values import (
+    get_effective_points as _get_effective_points_impl,
+)
 from .remnawave import RemnawaveService
 from .settings import SettingsService
 from .subscription import SubscriptionService
@@ -125,72 +151,102 @@ class ReferralExchangeService(BaseService):
         self.promocode_service = promocode_service
         self.remnawave_service = remnawave_service
 
-    async def get_options(self, *, user_telegram_id: int) -> ReferralExchangeOptions:
-        user = await self.user_service.get(user_telegram_id)
-        if not user:
-            raise ReferralExchangeError(code="USER_NOT_FOUND", message="User not found")
+    @staticmethod
+    def _user_dto_from_model(model: Any) -> UserDto | None:
+        return UserDto.from_model(model)
 
-        referral_settings = await self.settings_service.get_referral_settings()
-        exchange_settings = referral_settings.points_exchange
-        subscriptions = await self._get_exchangeable_subscriptions(user.telegram_id)
-        has_subscriptions = bool(subscriptions)
-        gift_plans = await self._get_active_gift_plans()
+    @staticmethod
+    def _exchange_error(*, code: str, message: str) -> ReferralExchangeError:
+        return ReferralExchangeError(code=code, message=message)
 
-        type_options: list[ReferralExchangeTypeOption] = []
-        for exchange_type in PointsExchangeType:
-            type_settings = exchange_settings.get_settings_for_type(exchange_type)
-            effective_points = self._get_effective_points(
-                user_points=user.points,
-                max_points=type_settings.max_points,
-            )
-            computed_value = self._compute_value(exchange_type, effective_points, type_settings)
-            requires_subscription = exchange_type in (
-                PointsExchangeType.SUBSCRIPTION_DAYS,
-                PointsExchangeType.TRAFFIC,
-            )
-            has_plan_for_gift = (
-                bool(gift_plans) if exchange_type == PointsExchangeType.GIFT_SUBSCRIPTION else True
-            )
-            availability_reason = self._resolve_availability_reason(
-                exchange_enabled=exchange_settings.exchange_enabled,
-                type_enabled=type_settings.enabled,
-                user_points=user.points,
-                min_points=type_settings.min_points,
-                points_cost=type_settings.points_cost,
-                computed_value=computed_value,
-                requires_subscription=requires_subscription,
-                has_subscriptions=has_subscriptions,
-                has_plan_for_gift=has_plan_for_gift,
-            )
-            available = (
-                exchange_settings.exchange_enabled
-                and type_settings.enabled
-                and availability_reason is None
-            )
-            type_options.append(
-                ReferralExchangeTypeOption(
-                    type=exchange_type,
-                    enabled=exchange_settings.exchange_enabled and type_settings.enabled,
-                    available=available,
-                    availability_reason=availability_reason,
-                    points_cost=type_settings.points_cost,
-                    min_points=type_settings.min_points,
-                    max_points=type_settings.max_points,
-                    computed_value=computed_value,
-                    requires_subscription=requires_subscription,
-                    gift_plan_id=type_settings.gift_plan_id,
-                    gift_duration_days=type_settings.gift_duration_days,
-                    max_discount_percent=type_settings.max_discount_percent,
-                    max_traffic_gb=type_settings.max_traffic_gb,
-                )
-            )
+    @staticmethod
+    def _gift_plan_option(*, plan_id: int, plan_name: str) -> ReferralGiftPlanOption:
+        return ReferralGiftPlanOption(plan_id=plan_id, plan_name=plan_name)
 
+    @staticmethod
+    def _type_option(
+        *,
+        type: PointsExchangeType,
+        enabled: bool,
+        available: bool,
+        availability_reason: str | None,
+        points_cost: int,
+        min_points: int,
+        max_points: int,
+        computed_value: int,
+        requires_subscription: bool,
+        gift_plan_id: int | None = None,
+        gift_duration_days: int | None = None,
+        max_discount_percent: int | None = None,
+        max_traffic_gb: int | None = None,
+    ) -> ReferralExchangeTypeOption:
+        return ReferralExchangeTypeOption(
+            type=type,
+            enabled=enabled,
+            available=available,
+            availability_reason=availability_reason,
+            points_cost=points_cost,
+            min_points=min_points,
+            max_points=max_points,
+            computed_value=computed_value,
+            requires_subscription=requires_subscription,
+            gift_plan_id=gift_plan_id,
+            gift_duration_days=gift_duration_days,
+            max_discount_percent=max_discount_percent,
+            max_traffic_gb=max_traffic_gb,
+        )
+
+    @staticmethod
+    def _options(
+        *,
+        exchange_enabled: bool,
+        points_balance: int,
+        types: list[ReferralExchangeTypeOption],
+        gift_plans: list[ReferralGiftPlanOption],
+    ) -> ReferralExchangeOptions:
         return ReferralExchangeOptions(
-            exchange_enabled=exchange_settings.exchange_enabled,
-            points_balance=user.points,
-            types=type_options,
+            exchange_enabled=exchange_enabled,
+            points_balance=points_balance,
+            types=types,
             gift_plans=gift_plans,
         )
+
+    @staticmethod
+    def _result_payload(
+        *,
+        days_added: int | None = None,
+        traffic_gb_added: int | None = None,
+        discount_percent_added: int | None = None,
+        gift_promocode: str | None = None,
+        gift_plan_name: str | None = None,
+        gift_duration_days: int | None = None,
+    ) -> ReferralExchangeResultPayload:
+        return ReferralExchangeResultPayload(
+            days_added=days_added,
+            traffic_gb_added=traffic_gb_added,
+            discount_percent_added=discount_percent_added,
+            gift_promocode=gift_promocode,
+            gift_plan_name=gift_plan_name,
+            gift_duration_days=gift_duration_days,
+        )
+
+    @staticmethod
+    def _execution_result(
+        *,
+        exchange_type: PointsExchangeType,
+        points_spent: int,
+        points_balance_after: int,
+        result: ReferralExchangeResultPayload,
+    ) -> ReferralExchangeExecutionResult:
+        return ReferralExchangeExecutionResult(
+            exchange_type=exchange_type,
+            points_spent=points_spent,
+            points_balance_after=points_balance_after,
+            result=result,
+        )
+
+    async def get_options(self, *, user_telegram_id: int) -> ReferralExchangeOptions:
+        return await _get_options_impl(self, user_telegram_id=user_telegram_id)
 
     @staticmethod
     def _resolve_availability_reason(
@@ -205,17 +261,17 @@ class ReferralExchangeService(BaseService):
         has_subscriptions: bool,
         has_plan_for_gift: bool,
     ) -> str | None:
-        if not exchange_enabled:
-            return "EXCHANGE_DISABLED_GLOBAL"
-        if not type_enabled:
-            return "EXCHANGE_TYPE_DISABLED"
-        if user_points < max(min_points, points_cost) or computed_value <= 0:
-            return "INSUFFICIENT_POINTS"
-        if requires_subscription and not has_subscriptions:
-            return "SUBSCRIPTION_REQUIRED"
-        if not has_plan_for_gift:
-            return "GIFT_PLAN_REQUIRED"
-        return None
+        return _resolve_availability_reason_impl(
+            exchange_enabled=exchange_enabled,
+            type_enabled=type_enabled,
+            user_points=user_points,
+            min_points=min_points,
+            points_cost=points_cost,
+            computed_value=computed_value,
+            requires_subscription=requires_subscription,
+            has_subscriptions=has_subscriptions,
+            has_plan_for_gift=has_plan_for_gift,
+        )
 
     async def execute(
         self,
@@ -225,78 +281,13 @@ class ReferralExchangeService(BaseService):
         subscription_id: int | None = None,
         gift_plan_id: int | None = None,
     ) -> ReferralExchangeExecutionResult:
-        referral_settings = await self.settings_service.get_referral_settings()
-        exchange_settings = referral_settings.points_exchange
-
-        if not exchange_settings.exchange_enabled:
-            raise ReferralExchangeError(
-                code="EXCHANGE_DISABLED",
-                message="Points exchange is disabled",
-            )
-        if not exchange_settings.is_type_enabled(exchange_type):
-            raise ReferralExchangeError(
-                code="EXCHANGE_TYPE_DISABLED",
-                message=f"Exchange type '{exchange_type.value}' is disabled",
-            )
-
-        db_user = await self.uow.repository.users.get_for_update(user_telegram_id)
-        if not db_user:
-            raise ReferralExchangeError(code="USER_NOT_FOUND", message="User not found")
-        user = UserDto.from_model(db_user)
-        if user is None:
-            raise ReferralExchangeError(code="USER_NOT_FOUND", message="User not found")
-
-        type_settings = exchange_settings.get_settings_for_type(exchange_type)
-        effective_points = self._get_effective_points(
-            user_points=user.points,
-            max_points=type_settings.max_points,
+        return await _execute_impl(
+            self,
+            user_telegram_id=user_telegram_id,
+            exchange_type=exchange_type,
+            subscription_id=subscription_id,
+            gift_plan_id=gift_plan_id,
         )
-        if effective_points < type_settings.min_points:
-            raise ReferralExchangeError(
-                code="NOT_ENOUGH_POINTS",
-                message=f"Minimum points required: {type_settings.min_points}",
-            )
-
-        if exchange_type == PointsExchangeType.SUBSCRIPTION_DAYS:
-            result = await self._execute_subscription_days(
-                user=user,
-                effective_points=effective_points,
-                points_cost=type_settings.points_cost,
-                subscription_id=subscription_id,
-            )
-        elif exchange_type == PointsExchangeType.GIFT_SUBSCRIPTION:
-            result = await self._execute_gift_subscription(
-                user=user,
-                points_cost=type_settings.points_cost,
-                configured_plan_id=type_settings.gift_plan_id,
-                requested_plan_id=gift_plan_id,
-                duration_days=type_settings.gift_duration_days,
-            )
-        elif exchange_type == PointsExchangeType.DISCOUNT:
-            result = await self._execute_discount(
-                user_telegram_id=user.telegram_id,
-                current_points=user.points,
-                current_discount=user.purchase_discount,
-                effective_points=effective_points,
-                points_cost=type_settings.points_cost,
-                max_discount_percent=type_settings.max_discount_percent,
-            )
-        elif exchange_type == PointsExchangeType.TRAFFIC:
-            result = await self._execute_traffic(
-                user=user,
-                effective_points=effective_points,
-                points_cost=type_settings.points_cost,
-                max_traffic_gb=type_settings.max_traffic_gb,
-                subscription_id=subscription_id,
-            )
-        else:
-            raise ReferralExchangeError(
-                code="UNSUPPORTED_EXCHANGE_TYPE",
-                message=f"Unsupported exchange type '{exchange_type.value}'",
-            )
-
-        await self.user_service.clear_user_cache(user.telegram_id)
-        return result
 
     async def _execute_subscription_days(
         self,
@@ -306,46 +297,12 @@ class ReferralExchangeService(BaseService):
         points_cost: int,
         subscription_id: int | None,
     ) -> ReferralExchangeExecutionResult:
-        if not subscription_id:
-            raise ReferralExchangeError(
-                code="SUBSCRIPTION_REQUIRED",
-                message="Subscription ID is required for this exchange type",
-            )
-        if points_cost <= 0:
-            raise ReferralExchangeError(
-                code="INVALID_POINTS_COST",
-                message="Points cost must be greater than zero",
-            )
-
-        subscription = await self._get_exchangeable_subscription(
-            user_telegram_id=user.telegram_id,
-            subscription_id=subscription_id,
-        )
-        days_to_add = effective_points // points_cost
-        points_spent = days_to_add * points_cost
-        if days_to_add <= 0 or points_spent <= 0:
-            raise ReferralExchangeError(
-                code="NOT_ENOUGH_POINTS",
-                message="Not enough points for exchange",
-            )
-
-        base_expire_at = max(subscription.expire_at, datetime_now())
-        subscription.expire_at = base_expire_at + timedelta(days=days_to_add)
-        await self.subscription_service.update(subscription, auto_commit=False)
-
-        points_after = user.points - points_spent
-        await self.uow.repository.users.update(user.telegram_id, points=points_after)
-        await self.remnawave_service.updated_user(
+        return await _execute_subscription_days_impl(
+            self,
             user=user,
-            uuid=subscription.user_remna_id,
-            subscription=subscription,
-        )
-
-        return ReferralExchangeExecutionResult(
-            exchange_type=PointsExchangeType.SUBSCRIPTION_DAYS,
-            points_spent=points_spent,
-            points_balance_after=points_after,
-            result=ReferralExchangeResultPayload(days_added=days_to_add),
+            effective_points=effective_points,
+            points_cost=points_cost,
+            subscription_id=subscription_id,
         )
 
     async def _execute_gift_subscription(
@@ -357,58 +314,13 @@ class ReferralExchangeService(BaseService):
         requested_plan_id: int | None,
         duration_days: int,
     ) -> ReferralExchangeExecutionResult:
-        if points_cost <= 0:
-            raise ReferralExchangeError(
-                code="INVALID_POINTS_COST",
-                message="Points cost must be greater than zero",
-            )
-        if user.points < points_cost:
-            raise ReferralExchangeError(
-                code="NOT_ENOUGH_POINTS",
-                message="Not enough points for exchange",
-            )
-
-        selected_plan_id = requested_plan_id or configured_plan_id
-        if not selected_plan_id:
-            raise ReferralExchangeError(
-                code="PLAN_REQUIRED",
-                message="Gift plan is required for this exchange type",
-            )
-
-        plan = await self.plan_service.get(selected_plan_id)
-        if not plan or not plan.is_active:
-            raise ReferralExchangeError(
-                code="PLAN_NOT_FOUND",
-                message="Selected gift plan not found",
-            )
-
-        safe_duration_days = max(duration_days, 1)
-        promocode_code = await self._generate_gift_promocode_code()
-        plan_snapshot = PlanSnapshotDto.from_plan(plan, safe_duration_days)
-        promocode = PromocodeDto(
-            code=promocode_code,
-            reward_type=PromocodeRewardType.SUBSCRIPTION,
-            availability=PromocodeAvailability.ALL,
-            reward=safe_duration_days,
-            plan=plan_snapshot,
-            lifetime=-1,
-            max_activations=1,
-            is_active=True,
-        )
-        await self.promocode_service.create(promocode, auto_commit=False)
-
-        points_after = user.points - points_cost
-        await self.uow.repository.users.update(user.telegram_id, points=points_after)
-
-        return ReferralExchangeExecutionResult(
-            exchange_type=PointsExchangeType.GIFT_SUBSCRIPTION,
-            points_spent=points_cost,
-            points_balance_after=points_after,
-            result=ReferralExchangeResultPayload(
-                gift_promocode=promocode_code,
-                gift_plan_name=plan.name,
-                gift_duration_days=safe_duration_days,
-            ),
+        return await _execute_gift_subscription_impl(
+            self,
+            user=user,
+            points_cost=points_cost,
+            configured_plan_id=configured_plan_id,
+            requested_plan_id=requested_plan_id,
+            duration_days=duration_days,
         )
 
     async def _execute_discount(
@@ -421,35 +333,14 @@ class ReferralExchangeService(BaseService):
         points_cost: int,
         max_discount_percent: int,
     ) -> ReferralExchangeExecutionResult:
-        if points_cost <= 0:
-            raise ReferralExchangeError(
-                code="INVALID_POINTS_COST",
-                message="Points cost must be greater than zero",
-            )
-
-        discount_percent = effective_points // points_cost
-        if max_discount_percent > 0:
-            discount_percent = min(discount_percent, max_discount_percent)
-        points_spent = discount_percent * points_cost
-        if discount_percent <= 0 or points_spent <= 0:
-            raise ReferralExchangeError(
-                code="NOT_ENOUGH_POINTS",
-                message="Not enough points for exchange",
-            )
-
-        points_after = current_points - points_spent
-        purchase_discount_after = min(max(current_discount, 0) + discount_percent, 100)
-        await self.uow.repository.users.update(
-            user_telegram_id,
-            points=points_after,
-            purchase_discount=purchase_discount_after,
-        )
-
-        return ReferralExchangeExecutionResult(
-            exchange_type=PointsExchangeType.DISCOUNT,
-            points_spent=points_spent,
-            points_balance_after=points_after,
-            result=ReferralExchangeResultPayload(discount_percent_added=discount_percent),
+        return await _execute_discount_impl(
+            self,
+            user_telegram_id=user_telegram_id,
+            current_points=current_points,
+            current_discount=current_discount,
+            effective_points=effective_points,
+            points_cost=points_cost,
+            max_discount_percent=max_discount_percent,
         )
 
     async def _execute_traffic(
@@ -461,65 +352,20 @@ class ReferralExchangeService(BaseService):
         max_traffic_gb: int,
         subscription_id: int | None,
     ) -> ReferralExchangeExecutionResult:
-        if not subscription_id:
-            raise ReferralExchangeError(
-                code="SUBSCRIPTION_REQUIRED",
-                message="Subscription ID is required for this exchange type",
-            )
-        if points_cost <= 0:
-            raise ReferralExchangeError(
-                code="INVALID_POINTS_COST",
-                message="Points cost must be greater than zero",
-            )
-
-        subscription = await self._get_exchangeable_subscription(
-            user_telegram_id=user.telegram_id,
-            subscription_id=subscription_id,
-        )
-        traffic_gb = effective_points // points_cost
-        if max_traffic_gb > 0:
-            traffic_gb = min(traffic_gb, max_traffic_gb)
-        points_spent = traffic_gb * points_cost
-        if traffic_gb <= 0 or points_spent <= 0:
-            raise ReferralExchangeError(
-                code="NOT_ENOUGH_POINTS",
-                message="Not enough points for exchange",
-            )
-
-        subscription.traffic_limit = (subscription.traffic_limit or 0) + traffic_gb
-        await self.subscription_service.update(subscription, auto_commit=False)
-
-        points_after = user.points - points_spent
-        await self.uow.repository.users.update(user.telegram_id, points=points_after)
-        await self.remnawave_service.updated_user(
+        return await _execute_traffic_impl(
+            self,
             user=user,
-            uuid=subscription.user_remna_id,
-            subscription=subscription,
-        )
-
-        return ReferralExchangeExecutionResult(
-            exchange_type=PointsExchangeType.TRAFFIC,
-            points_spent=points_spent,
-            points_balance_after=points_after,
-            result=ReferralExchangeResultPayload(traffic_gb_added=traffic_gb),
+            effective_points=effective_points,
+            points_cost=points_cost,
+            max_traffic_gb=max_traffic_gb,
+            subscription_id=subscription_id,
         )
 
     async def _get_exchangeable_subscriptions(
         self,
         user_telegram_id: int,
     ) -> list[SubscriptionDto]:
-        subscriptions = await self.subscription_service.get_all_by_user(user_telegram_id)
-        return [
-            subscription
-            for subscription in subscriptions
-            if subscription.status
-            in (
-                SubscriptionStatus.ACTIVE,
-                SubscriptionStatus.EXPIRED,
-                SubscriptionStatus.LIMITED,
-            )
-            and not subscription.is_unlimited
-        ]
+        return await _get_exchangeable_subscriptions_impl(self, user_telegram_id)
 
     async def _get_exchangeable_subscription(
         self,
@@ -527,52 +373,21 @@ class ReferralExchangeService(BaseService):
         user_telegram_id: int,
         subscription_id: int,
     ) -> SubscriptionDto:
-        subscription = await self.subscription_service.get(subscription_id)
-        if not subscription or subscription.user_telegram_id != user_telegram_id:
-            raise ReferralExchangeError(
-                code="SUBSCRIPTION_NOT_FOUND",
-                message="Subscription not found",
-            )
-        if (
-            subscription.status
-            not in (
-                SubscriptionStatus.ACTIVE,
-                SubscriptionStatus.EXPIRED,
-                SubscriptionStatus.LIMITED,
-            )
-            or subscription.is_unlimited
-        ):
-            raise ReferralExchangeError(
-                code="SUBSCRIPTION_NOT_ELIGIBLE",
-                message="Subscription is not eligible for this exchange",
-            )
-        return subscription
+        return await _get_exchangeable_subscription_impl(
+            self,
+            user_telegram_id=user_telegram_id,
+            subscription_id=subscription_id,
+        )
 
     async def _get_active_gift_plans(self) -> list[ReferralGiftPlanOption]:
-        plans = await self.plan_service.get_all()
-        return [
-            ReferralGiftPlanOption(plan_id=plan.id, plan_name=plan.name)
-            for plan in plans
-            if plan.id is not None and plan.is_active
-        ]
+        return await _get_active_gift_plans_impl(self)
 
     async def _generate_gift_promocode_code(self) -> str:
-        alphabet = string.ascii_uppercase + string.digits
-        for _ in range(20):
-            code = "GIFT_" + "".join(secrets.choice(alphabet) for _ in range(8))
-            exists = await self.promocode_service.get_by_code(code)
-            if not exists:
-                return code
-        raise ReferralExchangeError(
-            code="PROMOCODE_GENERATION_FAILED",
-            message="Could not generate unique promocode",
-        )
+        return await _generate_gift_promocode_code_impl(self)
 
     @staticmethod
     def _get_effective_points(*, user_points: int, max_points: int) -> int:
-        if max_points > 0:
-            return min(user_points, max_points)
-        return user_points
+        return _get_effective_points_impl(user_points=user_points, max_points=max_points)
 
     @staticmethod
     def _compute_value(
@@ -580,22 +395,4 @@ class ReferralExchangeService(BaseService):
         points: int,
         type_settings: ExchangeTypeSettingsDto,
     ) -> int:
-        points_cost = type_settings.points_cost
-        if points_cost <= 0:
-            return 0
-
-        if exchange_type == PointsExchangeType.SUBSCRIPTION_DAYS:
-            return points // points_cost
-        if exchange_type == PointsExchangeType.GIFT_SUBSCRIPTION:
-            return type_settings.gift_duration_days if points >= points_cost else 0
-        if exchange_type == PointsExchangeType.DISCOUNT:
-            discount = points // points_cost
-            if type_settings.max_discount_percent > 0:
-                discount = min(discount, type_settings.max_discount_percent)
-            return discount
-        if exchange_type == PointsExchangeType.TRAFFIC:
-            traffic = points // points_cost
-            if type_settings.max_traffic_gb > 0:
-                traffic = min(traffic, type_settings.max_traffic_gb)
-            return traffic
-        return 0
+        return _compute_value_impl(exchange_type, points, type_settings)

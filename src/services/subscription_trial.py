@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from src.core.enums import PlanAvailability, PurchaseChannel, SubscriptionStatus
+from src.core.enums import PlanAvailability, PurchaseChannel
 from src.infrastructure.database.models.dto import (
     PlanDto,
     PlanSnapshotDto,
@@ -17,6 +17,7 @@ from .purchase_access import PurchaseAccessService
 from .referral import ReferralService
 from .remnawave import RemnawaveService
 from .subscription import SubscriptionService
+from .subscription_status import is_deleted_subscription
 
 TRIAL_REASON_TELEGRAM_LINK_REQUIRED = "TRIAL_TELEGRAM_LINK_REQUIRED"
 TRIAL_REASON_ALREADY_USED = "TRIAL_ALREADY_USED"
@@ -195,7 +196,7 @@ class SubscriptionTrialService:
             current_user.telegram_id
         )
         if any(
-            not self._is_deleted_subscription(subscription)
+            not is_deleted_subscription(subscription)
             for subscription in existing_subscriptions
         ):
             return self._trial_failure(
@@ -293,10 +294,3 @@ class SubscriptionTrialService:
     @staticmethod
     def _is_linked_telegram_identity(user: UserDto) -> bool:
         return int(getattr(user, "telegram_id", 0) or 0) > 0
-
-    @staticmethod
-    def _is_deleted_subscription(subscription: SubscriptionDto) -> bool:
-        status = subscription.status
-        if hasattr(status, "value"):
-            return str(getattr(status, "value")) == SubscriptionStatus.DELETED.value
-        return str(status) == SubscriptionStatus.DELETED.value

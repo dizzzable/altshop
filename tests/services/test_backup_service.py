@@ -4,13 +4,14 @@ import asyncio
 import json
 import tarfile
 from contextlib import nullcontext
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
+import pytest
 from remnawave.enums.users import TrafficLimitStrategy
 
 from src.core.enums import (
@@ -31,6 +32,8 @@ from src.core.enums import (
     UserRole,
 )
 from src.core.security.password import hash_password, verify_password
+from src.core.utils.time import datetime_now
+from src.infrastructure.database.models.dto import RemnaSubscriptionDto
 from src.infrastructure.database.models.sql.plan import Plan, PlanDuration, PlanPrice
 from src.infrastructure.database.models.sql.promocode import Promocode
 from src.infrastructure.database.models.sql.referral import ReferralInvite
@@ -137,7 +140,8 @@ def test_create_database_backup_contains_db_manifest_only(tmp_path: Path) -> Non
     assert success is True
     assert file_path is not None
     assert "Scope: Database only" in message
-    assert "Records: 345" in message
+    assert "Database: 12 tables / 345 records" in message
+    assert "Created:" in message
 
     metadata, names = read_archive_metadata(Path(file_path))
     assert metadata["backup_scope"] == BackupScope.DB.value
@@ -164,7 +168,8 @@ def test_create_assets_backup_contains_assets_only(tmp_path: Path) -> None:
     assert success is True
     assert file_path is not None
     assert "Scope: Assets only" in message
-    assert "Assets files: 1" in message
+    assert "Assets: 1 files" in message
+    assert "Created:" in message
 
     metadata, names = read_archive_metadata(Path(file_path))
     assert metadata["backup_scope"] == BackupScope.ASSETS.value
@@ -193,8 +198,9 @@ def test_create_full_backup_contains_database_and_assets(tmp_path: Path) -> None
     assert success is True
     assert file_path is not None
     assert "Scope: Full backup" in message
-    assert "Tables: 7" in message
-    assert "Assets files: 1" in message
+    assert "Database: 7 tables / 99 records" in message
+    assert "Assets: 1 files" in message
+    assert "Created:" in message
 
     metadata, names = read_archive_metadata(Path(file_path))
     assert metadata["backup_scope"] == BackupScope.FULL.value
@@ -265,6 +271,159 @@ def test_create_backup_marks_degraded_archives_in_message_and_metadata(tmp_path:
     assert "degraded" in message.lower()
     metadata, _names = read_archive_metadata(Path(file_path))
     assert metadata["integrity"]["degraded"] is True
+
+
+def test_send_backup_file_to_chat_uses_rich_caption_and_topic(tmp_path: Path) -> None:
+    service, config = build_backup_service(tmp_path)
+    service._send_backup_file_to_chat = BackupService._send_backup_file_to_chat.__get__(
+        service,
+        BackupService,
+    )
+    config.backup.send_enabled = True
+    config.backup.send_chat_id = 123456
+    config.backup.send_topic_id = 77
+    config.backup.is_send_enabled = lambda: True
+    service.bot.send_document = AsyncMock(return_value=SimpleNamespace(document=SimpleNamespace()))
+
+    backup_path = service.backup_dir / "backup_full_20260413_000002.tar.gz"
+    backup_path.write_text("payload", encoding="utf-8")
+    backup_info = BackupInfo(
+        selection_key=f"local:{backup_path.name}",
+        filename=backup_path.name,
+        filepath=str(backup_path),
+        timestamp="2026-04-13T00:00:02+00:00",
+        tables_count=7,
+        total_records=99,
+        compressed=True,
+        file_size_bytes=440 * 1024,
+        file_size_mb=0.43,
+        created_by=None,
+        database_type="postgresql",
+        version="3.3",
+        includes_database=True,
+        includes_assets=False,
+    )
+
+    result = run_async(
+        BackupService._send_backup_file_to_chat(
+            service,
+            str(backup_path),
+            backup_info=backup_info,
+            locale=None,
+        )
+    )
+
+    assert result is not None
+    service.bot.send_document.assert_awaited_once()
+    kwargs = service.bot.send_document.await_args.kwargs
+    assert kwargs["chat_id"] == 123456
+    assert kwargs["message_thread_id"] == 77
+    assert "Backup created" in kwargs["caption"]
+    assert "Full backup" in kwargs["caption"]
+    assert "2026-04-13 00:00:02" in kwargs["caption"]
+    assert "7 tables / 99 records" in kwargs["caption"]
+    assert "File:" not in kwargs["caption"]
+
+
+def test_send_backup_file_to_chat_caption_stays_compact_without_restore_only_diagnostics(
+    tmp_path: Path,
+) -> None:
+    service, config = build_backup_service(tmp_path)
+    service._send_backup_file_to_chat = BackupService._send_backup_file_to_chat.__get__(
+        service,
+        BackupService,
+    )
+    config.backup.send_enabled = True
+    config.backup.send_chat_id = 123456
+    config.backup.is_send_enabled = lambda: True
+    service.bot.send_document = AsyncMock(return_value=SimpleNamespace(document=SimpleNamespace()))
+
+    backup_path = service.backup_dir / "backup_db_20260413_000002.tar.gz"
+    backup_path.write_text("payload", encoding="utf-8")
+    backup_info = BackupInfo(
+        selection_key=f"local:{backup_path.name}",
+        filename=backup_path.name,
+        filepath=str(backup_path),
+        timestamp="2026-04-13T00:00:02+00:00",
+        tables_count=12,
+        total_records=345,
+        compressed=True,
+        file_size_bytes=2 * 1024 * 1024,
+        file_size_mb=2.0,
+        created_by=None,
+        database_type="postgresql",
+        version="3.3",
+        backup_scope=BackupScope.DB,
+        includes_database=True,
+        includes_assets=False,
+        error="Degraded backup: missing rows (+1 more)",
+    )
+
+    run_async(
+        BackupService._send_backup_file_to_chat(
+            service,
+            str(backup_path),
+            backup_info=backup_info,
+            locale=None,
+        )
+    )
+
+    caption = service.bot.send_document.await_args.kwargs["caption"]
+    assert "Degraded archive" in caption
+    assert "Remnawave" not in caption
+    assert "Recovered plans" not in caption
+
+
+def test_build_backup_result_message_includes_db_assets_and_degraded_summary(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+    backup_info = BackupInfo(
+        selection_key="local:backup_full.tar.gz",
+        filename="backup_full.tar.gz",
+        filepath=str(tmp_path / "backup_full.tar.gz"),
+        timestamp="2026-04-13T12:00:00+00:00",
+        tables_count=7,
+        total_records=99,
+        compressed=True,
+        file_size_bytes=1536,
+        file_size_mb=0.0,
+        created_by=1,
+        database_type="postgresql",
+        version="3.3",
+        backup_scope=BackupScope.FULL,
+        includes_database=True,
+        includes_assets=True,
+        assets_files_count=4,
+        error="Degraded backup: missing rows (+1 more)",
+    )
+
+    message = service._build_backup_result_message(backup_info=backup_info, locale=None)
+
+    assert "Scope: Full backup" in message
+    assert "Size: 1.5 KB" in message
+    assert "Database: 7 tables / 99 records" in message
+    assert "Assets: 4 files" in message
+    assert "Warning: backup marked as degraded" in message
+
+
+def test_summarize_backup_integrity_uses_first_issue_and_more_count(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+
+    summary = service._summarize_backup_integrity(
+        {
+            "integrity": {
+                "degraded": True,
+                "issues": [
+                    {"message": "missing rows"},
+                    {"message": "orphaned subscriptions"},
+                    {"message": "legacy mismatch"},
+                ],
+            }
+        }
+    )
+
+    assert summary == "Degraded backup: missing rows (+2 more)"
 
 
 def test_restore_assets_backup_merges_files_without_deleting_unrelated(tmp_path: Path) -> None:
@@ -345,6 +504,71 @@ def test_restore_database_backup_leaves_assets_untouched(tmp_path: Path) -> None
     service._restore_from_json.assert_awaited_once()
 
 
+def test_restore_from_archive_restores_database_before_assets(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    archive_path = tmp_path / "restore-order.tar.gz"
+    payload_dir = tmp_path / "restore-order"
+    payload_dir.mkdir(parents=True, exist_ok=True)
+    (payload_dir / "metadata.json").write_text(
+        json.dumps(
+            {
+                "format_version": "3.3",
+                "includes_database": True,
+                "includes_assets": True,
+                "database": {"path": "database.json"},
+                "assets": {"path": "assets"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (payload_dir / "database.json").write_text("{}", encoding="utf-8")
+    asset_file = payload_dir / "assets" / "branding" / "banner.txt"
+    asset_file.parent.mkdir(parents=True, exist_ok=True)
+    asset_file.write_text("banner", encoding="utf-8")
+
+    with tarfile.open(archive_path, "w:gz") as archive:
+        for item in payload_dir.iterdir():
+            archive.add(item, arcname=item.name)
+
+    call_order: list[tuple[str, str]] = []
+
+    async def restore_db(dump_path: Path, clear_existing: bool, locale: Locale | None = None):
+        assert clear_existing is True
+        assert locale is None
+        call_order.append(("db", dump_path.name))
+        return True, "database restored"
+
+    async def restore_assets(source_dir: Path, *, locale: Locale | None = None) -> str:
+        assert locale is None
+        call_order.append(("assets", source_dir.name))
+        return "assets restored"
+
+    service._restore_from_json = AsyncMock(side_effect=restore_db)  # type: ignore[method-assign]
+    service._restore_assets_from_dir = AsyncMock(side_effect=restore_assets)  # type: ignore[method-assign]
+
+    restored, message = run_async(service._restore_from_archive(archive_path, clear_existing=True))
+
+    assert restored is True
+    assert message == "database restored\n\nassets restored"
+    assert call_order == [("db", "database.json"), ("assets", "assets")]
+
+
+def test_restore_from_archive_fails_cleanly_when_metadata_is_missing(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    archive_path = tmp_path / "missing-metadata.tar.gz"
+    payload_dir = tmp_path / "missing-metadata"
+    payload_dir.mkdir(parents=True, exist_ok=True)
+    (payload_dir / "database.json").write_text("{}", encoding="utf-8")
+
+    with tarfile.open(archive_path, "w:gz") as archive:
+        archive.add(payload_dir / "database.json", arcname="database.json")
+
+    restored, message = run_async(service._restore_from_archive(archive_path, clear_existing=False))
+
+    assert restored is False
+    assert message == "Backup metadata file is missing"
+
+
 def test_clear_database_tables_uses_single_truncate_statement(tmp_path: Path) -> None:
     service, _config = build_backup_service(tmp_path)
     session = SimpleNamespace(execute=AsyncMock())
@@ -391,6 +615,102 @@ def test_get_backup_list_merges_registry_entries_with_local_fallback(tmp_path: P
     assert len(backups) == 2
     assert any(backup.selection_key == "registry:1" for backup in backups)
     assert any(backup.selection_key == "local:backup_local_only.tar.gz" for backup in backups)
+
+
+def test_normalize_backup_scope_preserves_legacy_database_fallback(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+
+    db_only_scope = service._normalize_backup_scope(
+        {
+            "backup_scope": BackupScope.FULL.value,
+            "includes_database": False,
+            "includes_assets": False,
+            "database": {"path": "database.json"},
+        }
+    )
+    full_scope = service._normalize_backup_scope(
+        {
+            "backup_scope": BackupScope.DB.value,
+            "includes_database": False,
+            "includes_assets": True,
+            "database": {"path": "database.json"},
+        }
+    )
+
+    assert db_only_scope == BackupScope.DB
+    assert full_scope == BackupScope.FULL
+
+
+def test_metadata_to_backup_info_preserves_assets_and_degraded_mapping(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    backup_path = service.backup_dir / "backup_local.tar.gz"
+    backup_path.write_text("payload", encoding="utf-8")
+    file_stats = backup_path.stat()
+
+    backup_info = service._metadata_to_backup_info(
+        backup_path,
+        file_stats,
+        {
+            "timestamp": "2026-03-25T11:00:00+00:00",
+            "created_by": 7,
+            "database_type": "postgresql",
+            "format_version": "3.3",
+            "backup_scope": BackupScope.FULL.value,
+            "includes_database": True,
+            "includes_assets": True,
+            "tables_count": 12,
+            "total_records": 345,
+            "assets_root": "runtime-assets",
+            "assets": {"files_count": 5, "size_bytes": 1234},
+            "integrity": {
+                "degraded": True,
+                "issues": [{"message": "missing rows"}],
+            },
+        },
+    )
+
+    assert backup_info.source_kind == BackupSourceKind.LOCAL
+    assert backup_info.has_local_copy is True
+    assert backup_info.includes_assets is True
+    assert backup_info.assets_root == "runtime-assets"
+    assert backup_info.assets_files_count == 5
+    assert backup_info.assets_size_bytes == 1234
+    assert backup_info.error == "Degraded backup: missing rows"
+
+
+def test_record_to_backup_info_resolves_local_and_telegram_source_kind(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    local_copy = service.backup_dir / "backup_registry.tar.gz"
+    local_copy.write_text("payload", encoding="utf-8")
+    record = SimpleNamespace(
+        id=9,
+        filename=local_copy.name,
+        local_path=str(local_copy),
+        backup_timestamp=datetime(2026, 3, 25, 11, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 3, 25, 10, 0, tzinfo=timezone.utc),
+        created_by=1,
+        backup_scope=BackupScope.DB.value,
+        includes_database=True,
+        includes_assets=False,
+        assets_root=None,
+        tables_count=12,
+        total_records=345,
+        compressed=True,
+        file_size_bytes=local_copy.stat().st_size,
+        database_type="postgresql",
+        version="3.3",
+        assets_files_count=0,
+        assets_size_bytes=0,
+        telegram_file_id="telegram-file",
+    )
+
+    backup_info = service._record_to_backup_info(record)
+
+    assert backup_info is not None
+    assert backup_info.source_kind == BackupSourceKind.LOCAL_AND_TELEGRAM
+    assert backup_info.has_local_copy is True
+    assert backup_info.has_telegram_copy is True
+    assert backup_info.filepath == str(local_copy)
 
 
 def test_restore_selected_backup_downloads_telegram_only_backup(tmp_path: Path) -> None:
@@ -449,6 +769,65 @@ def test_import_backup_file_registers_local_copy(tmp_path: Path) -> None:
     assert backup_info is not None
     assert error == ""
     service._upsert_backup_record.assert_awaited_once()
+
+
+def test_build_imported_backup_filename_sanitizes_spaces_and_avoids_collisions(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 3, 25, 11, 0, tzinfo=tz or timezone.utc)
+
+    existing_path = service.backup_dir / "backup_import_20260325_110000_my_backup.tar.gz"
+    existing_path.write_text("exists", encoding="utf-8")
+
+    with patch("src.services.backup_registry_storage.datetime", FixedDateTime):
+        filename = service._build_imported_backup_filename("my backup.tar.gz")
+
+    assert filename == "backup_import_20260325_110000_1_my_backup.tar.gz"
+
+
+@pytest.mark.parametrize(
+    "metadata,expected_error",
+    [
+        ({}, "Backup metadata file is missing."),
+        (
+            {
+                "timestamp": "2026-03-25T10:00:00+00:00",
+                "backup_scope": BackupScope.FULL.value,
+                "includes_database": False,
+                "includes_assets": False,
+            },
+            "Backup does not contain restorable data.",
+        ),
+    ],
+)
+def test_import_backup_file_removes_copied_file_on_invalid_metadata(
+    tmp_path: Path,
+    metadata: dict[str, object],
+    expected_error: str,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+    archive_path = tmp_path / "backup import.tar.gz"
+    archive_path.write_text("fake", encoding="utf-8")
+    service._read_backup_metadata = AsyncMock(return_value=metadata)  # type: ignore[method-assign]
+
+    success, backup_info, error = run_async(
+        service.import_backup_file(
+            source_file_path=archive_path,
+            original_filename="backup import.tar.gz",
+            created_by=7,
+        )
+    )
+
+    assert success is False
+    assert backup_info is None
+    assert error == expected_error
+    assert list(service.backup_dir.iterdir()) == []
+    service._upsert_backup_record.assert_not_awaited()
 
 
 def test_delete_selected_backup_removes_local_copy_only(tmp_path: Path) -> None:
@@ -1169,6 +1548,104 @@ def test_build_backup_integrity_report_marks_missing_plan_and_subscription_data(
     }
 
 
+def test_match_plan_for_panel_subscription_picks_lowest_order_index_match(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+    internal_squad = uuid4()
+    external_squad = uuid4()
+    remna_subscription = RemnaSubscriptionDto(
+        uuid=uuid4(),
+        status=SubscriptionStatus.ACTIVE,
+        expire_at=datetime(2026, 4, 13, 12, 0, tzinfo=timezone.utc),
+        url="https://example.com/sub",
+        traffic_limit=100,
+        device_limit=3,
+        traffic_limit_strategy=TrafficLimitStrategy.NO_RESET,
+        tag="starter",
+        internal_squads=[internal_squad],
+        external_squad=external_squad,
+    )
+    higher_order_match = Plan(
+        id=10,
+        order_index=5,
+        is_active=True,
+        is_archived=False,
+        type=PlanType.BOTH,
+        availability=PlanAvailability.ALL,
+        archived_renew_mode=ArchivedPlanRenewMode.SELF_RENEW,
+        name="Starter Plus",
+        description=None,
+        tag="starter",
+        traffic_limit=100,
+        device_limit=3,
+        traffic_limit_strategy=TrafficLimitStrategy.NO_RESET,
+        replacement_plan_ids=[],
+        upgrade_to_plan_ids=[],
+        allowed_user_ids=[],
+        internal_squads=[internal_squad],
+        external_squad=external_squad,
+    )
+    lower_order_match = Plan(
+        id=11,
+        order_index=1,
+        is_active=True,
+        is_archived=False,
+        type=PlanType.BOTH,
+        availability=PlanAvailability.ALL,
+        archived_renew_mode=ArchivedPlanRenewMode.SELF_RENEW,
+        name="Starter",
+        description=None,
+        tag="starter",
+        traffic_limit=100,
+        device_limit=3,
+        traffic_limit_strategy=TrafficLimitStrategy.NO_RESET,
+        replacement_plan_ids=[],
+        upgrade_to_plan_ids=[],
+        allowed_user_ids=[],
+        internal_squads=[internal_squad],
+        external_squad=external_squad,
+    )
+
+    matched = service._match_plan_for_panel_subscription(
+        remna_subscription=remna_subscription,
+        plans=[higher_order_match, lower_order_match],
+    )
+
+    assert matched is lower_order_match
+
+
+def test_select_current_subscription_id_prefers_active_current_candidate(tmp_path: Path) -> None:
+    service, _config = build_backup_service(tmp_path)
+    now = datetime_now()
+    subscriptions = [
+        SimpleNamespace(
+            id=1,
+            status=SubscriptionStatus.DELETED,
+            expire_at=now + timedelta(days=10),
+        ),
+        SimpleNamespace(
+            id=2,
+            status=SubscriptionStatus.DISABLED,
+            expire_at=now + timedelta(days=5),
+        ),
+        SimpleNamespace(
+            id=3,
+            status=SubscriptionStatus.ACTIVE,
+            expire_at=now + timedelta(days=3),
+        ),
+        SimpleNamespace(
+            id=4,
+            status=SubscriptionStatus.ACTIVE,
+            expire_at=now + timedelta(days=7),
+        ),
+    ]
+
+    selected_id = service._select_current_subscription_id(subscriptions)
+
+    assert selected_id == 4
+
+
 def test_restore_from_json_appends_panel_recovery_summary(tmp_path: Path) -> None:
     service, _config = build_backup_service(tmp_path)
     dump_path = tmp_path / "database.json"
@@ -1229,6 +1706,97 @@ def test_restore_from_json_appends_panel_recovery_summary(tmp_path: Path) -> Non
     assert "Subscriptions recovered from Remnawave: 2" in message
 
 
+def test_sync_panel_profiles_for_restore_updates_current_subscription_from_panel_data(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+    plan_payload = {"id": 20, "name": "Recovered Plan"}
+    matched_plan = SimpleNamespace(id=20, order_index=1)
+    current_subscription = SimpleNamespace(
+        id=42,
+        status=SubscriptionStatus.ACTIVE,
+        expire_at=datetime_now() + timedelta(days=30),
+    )
+    added_instances: list[Subscription] = []
+
+    class FakeRemnaUser:
+        def __init__(self) -> None:
+            self.uuid = uuid4()
+            self.expire_at = datetime_now() + timedelta(days=30)
+            self.status = SubscriptionStatus.ACTIVE
+            self._payload = {
+                "uuid": self.uuid,
+                "status": self.status,
+                "expire_at": self.expire_at,
+                "subscription_url": "https://example.com/sub",
+                "traffic_limit_bytes": 100 * 1024 * 1024 * 1024,
+                "hwid_device_limit": 3,
+                "traffic_limit_strategy": TrafficLimitStrategy.NO_RESET,
+                "tag": "starter",
+                "active_internal_squads": [],
+                "external_squad_uuid": None,
+            }
+
+        def model_dump(self) -> dict[str, object]:
+            return dict(self._payload)
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.execute = AsyncMock(
+                side_effect=[
+                    SimpleNamespace(scalar_one_or_none=lambda: 123),
+                    SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [matched_plan])),
+                    SimpleNamespace(scalar_one_or_none=lambda: None),
+                    SimpleNamespace(
+                        scalars=lambda: SimpleNamespace(all=lambda: [current_subscription])
+                    ),
+                ]
+            )
+            self.flush = AsyncMock()
+            self.commit = AsyncMock()
+
+        def add(self, instance: Subscription) -> None:
+            added_instances.append(instance)
+
+    class FakeSessionContext:
+        def __init__(self, session: FakeSession) -> None:
+            self.session = session
+
+        async def __aenter__(self) -> FakeSession:
+            return self.session
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    fake_session = FakeSession()
+    fake_remna_user = FakeRemnaUser()
+    service.session_pool = lambda: FakeSessionContext(fake_session)  # type: ignore[assignment]
+    service._match_plan_for_panel_subscription = MagicMock(return_value=matched_plan)  # type: ignore[method-assign]
+    service._build_panel_subscription_snapshot = MagicMock(return_value=plan_payload)  # type: ignore[method-assign]
+    service._upsert_missing_plan_rows_from_snapshots = AsyncMock(return_value=0)  # type: ignore[method-assign]
+    service._select_current_subscription_id = MagicMock(return_value=42)  # type: ignore[method-assign]
+    service._apply_scalar_restore_update = AsyncMock(return_value=1)  # type: ignore[method-assign]
+
+    restored_count, panel_snapshots = run_async(
+        service._sync_panel_profiles_for_restore(
+            telegram_id=123,
+            remna_users=[fake_remna_user],
+        )
+    )
+
+    assert restored_count == 1
+    assert panel_snapshots == [plan_payload]
+    assert len(added_instances) == 1
+    assert added_instances[0].user_remna_id == fake_remna_user.uuid
+    assert fake_session.commit.await_count == 1
+    service._upsert_missing_plan_rows_from_snapshots.assert_awaited_once()
+    service._apply_scalar_restore_update.assert_awaited_once()
+    assert (
+        service._apply_scalar_restore_update.await_args.kwargs["values"]["current_subscription_id"]
+        == 42
+    )
+
+
 def test_recover_missing_subscriptions_from_panel_marks_unrecoverable_users(tmp_path: Path) -> None:
     service, _config = build_backup_service(tmp_path)
     diagnostics = SimpleNamespace(
@@ -1244,6 +1812,33 @@ def test_recover_missing_subscriptions_from_panel_marks_unrecoverable_users(tmp_
     updated = run_async(service._recover_missing_subscriptions_from_panel(diagnostics))
 
     assert updated.unrecovered_user_refs == [(123, 7)]
+
+
+def test_recover_missing_subscriptions_from_panel_counts_recovered_and_unrecoverable_users(
+    tmp_path: Path,
+) -> None:
+    service, _config = build_backup_service(tmp_path)
+    diagnostics = SimpleNamespace(
+        panel_sync_candidate_ids=[123, 456],
+        missing_archive_subscription_refs=[(123, 7), (456, 8)],
+        remnawave_users_recovered=0,
+        remnawave_subscriptions_recovered=0,
+        unrecovered_user_refs=[],
+        panel_sync_errors=[],
+    )
+    service._fetch_panel_users_by_telegram_id = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[[object()], [object()]]
+    )
+    service._sync_panel_profiles_for_restore = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[(2, [{"id": 20}]), (0, [])]
+    )
+
+    updated = run_async(service._recover_missing_subscriptions_from_panel(diagnostics))
+
+    assert updated.remnawave_users_recovered == 1
+    assert updated.remnawave_subscriptions_recovered == 2
+    assert updated.unrecovered_user_refs == [(456, 8)]
+    assert updated.panel_sync_errors == []
 
 
 def test_restore_from_json_flushes_each_table_before_children(tmp_path: Path) -> None:

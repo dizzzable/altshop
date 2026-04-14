@@ -1,117 +1,129 @@
-# mypy: ignore-errors
-
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from src.core.enums import BackupScope, Locale
 
-from .backup_models import RestoreArchiveDiagnostics
+from .backup_formatting_render import (
+    build_backup_caption as _build_backup_caption_impl,
+)
+from .backup_formatting_render import (
+    build_backup_created_summary as _build_backup_created_summary_impl,
+)
+from .backup_formatting_render import (
+    build_backup_result_message as _build_backup_result_message_impl,
+)
+from .backup_formatting_render import (
+    format_backup_file_size as _format_backup_file_size_impl,
+)
+from .backup_formatting_render import (
+    format_backup_timestamp as _format_backup_timestamp_impl,
+)
+from .backup_formatting_render import (
+    format_scope_label as _format_scope_label_impl,
+)
+from .backup_formatting_render import (
+    format_scope_label_localized as _format_scope_label_localized_impl,
+)
+from .backup_formatting_render import (
+    get_backup_integrity_from_metadata as _get_backup_integrity_from_metadata_impl,
+)
+from .backup_formatting_render import (
+    summarize_backup_integrity as _summarize_backup_integrity_impl,
+)
+from .backup_formatting_restore import (
+    append_restore_diagnostics_to_message as _append_restore_diagnostics_to_message_impl,
+)
+from .backup_formatting_restore import (
+    build_backup_create_error_message as _build_backup_create_error_message_impl,
+)
+from .backup_formatting_restore import (
+    build_backup_delete_error_message as _build_backup_delete_error_message_impl,
+)
+from .backup_formatting_restore import (
+    build_backup_deleted_message as _build_backup_deleted_message_impl,
+)
+from .backup_formatting_restore import (
+    build_backup_missing_file_message as _build_backup_missing_file_message_impl,
+)
+from .backup_formatting_restore import (
+    build_backup_restore_error_message as _build_backup_restore_error_message_impl,
+)
+from .backup_formatting_restore import (
+    build_restore_result_message as _build_restore_result_message_impl,
+)
+from .backup_formatting_restore import (
+    summarize_backup_restore_error as _summarize_backup_restore_error_impl,
+)
+from .backup_models import BackupInfo, RestoreArchiveDiagnostics
+
+
+def _as_backup_service(instance: object) -> Any:
+    return cast(Any, instance)
 
 
 class BackupFormattingMixin:
     @staticmethod
+    def _format_backup_file_size(file_size_bytes: int) -> str:
+        return _format_backup_file_size_impl(file_size_bytes)
+
+    @staticmethod
+    def _format_backup_timestamp(value: str) -> str:
+        return _format_backup_timestamp_impl(value)
+
+    def _build_backup_created_summary(
+        self,
+        *,
+        backup_info: BackupInfo,
+        locale: Locale | None,
+    ) -> dict[str, Any]:
+        return _build_backup_created_summary_impl(
+            _as_backup_service(self),
+            backup_info=backup_info,
+            locale=locale,
+        )
+
+    @staticmethod
     def _format_scope_label(scope: BackupScope) -> str:
-        mapping = {
-            BackupScope.DB: "Database only",
-            BackupScope.ASSETS: "Assets only",
-            BackupScope.FULL: "Full backup",
-        }
-        return mapping[scope]
+        return _format_scope_label_impl(scope)
 
     def _format_scope_label_localized(self, scope: BackupScope, locale: Locale | None) -> str:
-        if locale is None:
-            return self._format_scope_label(scope)
-
-        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-        mapping = {
-            BackupScope.DB: i18n.get("msg-backup-scope-db-label"),
-            BackupScope.ASSETS: i18n.get("msg-backup-scope-assets-label"),
-            BackupScope.FULL: i18n.get("msg-backup-scope-full-label"),
-        }
-        return mapping[scope]
+        return _format_scope_label_localized_impl(
+            _as_backup_service(self),
+            scope,
+            locale,
+        )
 
     def _build_backup_result_message(
         self,
         *,
-        scope: BackupScope,
-        filename: str,
-        size_mb: float,
-        overview: dict[str, Any],
-        includes_database: bool,
-        assets_info: Optional[dict[str, Any]],
+        backup_info: BackupInfo,
         locale: Locale | None = None,
     ) -> str:
-        if locale is not None:
-            i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-            lines = [
-                i18n.get("msg-backup-result-created-title"),
-                i18n.get(
-                    "msg-backup-result-scope",
-                    scope=self._format_scope_label_localized(scope, locale),
-                ),
-                i18n.get("msg-backup-result-file", value=filename),
-                i18n.get("msg-backup-result-size", value=f"{size_mb:.2f} MB"),
-            ]
-            if includes_database:
-                lines.append(
-                    i18n.get("msg-backup-result-tables", count=overview.get("tables_count", 0))
-                )
-                lines.append(
-                    i18n.get(
-                        "msg-backup-result-records",
-                        count=f"{overview.get('total_records', 0):,}",
-                    )
-                )
-            if assets_info is not None:
-                lines.append(
-                    i18n.get(
-                        "msg-backup-content-assets-files",
-                        count=int(assets_info.get("files_count", 0) or 0),
-                    )
-                )
-            integrity = self._get_backup_integrity_from_metadata(overview)
-            if integrity.get("degraded"):
-                lines.append(i18n.get("msg-backup-result-degraded"))
-            return "\n".join(lines)
+        return _build_backup_result_message_impl(
+            _as_backup_service(self),
+            backup_info=backup_info,
+            locale=locale,
+        )
 
-        lines = [
-            "Backup created successfully!",
-            f"Scope: {self._format_scope_label(scope)}",
-            f"File: {filename}",
-            f"Size: {size_mb:.2f} MB",
-        ]
-        if includes_database:
-            lines.append(f"Tables: {overview.get('tables_count', 0)}")
-            lines.append(f"Records: {overview.get('total_records', 0):,}")
-        if assets_info is not None:
-            lines.append(f"Assets files: {assets_info.get('files_count', 0)}")
-        integrity = self._get_backup_integrity_from_metadata(overview)
-        if integrity.get("degraded"):
-            lines.append("Warning: backup marked as degraded")
-        return "\n".join(lines)
+    def _build_backup_caption(
+        self,
+        *,
+        backup_info: BackupInfo,
+        locale: Locale | None = None,
+    ) -> str:
+        return _build_backup_caption_impl(
+            _as_backup_service(self),
+            backup_info=backup_info,
+            locale=locale,
+        )
 
     @staticmethod
     def _get_backup_integrity_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-        integrity = metadata.get("integrity")
-        if isinstance(integrity, dict):
-            return integrity
-        return {"degraded": False, "issues": []}
+        return _get_backup_integrity_from_metadata_impl(metadata)
 
     def _summarize_backup_integrity(self, metadata: dict[str, Any]) -> Optional[str]:
-        integrity = self._get_backup_integrity_from_metadata(metadata)
-        issues = integrity.get("issues")
-        if not integrity.get("degraded") or not isinstance(issues, list) or not issues:
-            return None
-
-        first_issue = issues[0]
-        first_message = first_issue.get("message") if isinstance(first_issue, dict) else None
-        if isinstance(first_message, str) and first_message.strip():
-            if len(issues) == 1:
-                return f"Degraded backup: {first_message}"
-            return f"Degraded backup: {first_message} (+{len(issues) - 1} more)"
-
-        return f"Degraded backup: {len(issues)} issue(s)"
+        return _summarize_backup_integrity_impl(metadata)
 
     def _build_backup_create_error_message(
         self,
@@ -119,10 +131,11 @@ class BackupFormattingMixin:
         *,
         locale: Locale | None = None,
     ) -> str:
-        if locale is None:
-            return f"Backup creation failed: {error}"
-        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-        return i18n.get("msg-backup-error-create", error=error)
+        return _build_backup_create_error_message_impl(
+            _as_backup_service(self),
+            error,
+            locale=locale,
+        )
 
     def _build_backup_restore_error_message(
         self,
@@ -130,29 +143,15 @@ class BackupFormattingMixin:
         *,
         locale: Locale | None = None,
     ) -> str:
-        error = self._summarize_backup_restore_error(error)
-        if locale is None:
-            return f"Restore failed: {error}"
-        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-        return i18n.get("msg-backup-error-restore", error=error)
+        return _build_backup_restore_error_message_impl(
+            _as_backup_service(self),
+            error,
+            locale=locale,
+        )
 
     @staticmethod
     def _summarize_backup_restore_error(error: str) -> str:
-        normalized = " ".join(str(error).split())
-        if not normalized:
-            return "unknown restore error"
-
-        if "Circular dependency detected" in normalized:
-            return "users and subscriptions could not be linked automatically"
-
-        if "[SQL:" in normalized:
-            normalized = normalized.split("[SQL:", 1)[0].strip()
-
-        max_length = 320
-        if len(normalized) <= max_length:
-            return normalized
-
-        return f"{normalized[: max_length - 3].rstrip()}..."
+        return _summarize_backup_restore_error_impl(error)
 
     def _build_backup_missing_file_message(
         self,
@@ -160,10 +159,11 @@ class BackupFormattingMixin:
         *,
         locale: Locale | None = None,
     ) -> str:
-        if locale is None:
-            return f"Backup file not found: {path}"
-        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-        return i18n.get("msg-backup-error-file-missing", path=path)
+        return _build_backup_missing_file_message_impl(
+            _as_backup_service(self),
+            path,
+            locale=locale,
+        )
 
     def _build_backup_deleted_message(
         self,
@@ -171,10 +171,11 @@ class BackupFormattingMixin:
         *,
         locale: Locale | None = None,
     ) -> str:
-        if locale is None:
-            return f"Backup {backup_filename} deleted"
-        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-        return i18n.get("msg-backup-result-deleted", filename=backup_filename)
+        return _build_backup_deleted_message_impl(
+            _as_backup_service(self),
+            backup_filename,
+            locale=locale,
+        )
 
     def _build_backup_delete_error_message(
         self,
@@ -182,10 +183,11 @@ class BackupFormattingMixin:
         *,
         locale: Locale | None = None,
     ) -> str:
-        if locale is None:
-            return f"Backup deletion failed: {error}"
-        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-        return i18n.get("msg-backup-error-delete", error=error)
+        return _build_backup_delete_error_message_impl(
+            _as_backup_service(self),
+            error,
+            locale=locale,
+        )
 
     def _build_restore_result_message(
         self,
@@ -196,114 +198,25 @@ class BackupFormattingMixin:
         restored_records: int,
         recovered_legacy_plans: int,
     ) -> str:
-        message = (
-            f"✅ Восстановление завершено!\n"
-            f"📊 Таблиц: {restored_tables}\n"
-            f"📈 Записей: {restored_records:,}\n"
-            f"🗓 Дата бэкапа: {metadata.get('timestamp', 'неизвестно')}"
+        return _build_restore_result_message_impl(
+            _as_backup_service(self),
+            locale=locale,
+            metadata=metadata,
+            restored_tables=restored_tables,
+            restored_records=restored_records,
+            recovered_legacy_plans=recovered_legacy_plans,
         )
 
-        if locale is None:
-            if recovered_legacy_plans:
-                message += f"\nRecovered plans: {recovered_legacy_plans}"
-            return message
-
-        i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-        message = "\n".join(
-            [
-                i18n.get("msg-backup-result-db-restored-title"),
-                i18n.get("msg-backup-result-tables", count=restored_tables),
-                i18n.get("msg-backup-result-records", count=f"{restored_records:,}"),
-                i18n.get(
-                    "msg-backup-result-backup-date",
-                    value=metadata.get("timestamp", i18n.get("msg-backup-value-unknown")),
-                ),
-            ]
-        )
-        if recovered_legacy_plans:
-            message = "\n".join(
-                [
-                    message,
-                    i18n.get(
-                        "msg-backup-result-recovered-plans",
-                        count=recovered_legacy_plans,
-                    ),
-                ]
-            )
-        return message
-
-    def _append_restore_diagnostics_to_message(  # noqa: C901
+    def _append_restore_diagnostics_to_message(
         self,
         *,
         message: str,
         locale: Locale | None,
         diagnostics: RestoreArchiveDiagnostics,
     ) -> str:
-        extra_lines: list[str] = []
-
-        if diagnostics.archive_issue_messages:
-            issue_count = len(diagnostics.archive_issue_messages)
-            if locale is None:
-                extra_lines.append(f"Archive issues detected: {issue_count}")
-            else:
-                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-                extra_lines.append(i18n.get("msg-backup-result-archive-issues", count=issue_count))
-
-        if diagnostics.remnawave_users_recovered:
-            if locale is None:
-                extra_lines.append(
-                    f"Users synced from Remnawave: {diagnostics.remnawave_users_recovered}"
-                )
-            else:
-                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-                extra_lines.append(
-                    i18n.get(
-                        "msg-backup-result-remnawave-users",
-                        count=diagnostics.remnawave_users_recovered,
-                    )
-                )
-
-        if diagnostics.remnawave_subscriptions_recovered:
-            if locale is None:
-                extra_lines.append(
-                    "Subscriptions recovered from Remnawave: "
-                    f"{diagnostics.remnawave_subscriptions_recovered}"
-                )
-            else:
-                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-                extra_lines.append(
-                    i18n.get(
-                        "msg-backup-result-remnawave-subscriptions",
-                        count=diagnostics.remnawave_subscriptions_recovered,
-                    )
-                )
-
-        unrecovered_count = len(diagnostics.unrecovered_user_refs)
-        if unrecovered_count:
-            if locale is None:
-                extra_lines.append(f"Unrecoverable user subscriptions: {unrecovered_count}")
-            else:
-                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-                extra_lines.append(
-                    i18n.get(
-                        "msg-backup-result-unrecoverable-subscriptions",
-                        count=unrecovered_count,
-                    )
-                )
-
-        if diagnostics.panel_sync_errors:
-            if locale is None:
-                extra_lines.append(f"Remnawave sync errors: {len(diagnostics.panel_sync_errors)}")
-            else:
-                i18n = self.translator_hub.get_translator_by_locale(locale=locale)
-                extra_lines.append(
-                    i18n.get(
-                        "msg-backup-result-remnawave-sync-errors",
-                        count=len(diagnostics.panel_sync_errors),
-                    )
-                )
-
-        if not extra_lines:
-            return message
-
-        return "\n".join([message, *extra_lines])
+        return _append_restore_diagnostics_to_message_impl(
+            _as_backup_service(self),
+            message=message,
+            locale=locale,
+            diagnostics=diagnostics,
+        )

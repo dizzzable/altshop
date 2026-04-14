@@ -68,3 +68,50 @@ def test_build_expiry_summary_lines_prefers_batched_remnawave_profile_map() -> N
     assert "family_profile" in summary
     remnawave_service.get_users_map_by_telegram_id.assert_awaited_once_with(12)
     remnawave_service.get_user.assert_not_awaited()
+
+
+def test_build_expiry_summary_lines_falls_back_to_direct_lookup_on_batch_miss() -> None:
+    subscriptions = [build_subscription(1, 12, "Starter")]
+    remnawave_service = SimpleNamespace(
+        get_users_map_by_telegram_id=AsyncMock(return_value={}),
+        get_user=AsyncMock(return_value=SimpleNamespace(username="fallback_profile")),
+    )
+
+    summary = run_async(
+        _build_expiry_summary_lines(
+            subscriptions=subscriptions,
+            remnawave_service=remnawave_service,
+        )
+    )
+
+    assert "fallback_profile" in summary
+    remnawave_service.get_users_map_by_telegram_id.assert_awaited_once_with(12)
+    remnawave_service.get_user.assert_awaited_once_with(subscriptions[0].user_remna_id)
+
+
+def test_build_expiry_summary_lines_falls_back_to_direct_lookup_on_batch_failure() -> None:
+    subscriptions = [
+        build_subscription(1, 12, "Starter"),
+        build_subscription(2, 12, "Family"),
+    ]
+    remnawave_service = SimpleNamespace(
+        get_users_map_by_telegram_id=AsyncMock(side_effect=RuntimeError("boom")),
+        get_user=AsyncMock(
+            side_effect=[
+                SimpleNamespace(username="starter_profile"),
+                SimpleNamespace(username="family_profile"),
+            ]
+        ),
+    )
+
+    summary = run_async(
+        _build_expiry_summary_lines(
+            subscriptions=subscriptions,
+            remnawave_service=remnawave_service,
+        )
+    )
+
+    assert "starter_profile" in summary
+    assert "family_profile" in summary
+    remnawave_service.get_users_map_by_telegram_id.assert_awaited_once_with(12)
+    assert remnawave_service.get_user.await_count == 2

@@ -5,6 +5,7 @@ import { DashboardQuickActions } from '@/components/dashboard/DashboardQuickActi
 import { useI18n } from '@/components/common/I18nProvider'
 import { SubscriptionUsageCard } from '@/components/dashboard/SubscriptionUsageCard'
 import { useAccessStatusQuery } from '@/hooks/useAccessStatusQuery'
+import { useReferralInfoQuery } from '@/hooks/useReferralInfoQuery'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { buildStaticQueryOptions } from '@/lib/query-defaults'
@@ -75,11 +76,7 @@ export function DashboardPage() {
 
   const subscriptionsQuery = useSubscriptionsQuery()
 
-  const referralQuery = useQuery({
-    queryKey: ['referral-info'],
-    queryFn: () => api.referral.info().then((response) => response.data),
-    ...buildStaticQueryOptions({ enabled: !isPartnerActive, staleTime: 30_000 }),
-  })
+  const referralQuery = useReferralInfoQuery({ enabled: !isPartnerActive })
   const partnerQuery = useQuery<PartnerInfo>({
     queryKey: ['partner-info'],
     queryFn: () => api.partner.info().then((response) => response.data),

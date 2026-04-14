@@ -6,6 +6,21 @@ The format is based on Keep a Changelog, adapted for the public AltShop GitHub m
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-04-14
+
+### Changed
+
+- backend service boundaries were cleaned up across the main operational hotspots, including backup, promocodes, web account/auth flows, payment gateway core, market quotes, email recovery, notification delivery, partner operations, user management, referral exchange, subscription core/runtime/device, and Remnawave integration helpers
+- web auth is now decomposed into support, session, Telegram, and recovery endpoint modules while keeping the same public router surface and request/response contracts
+- Remnawave client and event handling now use narrower typed helper modules instead of broad suppression-based mixins, improving diagnostics and maintainability without changing webhook or sync behavior
+- release `1.5.0` now bundles the accumulated backend stabilization work into one coherent milestone rather than leaving it as patch-level local drift
+
+### Fixed
+
+- `RemnashopBotMenu` no longer generates oversized callback payloads for custom button list items, which fixes the Telegram `Bad Request: BUTTON_DATA_INVALID` crash in `RemnashopBotMenu:MAIN`
+- UTF-8 / mojibake regressions in backend hardcoded strings and endpoint-local auth messages were repaired, while repo-level mojibake guards now help prevent those strings from silently regressing again
+- restore/recovery, panel sync, Telegram/web account linking, current-subscription selection, and notification delivery paths now have much stronger direct regression coverage, reducing the chance of silent operator-facing failures
+
 ## [1.2.32] - 2026-04-12
 
 ### Changed

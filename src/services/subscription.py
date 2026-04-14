@@ -1,25 +1,76 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Optional, Sequence
 from uuid import UUID
 
 from aiogram import Bot
 from fluentogram import TranslatorHub
-from loguru import logger
 from redis.asyncio import Redis
 from remnawave.enums.users import TrafficLimitStrategy
-from sqlalchemy import and_
 
 from src.core.config import AppConfig
-from src.core.constants import TIMEZONE
 from src.core.enums import SubscriptionStatus
-from src.core.utils.time import datetime_now
 from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import PlanDto, SubscriptionDto, UserDto
-from src.infrastructure.database.models.sql import Subscription, User
 from src.infrastructure.redis import RedisRepository
 from src.services.user import UserService
 
 from .base import BaseService
+from .subscription_core import (
+    create as _create_impl,
+)
+from .subscription_core import (
+    delete_subscription as _delete_subscription_impl,
+)
+from .subscription_core import (
+    get as _get_impl,
+)
+from .subscription_core import (
+    get_by_remna_id as _get_by_remna_id_impl,
+)
+from .subscription_core import (
+    rebind_user as _rebind_user_impl,
+)
+from .subscription_core import (
+    update as _update_impl,
+)
+from .subscription_plan_sync import get_traffic_reset_delta as _get_traffic_reset_delta_impl
+from .subscription_plan_sync import sync_plan_snapshot_metadata as _sync_plan_snapshot_metadata_impl
+from .subscription_queries import (
+    get_all as _get_all_impl,
+)
+from .subscription_queries import (
+    get_all_by_user as _get_all_by_user_impl,
+)
+from .subscription_queries import (
+    get_by_ids as _get_by_ids_impl,
+)
+from .subscription_queries import (
+    get_current as _get_current_impl,
+)
+from .subscription_queries import (
+    get_expired_subscriptions_older_than as _get_expired_subscriptions_older_than_impl,
+)
+from .subscription_queries import (
+    get_expired_users as _get_expired_users_impl,
+)
+from .subscription_queries import (
+    get_subscribed_users as _get_subscribed_users_impl,
+)
+from .subscription_queries import (
+    get_trial_users as _get_trial_users_impl,
+)
+from .subscription_queries import (
+    get_unsubscribed_users as _get_unsubscribed_users_impl,
+)
+from .subscription_queries import (
+    get_users_by_plan as _get_users_by_plan_impl,
+)
+from .subscription_queries import (
+    has_any_subscription as _has_any_subscription_impl,
+)
+from .subscription_queries import (
+    has_used_trial as _has_used_trial_impl,
+)
 
 
 class SubscriptionService(BaseService):
@@ -62,6 +113,18 @@ class SubscriptionService(BaseService):
         self.uow = uow
         self.user_service = user_service
 
+    @staticmethod
+    def _deleted_status() -> SubscriptionStatus:
+        return SubscriptionStatus.DELETED
+
+    @staticmethod
+    def _active_status() -> SubscriptionStatus:
+        return SubscriptionStatus.ACTIVE
+
+    @staticmethod
+    def _expired_status() -> SubscriptionStatus:
+        return SubscriptionStatus.EXPIRED
+
     async def create(
         self,
         user: UserDto,
@@ -69,87 +132,25 @@ class SubscriptionService(BaseService):
         *,
         auto_commit: bool = True,
     ) -> SubscriptionDto:
-        data = subscription.model_dump(exclude=self._CREATE_EXCLUDE_FIELDS)
-        data["plan"] = subscription.plan.model_dump(mode="json")
-
-        db_subscription = Subscription(**data, user_telegram_id=user.telegram_id)
-        db_created_subscription = await self.uow.repository.subscriptions.create(db_subscription)
-
-        await self.user_service.set_current_subscription(
-            telegram_id=user.telegram_id,
-            subscription_id=db_created_subscription.id,
-        )
-        if auto_commit:
-            await self.uow.commit()
-
-        logger.info(
-            f"Created subscription '{db_created_subscription.id}' for user '{user.telegram_id}'"
-        )
-        return SubscriptionDto.from_model(db_created_subscription)  # type: ignore[return-value]
+        return await _create_impl(self, user, subscription, auto_commit=auto_commit)
 
     async def get(self, subscription_id: int) -> Optional[SubscriptionDto]:
-        db_subscription = await self.uow.repository.subscriptions.get(subscription_id)
-
-        if db_subscription:
-            logger.debug(f"Retrieved subscription '{subscription_id}'")
-        else:
-            logger.warning(f"Subscription '{subscription_id}' not found")
-
-        return SubscriptionDto.from_model(db_subscription)
+        return await _get_impl(self, subscription_id)
 
     async def get_by_remna_id(self, user_remna_id: UUID) -> Optional[SubscriptionDto]:
-        """Get subscription by Remnawave user UUID."""
-        db_subscription = await self.uow.repository.subscriptions.get_by_remna_id(user_remna_id)
-
-        if db_subscription:
-            logger.debug(f"Retrieved subscription by remna_id '{user_remna_id}'")
-        else:
-            logger.debug(f"Subscription with remna_id '{user_remna_id}' not found")
-
-        return SubscriptionDto.from_model(db_subscription)
+        return await _get_by_remna_id_impl(self, user_remna_id)
 
     async def get_current(self, telegram_id: int) -> Optional[SubscriptionDto]:
-        db_user = await self.uow.repository.users.get(telegram_id)
-
-        if not db_user or not db_user.current_subscription_id:
-            logger.debug(
-                f"Current subscription check: User '{telegram_id}' has no active subscription"
-            )
-            return None
-
-        subscription_id = db_user.current_subscription_id
-        db_active_subscription = await self.uow.repository.subscriptions.get(subscription_id)
-
-        if db_active_subscription:
-            logger.debug(
-                f"Current subscription check: Subscription '{subscription_id}' "
-                f"retrieved for user '{telegram_id}'"
-            )
-        else:
-            logger.warning(
-                f"User '{telegram_id}' linked to subscription ID '{subscription_id}', "
-                f"but subscription object was not found"
-            )
-
-        return SubscriptionDto.from_model(db_active_subscription)
+        return await _get_current_impl(self, telegram_id)
 
     async def get_all_by_user(self, telegram_id: int) -> list[SubscriptionDto]:
-        db_subscriptions = await self.uow.repository.subscriptions.get_all_by_user(telegram_id)
-        logger.debug(f"Retrieved '{len(db_subscriptions)}' subscriptions for user '{telegram_id}'")
-        return SubscriptionDto.from_model_list(db_subscriptions)
+        return await _get_all_by_user_impl(self, telegram_id)
 
     async def get_all(self) -> list[SubscriptionDto]:
-        db_subscriptions = await self.uow.repository.subscriptions.get_all()
-        logger.debug(f"Retrieved '{len(db_subscriptions)}' total subscriptions")
-        return SubscriptionDto.from_model_list(db_subscriptions)
+        return await _get_all_impl(self)
 
     async def get_by_ids(self, subscription_ids: Sequence[int]) -> list[SubscriptionDto]:
-        db_subscriptions = await self.uow.repository.subscriptions.get_by_ids(subscription_ids)
-        logger.debug(
-            f"Retrieved '{len(db_subscriptions)}' subscriptions by ids "
-            f"(requested={len(subscription_ids)})"
-        )
-        return SubscriptionDto.from_model_list(db_subscriptions)
+        return await _get_by_ids_impl(self, subscription_ids)
 
     async def update(
         self,
@@ -157,39 +158,7 @@ class SubscriptionService(BaseService):
         *,
         auto_commit: bool = True,
     ) -> Optional[SubscriptionDto]:
-        changed_data = subscription.changed_data.copy()
-        data = {
-            key: value for key, value in changed_data.items() if key in self._UPDATE_ALLOWED_FIELDS
-        }
-        ignored_fields = set(changed_data.keys()) - set(data.keys()) - {"plan"}
-        if ignored_fields:
-            logger.debug(
-                f"Ignoring non-persisted subscription fields for update '{subscription.id}': "
-                f"{sorted(ignored_fields)}"
-            )
-
-        if subscription.plan.changed_data or "plan" in changed_data:
-            data["plan"] = subscription.plan.model_dump(mode="json")
-
-        db_updated_subscription = await self.uow.repository.subscriptions.update(
-            subscription_id=subscription.id,  # type: ignore[arg-type]
-            **data,
-        )
-
-        if auto_commit:
-            await self.uow.commit()
-
-        if db_updated_subscription:
-            if subscription.user:
-                await self.user_service.clear_user_cache(telegram_id=subscription.user.telegram_id)
-            logger.info(f"Updated subscription '{subscription.id}' successfully")
-        else:
-            logger.warning(
-                f"Attempted to update subscription '{subscription.id}', "
-                "but subscription was not found or update failed"
-            )
-
-        return SubscriptionDto.from_model(db_updated_subscription)
+        return await _update_impl(self, subscription, auto_commit=auto_commit)
 
     async def rebind_user(
         self,
@@ -199,209 +168,46 @@ class SubscriptionService(BaseService):
         previous_user_telegram_id: int | None = None,
         auto_commit: bool = True,
     ) -> Optional[SubscriptionDto]:
-        db_updated_subscription = await self.uow.repository.subscriptions.rebind_user(
+        return await _rebind_user_impl(
+            self,
             subscription_id=subscription_id,
             user_telegram_id=user_telegram_id,
+            previous_user_telegram_id=previous_user_telegram_id,
+            auto_commit=auto_commit,
         )
 
-        if auto_commit:
-            await self.uow.commit()
-
-        if previous_user_telegram_id is not None:
-            await self.user_service.clear_user_cache(previous_user_telegram_id)
-        await self.user_service.clear_user_cache(user_telegram_id)
-
-        if db_updated_subscription:
-            logger.info(
-                "Rebound subscription '{}' to user '{}'",
-                subscription_id,
-                user_telegram_id,
-            )
-        else:
-            logger.warning(
-                "Failed to rebind subscription '{}' to user '{}'",
-                subscription_id,
-                user_telegram_id,
-            )
-
-        return SubscriptionDto.from_model(db_updated_subscription)
-
-    async def sync_plan_snapshot_metadata(
-        self,
-        plan: PlanDto,
-    ) -> int:
-        """Propagate plan identity fields to all non-deleted subscriptions snapshots."""
-        if plan.id is None:
-            raise ValueError("Plan ID is required for snapshot sync")
-
-        subscriptions = await self.uow.repository.subscriptions.filter_by_plan_id(plan.id)
-        updated_count = 0
-
-        for subscription in SubscriptionDto.from_model_list(subscriptions):
-            if subscription.status == SubscriptionStatus.DELETED:
-                continue
-
-            changed = False
-            if subscription.plan.name != plan.name:
-                subscription.plan.name = plan.name
-                changed = True
-            if subscription.plan.tag != plan.tag:
-                subscription.plan.tag = plan.tag
-                changed = True
-
-            if not changed:
-                continue
-
-            updated_subscription = await self.update(subscription, auto_commit=False)
-            if updated_subscription:
-                updated_count += 1
-
-        if updated_count:
-            await self.uow.commit()
-
-        logger.info(
-            f"Plan snapshot metadata sync completed for plan '{plan.id}': updated={updated_count}"
-        )
-        return updated_count
+    async def sync_plan_snapshot_metadata(self, plan: PlanDto) -> int:
+        return await _sync_plan_snapshot_metadata_impl(self, plan)
 
     async def get_subscribed_users(self) -> list[UserDto]:
-        db_users = await self.uow.repository.users._get_many(User)
-        users = [user for user in db_users if user.current_subscription]
-        logger.debug(f"Retrieved '{len(users)}' users with subscription")
-        return UserDto.from_model_list(users)
+        return await _get_subscribed_users_impl(self)
 
     async def get_users_by_plan(self, plan_id: int) -> list[UserDto]:
-        db_subscriptions = await self.uow.repository.subscriptions.filter_by_plan_id(plan_id)
-        active_subs = [s for s in db_subscriptions if s.status == SubscriptionStatus.ACTIVE]
-
-        if not active_subs:
-            logger.debug(f"No active subscriptions found for plan '{plan_id}'")
-            return []
-
-        user_ids = [sub.user_telegram_id for sub in active_subs]
-        db_users = await self.uow.repository.users.get_by_ids(telegram_ids=user_ids)
-        users = UserDto.from_model_list(db_users)
-        logger.debug(f"Retrieved '{len(users)}' users for active plan '{plan_id}'")
-        return users
+        return await _get_users_by_plan_impl(self, plan_id)
 
     async def get_unsubscribed_users(self) -> list[UserDto]:
-        db_users = await self.uow.repository.users._get_many(User)
-        users = [user for user in db_users if not user.current_subscription]
-        logger.debug(f"Retrieved '{len(users)}' users without subscription")
-        return UserDto.from_model_list(users)
+        return await _get_unsubscribed_users_impl(self)
 
     async def get_expired_users(self) -> list[UserDto]:
-        db_users = await self.uow.repository.users._get_many(User)
-
-        users = [
-            user
-            for user in db_users
-            if user.current_subscription
-            and user.current_subscription.status == SubscriptionStatus.EXPIRED
-        ]
-
-        logger.debug(f"Retrieved '{len(users)}' users with expired subscription")
-        return UserDto.from_model_list(users)
+        return await _get_expired_users_impl(self)
 
     async def get_trial_users(self) -> list[UserDto]:
-        db_users = await self.uow.repository.users._get_many(User)
-
-        users = [
-            user
-            for user in db_users
-            if user.current_subscription and user.current_subscription.is_trial
-        ]
-
-        logger.debug(f"Retrieved '{len(users)}' users with trial subscription")
-        return UserDto.from_model_list(users)
+        return await _get_trial_users_impl(self)
 
     async def has_any_subscription(self, user: UserDto) -> bool:
-        count = await self.uow.repository.subscriptions._count(
-            Subscription, Subscription.user_telegram_id == user.telegram_id
-        )
-        return count > 0
+        return await _has_any_subscription_impl(self, user)
 
     async def has_used_trial(self, user: UserDto) -> bool:
-        conditions = and_(
-            Subscription.user_telegram_id == user.telegram_id,
-            Subscription.is_trial.is_(True),
-        )
-
-        count = await self.uow.repository.subscriptions._count(Subscription, conditions)
-        return count > 0
+        return await _has_used_trial_impl(self, user)
 
     async def get_expired_subscriptions_older_than(self, days: int) -> list[SubscriptionDto]:
-        """Get subscriptions that expired more than `days` days ago and are not deleted."""
-        cutoff_date = datetime_now() - timedelta(days=days)
-
-        conditions = and_(
-            Subscription.status == SubscriptionStatus.EXPIRED,
-            Subscription.expire_at < cutoff_date,
-        )
-
-        db_subscriptions = await self.uow.repository.subscriptions._get_many(
-            Subscription, conditions
-        )
-
-        logger.debug(
-            f"Retrieved '{len(db_subscriptions)}' subscriptions expired more than {days} days ago"
-        )
-        return SubscriptionDto.from_model_list(db_subscriptions)
+        return await _get_expired_subscriptions_older_than_impl(self, days)
 
     async def delete_subscription(self, subscription_id: int) -> bool:
-        """Mark subscription as deleted."""
-        db_subscription = await self.uow.repository.subscriptions.update(
-            subscription_id=subscription_id,
-            status=SubscriptionStatus.DELETED,
-        )
-        await self.uow.commit()
-
-        if db_subscription:
-            logger.info(f"Marked subscription '{subscription_id}' as deleted")
-            return True
-
-        logger.warning(f"Failed to mark subscription '{subscription_id}' as deleted")
-        return False
+        return await _delete_subscription_impl(self, subscription_id)
 
     @staticmethod
-    def get_traffic_reset_delta(strategy: TrafficLimitStrategy) -> Optional[timedelta]:
-        """Calculate time until next traffic reset based on strategy."""
-        now = datetime_now()
-
-        if strategy == TrafficLimitStrategy.NO_RESET:
-            return None
-
-        if strategy == TrafficLimitStrategy.DAY:
-            next_day = now.date() + timedelta(days=1)
-            reset_at = datetime.combine(
-                next_day,
-                datetime.min.time(),
-                tzinfo=TIMEZONE,
-            )
-            return reset_at - now
-
-        if strategy == TrafficLimitStrategy.WEEK:
-            weekday = now.weekday()
-            days_until = (7 - weekday) % 7 or 7
-            date_target = now.date() + timedelta(days=days_until)
-            reset_at = datetime(
-                date_target.year,
-                date_target.month,
-                date_target.day,
-                0,
-                5,
-                0,
-                tzinfo=TIMEZONE,
-            )
-            return reset_at - now
-
-        if strategy == TrafficLimitStrategy.MONTH:
-            year = now.year
-            month = now.month + 1
-            if month == 13:
-                year += 1
-                month = 1
-            reset_at = datetime(year, month, 1, 0, 10, 0, tzinfo=TIMEZONE)
-            return reset_at - now
-
-        raise ValueError(f"Unsupported traffic limit strategy: {strategy}")
+    def get_traffic_reset_delta(
+        strategy: TrafficLimitStrategy,
+    ) -> Optional[timedelta]:
+        return _get_traffic_reset_delta_impl(strategy)

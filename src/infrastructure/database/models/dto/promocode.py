@@ -2,13 +2,8 @@ from __future__ import annotations
 
 import secrets
 import string
-from typing import TYPE_CHECKING, Any, Optional, Type
-
-if TYPE_CHECKING:
-    from .plan import PlanSnapshotDto
-    from .user import BaseUserDto
-
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Any, Optional, Type
 
 from pydantic import Field
 
@@ -18,9 +13,13 @@ from src.core.utils.time import datetime_now
 
 from .base import BaseDto, TrackableDto
 
+if TYPE_CHECKING:
+    from .plan import PlanSnapshotDto
+    from .user import BaseUserDto
+
 
 class PromocodeActivationBaseDto(BaseDto):
-    """Base DTO for promocode activation without back-reference to promocode (to avoid recursion)"""
+    """Base DTO for promocode activation without back-reference to promocode."""
 
     id: Optional[int] = Field(default=None, frozen=True)
 
@@ -47,8 +46,8 @@ class PromocodeDto(TrackableDto):
     reward: Optional[int] = 1
     plan: Optional["PlanSnapshotDto"] = None
 
-    lifetime: int = -1  # -1 означает бессрочный
-    max_activations: int = -1  # -1 означает безлимитный
+    lifetime: int = -1  # -1 означает бессрочный промокод
+    max_activations: int = -1  # -1 означает безлимитный промокод
     allowed_user_ids: list[int] = Field(default_factory=list)
     allowed_plan_ids: list[int] = Field(default_factory=list)  # Empty list means all plans
 
@@ -61,7 +60,7 @@ class PromocodeDto(TrackableDto):
         *,
         decrypt: bool = False,
     ) -> Optional["PromocodeDto"]:
-        """Override from_model to handle circular reference in activations"""
+        """Override from_model to handle circular reference in activations."""
         if model_instance is None:
             return None
 
@@ -69,12 +68,11 @@ class PromocodeDto(TrackableDto):
         if decrypt:
             data = deep_decrypt(data)
 
-        # Convert activations to base DTO to avoid circular reference
+        # Convert activations to base DTO to avoid circular reference.
         if "activations" in data and data["activations"]:
             activations_data = []
             for activation in data["activations"]:
                 activation_dict = activation.__dict__.copy()
-                # Remove the back-reference to promocode to break the cycle
                 activation_dict.pop("promocode", None)
                 activations_data.append(activation_dict)
             data["activations"] = activations_data
@@ -86,7 +84,7 @@ class PromocodeDto(TrackableDto):
 
     @property
     def is_unlimited(self) -> bool:
-        """Проверка, является ли промокод безлимитным по количеству активаций"""
+        """Проверка, является ли промокод безлимитным по количеству активаций."""
         return self.max_activations == -1 or self.max_activations is None
 
     @property
@@ -102,8 +100,7 @@ class PromocodeDto(TrackableDto):
 
     @property
     def is_depleted(self) -> bool:
-        """Проверка, исчерпан ли лимит активаций промокода"""
-        # -1 означает безлимитный
+        """Проверка, исчерпан ли лимит активаций промокода."""
         if self.max_activations == -1 or self.max_activations is None:
             return False
 
@@ -111,18 +108,17 @@ class PromocodeDto(TrackableDto):
 
     @property
     def is_available(self) -> bool:
-        """Проверка, доступен ли промокод для активации"""
+        """Проверка, доступен ли промокод для активации."""
         return self.is_active and not self.is_expired and not self.is_depleted
 
     @property
     def is_unlimited_lifetime(self) -> bool:
-        """Проверка, является ли промокод бессрочным"""
+        """Проверка, является ли промокод бессрочным."""
         return self.lifetime == -1 or self.lifetime is None
 
     @property
     def expires_at(self) -> Optional[datetime]:
-        """Получение даты истечения срока действия промокода"""
-        # -1 означает бессрочный
+        """Получение даты истечения срока действия промокода."""
         if self.lifetime == -1 or self.lifetime is None:
             return None
         if self.created_at is None:
@@ -131,8 +127,7 @@ class PromocodeDto(TrackableDto):
 
     @property
     def is_expired(self) -> bool:
-        """Проверка, истек ли срок действия промокода"""
-        # Бессрочный промокод не может истечь
+        """Проверка, истек ли срок действия промокода."""
         if self.lifetime == -1 or self.lifetime is None:
             return False
 
@@ -158,6 +153,6 @@ class PromocodeDto(TrackableDto):
 
 
 class PromocodeActivationDto(PromocodeActivationBaseDto):
-    """Full DTO for promocode activation with optional back-reference to promocode"""
+    """Full DTO for promocode activation with optional back-reference to promocode."""
 
     promocode: Optional["PromocodeDto"] = None

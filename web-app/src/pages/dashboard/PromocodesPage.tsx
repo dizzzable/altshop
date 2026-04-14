@@ -52,6 +52,7 @@ import {
 
 const HISTORY_PAGE_SIZE = 20
 const HISTORY_PREVIEW_LIMIT = 4
+const PROMOCODE_HISTORY_STALE_TIME_MS = 30_000
 
 type PromoLocale = 'ru' | 'en'
 
@@ -237,6 +238,17 @@ function extractErrorDetail(error: unknown): string | null {
   return typeof detail === 'string' && detail.length > 0 ? detail : null
 }
 
+function buildPreviewHistoryQueryOptions() {
+  return buildStaticQueryOptions({ staleTime: PROMOCODE_HISTORY_STALE_TIME_MS })
+}
+
+function buildFullHistoryQueryOptions(historyDialogOpen: boolean) {
+  return buildStaticQueryOptions({
+    enabled: historyDialogOpen,
+    staleTime: PROMOCODE_HISTORY_STALE_TIME_MS,
+  })
+}
+
 export function PromocodesPage() {
   const { refreshUser } = useAuth()
   const { locale } = useI18n()
@@ -266,13 +278,13 @@ export function PromocodesPage() {
   const { data: previewHistoryData, isLoading: previewHistoryLoading } = useQuery({
     queryKey: ['promocode-activations-preview', HISTORY_PREVIEW_LIMIT],
     queryFn: () => api.promocode.history(1, HISTORY_PREVIEW_LIMIT).then((r) => r.data),
-    ...buildStaticQueryOptions({ staleTime: 30_000 }),
+    ...buildPreviewHistoryQueryOptions(),
   })
 
   const { data: historyData, isLoading: historyLoading } = useQuery({
     queryKey: ['promocode-activations', historyPage, HISTORY_PAGE_SIZE],
     queryFn: () => api.promocode.history(historyPage, HISTORY_PAGE_SIZE).then((r) => r.data),
-    ...buildStaticQueryOptions({ enabled: historyDialogOpen, staleTime: 30_000 }),
+    ...buildFullHistoryQueryOptions(historyDialogOpen),
   })
 
   const previewHistoryItems = previewHistoryData?.activations || []

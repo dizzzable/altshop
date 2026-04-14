@@ -1065,7 +1065,7 @@ async def _handle_subscription_reward_promocode(
         code=code,
         reward_type=promocode.reward_type,
         days=promocode.plan.duration if promocode.plan else 30,
-        plan_name=promocode.plan.name if promocode.plan else "РџРѕРґРїРёСЃРєР°",
+        plan_name=promocode.plan.name if promocode.plan else "Подписка",
     )
     await dialog_manager.switch_to(Subscription.PROMOCODE_CONFIRM_NEW)
     return True
@@ -1109,15 +1109,15 @@ async def _handle_duration_reward_promocode(
 
 def _format_promocode_reward_info(promocode: PromocodeDto) -> str:
     if promocode.reward_type == PromocodeRewardType.DURATION:
-        return f"{promocode.reward} РґРЅРµР№"
+        return f"{promocode.reward} дней"
     if promocode.reward_type == PromocodeRewardType.TRAFFIC:
-        return f"{promocode.reward} Р“Р‘ С‚СЂР°С„РёРєР°"
+        return f"{promocode.reward} ГБ трафика"
     if promocode.reward_type == PromocodeRewardType.DEVICES:
-        return f"{promocode.reward} СѓСЃС‚СЂРѕР№СЃС‚РІ"
+        return f"{promocode.reward} устройств"
     if promocode.reward_type == PromocodeRewardType.PERSONAL_DISCOUNT:
-        return f"{promocode.reward}% РїРµСЂСЃРѕРЅР°Р»СЊРЅР°СЏ СЃРєРёРґРєР°"
+        return f"{promocode.reward}% персональная скидка"
     if promocode.reward_type == PromocodeRewardType.PURCHASE_DISCOUNT:
-        return f"{promocode.reward}% СЃРєРёРґРєР° РЅР° РїРѕРєСѓРїРєСѓ"
+        return f"{promocode.reward}% скидка на покупку"
     return ""
 
 

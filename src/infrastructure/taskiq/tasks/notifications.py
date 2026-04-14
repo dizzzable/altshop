@@ -25,6 +25,10 @@ from src.infrastructure.database.models.dto import SubscriptionDto, UserDto
 from src.infrastructure.taskiq.broker import broker
 from src.services.notification import NotificationService
 from src.services.remnawave import RemnawaveService
+from src.services.remnawave_profile_lookup import (
+    load_owner_remna_users_by_uuid,
+    resolve_subscription_profile_name,
+)
 from src.services.settings import SettingsService
 from src.services.subscription import SubscriptionService
 from src.services.user import UserService
@@ -60,21 +64,16 @@ async def _build_expiry_summary_lines(
 ) -> str:
     lines: list[str] = []
     owner_telegram_id = subscriptions[0].user_telegram_id if subscriptions else None
-    remna_users_by_uuid = {}
-    if owner_telegram_id is not None and hasattr(remnawave_service, "get_users_map_by_telegram_id"):
-        remna_users_by_uuid = await remnawave_service.get_users_map_by_telegram_id(
-            owner_telegram_id
-        )
+    remna_users_by_uuid = await load_owner_remna_users_by_uuid(
+        owner_telegram_id=owner_telegram_id,
+        remnawave_service=remnawave_service,
+    )
     for subscription in subscriptions:
-        profile_name = str(subscription.user_remna_id)
-        remna_user = remna_users_by_uuid.get(subscription.user_remna_id)
-        if remna_user is None:
-            try:
-                remna_user = await remnawave_service.get_user(subscription.user_remna_id)
-            except Exception:
-                remna_user = None
-        if remna_user is not None and getattr(remna_user, "username", None):
-            profile_name = str(getattr(remna_user, "username"))
+        profile_name = await resolve_subscription_profile_name(
+            subscription=subscription,
+            remna_users_by_uuid=remna_users_by_uuid,
+            remnawave_service=remnawave_service,
+        ) or str(subscription.user_remna_id)
         lines.append(
             "- <b>{plan}</b> | <code>{profile}</code> | <b>{expires}</b>".format(
                 plan=escape(subscription.plan.name),

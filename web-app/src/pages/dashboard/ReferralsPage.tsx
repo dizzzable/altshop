@@ -6,6 +6,7 @@ import { useBranding } from '@/components/common/BrandingProvider'
 import { useI18n } from '@/components/common/I18nProvider'
 import { translateWithLocale, type TranslationParams } from '@/i18n/runtime'
 import { useMobileTelegramUiV2 } from '@/hooks/useMobileTelegramUiV2'
+import { useReferralInfoQuery } from '@/hooks/useReferralInfoQuery'
 import { useSubscriptionsQuery } from '@/hooks/useSubscriptionsQuery'
 import { buildStaticQueryOptions } from '@/lib/query-defaults'
 import { api } from '@/lib/api'
@@ -43,7 +44,6 @@ import type {
   ReferralExchangeExecuteRequest,
   ReferralExchangeExecuteResponse,
   ReferralExchangeTypeOption,
-  ReferralInfo,
   ReferralListResponse,
   Subscription,
   SubscriptionStatus,
@@ -135,16 +135,14 @@ export function ReferralsPage() {
   const [kpiInfoDialogOpen, setKpiInfoDialogOpen] = useState(false)
   const [fullHistoryOpen, setFullHistoryOpen] = useState(false)
 
-  const { data: referralInfo, isLoading: infoLoading } = useQuery<ReferralInfo>({
-    queryKey: ['referral-info'],
-    queryFn: () => api.referral.info().then((response) => response.data),
+  const { data: referralInfo, isLoading: infoLoading } = useReferralInfoQuery({
     enabled: !isPartnerActive,
   })
 
   const { data: referralList, isLoading: listLoading } = useQuery<ReferralListResponse>({
     queryKey: ['referrals'],
     queryFn: () => api.referral.list().then((response) => response.data),
-    enabled: !isPartnerActive,
+    ...buildStaticQueryOptions({ enabled: !isPartnerActive, staleTime: 30_000 }),
   })
 
   const { data: exchangeOptions, isLoading: exchangeLoading } = useQuery({

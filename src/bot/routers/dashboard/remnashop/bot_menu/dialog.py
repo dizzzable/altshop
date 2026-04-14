@@ -7,6 +7,7 @@ from src.bot.states import DashboardRemnashop, RemnashopBotMenu
 from src.bot.widgets import Banner, I18nFormat, IgnoreUpdate
 from src.core.enums import BannerName
 
+from .common import BOT_MENU_LIST_WIDGET_ID, button_callback_id
 from .getters import (
     bot_menu_button_getter,
     bot_menu_button_label_getter,
@@ -65,8 +66,8 @@ main = Window(
                 on_click=on_custom_button_select,
             ),
         ),
-        id="custom_button_list",
-        item_id_getter=lambda item: item["id"],
+        id=BOT_MENU_LIST_WIDGET_ID,
+        item_id_getter=lambda item: button_callback_id(item["id"]),
         items="custom_buttons",
         when=F["has_custom_buttons"],
     ),

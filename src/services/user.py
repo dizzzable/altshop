@@ -4,31 +4,139 @@ from aiogram import Bot
 from aiogram.types import Message
 from aiogram.types import User as AiogramUser
 from fluentogram import TranslatorHub
-from loguru import logger
 from redis.asyncio import Redis
-from sqlalchemy.exc import IntegrityError
 
 from src.core.config import AppConfig
-from src.core.constants import (
-    RECENT_ACTIVITY_MAX_COUNT,
-    RECENT_REGISTERED_MAX_COUNT,
-    REMNASHOP_PREFIX,
-    TIME_1M,
-    TIME_10M,
-)
-from src.core.enums import Currency, Locale, UserRole
-from src.core.storage.key_builder import StorageKey, build_key
-from src.core.storage.keys import RecentActivityUsersKey, RecentRegisteredUsersKey
-from src.core.utils.generators import generate_referral_code
+from src.core.constants import TIME_1M, TIME_10M
+from src.core.enums import Currency, UserRole
+from src.core.storage.key_builder import StorageKey
 from src.core.utils.types import RemnaUserDto
-from src.core.utils.validators import parse_int
 from src.infrastructure.database import UnitOfWork
 from src.infrastructure.database.models.dto import UserDto
 from src.infrastructure.database.models.dto.user import BaseUserDto
-from src.infrastructure.database.models.sql import User
 from src.infrastructure.redis import RedisRepository, redis_cache
 
 from .base import BaseService
+from .user_lifecycle import (
+    compare_and_update as _compare_and_update_impl,
+)
+from .user_lifecycle import (
+    count as _count_impl,
+)
+from .user_lifecycle import (
+    create as _create_impl,
+)
+from .user_lifecycle import (
+    create_from_panel as _create_from_panel_impl,
+)
+from .user_lifecycle import (
+    create_placeholder_user as _create_placeholder_user_impl,
+)
+from .user_lifecycle import (
+    delete as _delete_impl,
+)
+from .user_lifecycle import (
+    ensure_referral_code as _ensure_referral_code_impl,
+)
+from .user_lifecycle import (
+    get as _get_impl,
+)
+from .user_lifecycle import (
+    get_all as _get_all_impl,
+)
+from .user_lifecycle import (
+    get_blocked_users as _get_blocked_users_impl,
+)
+from .user_lifecycle import (
+    get_by_partial_name as _get_by_partial_name_impl,
+)
+from .user_lifecycle import (
+    get_by_referral_code as _get_by_referral_code_impl,
+)
+from .user_lifecycle import (
+    get_by_role as _get_by_role_impl,
+)
+from .user_lifecycle import (
+    update as _update_impl,
+)
+from .user_mutations import (
+    add_points as _add_points_impl,
+)
+from .user_mutations import (
+    delete_current_subscription as _delete_current_subscription_impl,
+)
+from .user_mutations import (
+    reset_rules_acceptance_for_non_privileged as _reset_rules_acceptance_impl,
+)
+from .user_mutations import (
+    set_block as _set_block_impl,
+)
+from .user_mutations import (
+    set_bot_blocked as _set_bot_blocked_impl,
+)
+from .user_mutations import (
+    set_current_subscription as _set_current_subscription_impl,
+)
+from .user_mutations import (
+    set_partner_balance_currency_override as _set_partner_balance_currency_override_impl,
+)
+from .user_mutations import (
+    set_purchase_discount as _set_purchase_discount_impl,
+)
+from .user_mutations import (
+    set_role as _set_role_impl,
+)
+from .user_recent import (
+    add_to_recent_list as _add_to_recent_list_impl,
+)
+from .user_recent import (
+    add_to_recent_registered as _add_to_recent_registered_impl,
+)
+from .user_recent import (
+    clear_list_caches as _clear_list_caches_impl,
+)
+from .user_recent import (
+    clear_user_cache as _clear_user_cache_impl,
+)
+from .user_recent import (
+    get_recent_activity as _get_recent_activity_impl,
+)
+from .user_recent import (
+    get_recent_activity_users as _get_recent_activity_users_impl,
+)
+from .user_recent import (
+    get_recent_registered as _get_recent_registered_impl,
+)
+from .user_recent import (
+    get_recent_registered_users as _get_recent_registered_users_impl,
+)
+from .user_recent import (
+    remove_from_recent_activity as _remove_from_recent_activity_impl,
+)
+from .user_recent import (
+    remove_from_recent_registered as _remove_from_recent_registered_impl,
+)
+from .user_recent import (
+    update_recent_activity as _update_recent_activity_impl,
+)
+from .user_search import (
+    search_users as _search_users_impl,
+)
+from .user_search import (
+    search_users_by_forward as _search_users_by_forward_impl,
+)
+from .user_search import (
+    search_users_by_login_or_name as _search_users_by_login_or_name_impl,
+)
+from .user_search import (
+    search_users_by_query as _search_users_by_query_impl,
+)
+from .user_search import (
+    search_users_by_remnashop_id as _search_users_by_remnashop_id_impl,
+)
+from .user_search import (
+    search_users_by_telegram_id as _search_users_by_telegram_id_impl,
+)
 
 
 class UserService(BaseService):
@@ -47,84 +155,15 @@ class UserService(BaseService):
         super().__init__(config, bot, redis_client, redis_repository, translator_hub)
         self.uow = uow
 
+    @staticmethod
+    def _user_roles() -> tuple[UserRole, ...]:
+        return tuple(UserRole)
+
     async def create(self, aiogram_user: AiogramUser) -> UserDto:
-        user = UserDto(
-            telegram_id=aiogram_user.id,
-            username=aiogram_user.username,
-            referral_code=generate_referral_code(
-                aiogram_user.id,
-                secret=self.config.crypt_key.get_secret_value(),
-            ),
-            name=aiogram_user.full_name,
-            role=(UserRole.DEV if aiogram_user.id in self.config.bot.dev_id else UserRole.USER),
-            language=(
-                aiogram_user.language_code
-                if aiogram_user.language_code in self.config.locales
-                else self.config.default_locale
-            ),
-        )
-        db_user = User(**user.model_dump())
-        created = False
-
-        try:
-            db_created_user = await self.uow.repository.users.create(db_user)
-            await self.uow.commit()
-            created = True
-        except IntegrityError:
-            # Concurrent bot/web registration can attempt the same telegram_id.
-            await self.uow.rollback()
-            existing_user = await self.uow.repository.users.get(user.telegram_id)
-            if not existing_user:
-                raise
-
-            db_created_user = existing_user
-
-        await self.add_to_recent_registered(user.telegram_id)
-        await self.clear_user_cache(user.telegram_id)
-        if created:
-            logger.info(f"Created new user '{user.telegram_id}'")
-        else:
-            logger.warning(
-                f"User '{user.telegram_id}' already exists during create(), reusing existing record"
-            )
-        return UserDto.from_model(db_created_user)  # type: ignore[return-value]
+        return await _create_impl(self, aiogram_user)
 
     async def create_from_panel(self, remna_user: RemnaUserDto) -> UserDto:
-        user = UserDto(
-            telegram_id=remna_user.telegram_id,
-            referral_code=generate_referral_code(
-                remna_user.telegram_id,  # type: ignore[arg-type]
-                secret=self.config.crypt_key.get_secret_value(),
-            ),
-            name=str(remna_user.telegram_id),
-            role=UserRole.USER,
-            language=self.config.default_locale,
-        )
-        db_user = User(**user.model_dump())
-        created = False
-
-        try:
-            db_created_user = await self.uow.repository.users.create(db_user)
-            await self.uow.commit()
-            created = True
-        except IntegrityError:
-            await self.uow.rollback()
-            existing_user = await self.uow.repository.users.get(user.telegram_id)
-            if not existing_user:
-                raise
-
-            db_created_user = existing_user
-
-        await self.add_to_recent_registered(user.telegram_id)
-        await self.clear_user_cache(user.telegram_id)
-        if created:
-            logger.info(f"Created new user '{user.telegram_id}' from panel")
-        else:
-            logger.warning(
-                f"User '{user.telegram_id}' already exists during panel sync, "
-                "reusing existing record"
-            )
-        return UserDto.from_model(db_created_user)  # type: ignore[return-value]
+        return await _create_from_panel_impl(self, remna_user)
 
     async def create_placeholder_user(
         self,
@@ -133,474 +172,133 @@ class UserService(BaseService):
         username: str | None = None,
         name: str | None = None,
     ) -> UserDto:
-        existing_user = await self.get(telegram_id)
-        if existing_user is not None:
-            return existing_user
-
-        referral_code = await self.uow.repository.users.generate_unique_referral_code()
-        user = User(
+        return await _create_placeholder_user_impl(
+            self,
             telegram_id=telegram_id,
             username=username,
-            referral_code=referral_code,
-            name=name or username or str(telegram_id),
-            role=UserRole.USER,
-            language=self.config.default_locale,
-            personal_discount=0,
-            purchase_discount=0,
-            points=0,
-            is_blocked=False,
-            is_bot_blocked=False,
-            is_rules_accepted=True,
+            name=name,
         )
-        created = await self.uow.repository.users.create(user)
-        await self.uow.commit()
-        await self.clear_user_cache(telegram_id)
-        logger.info(f"Created placeholder user '{telegram_id}'")
-        dto = UserDto.from_model(created)
-        if dto is None:
-            raise ValueError(f"Failed to create placeholder user '{telegram_id}'")
-        return dto
 
     @redis_cache(prefix="get_user", ttl=TIME_1M)
     async def get(self, telegram_id: int) -> Optional[UserDto]:
-        db_user = await self.uow.repository.users.get(telegram_id)
-
-        if db_user:
-            logger.debug(f"Retrieved user '{telegram_id}'")
-        else:
-            logger.warning(f"User '{telegram_id}' not found")
-
-        return UserDto.from_model(db_user)
+        return await _get_impl(self, telegram_id)
 
     async def update(self, user: UserDto) -> Optional[UserDto]:
-        db_updated_user = await self.uow.repository.users.update(
-            telegram_id=user.telegram_id,
-            **user.prepare_changed_data(),
-        )
-
-        if db_updated_user:
-            await self.clear_user_cache(db_updated_user.telegram_id)
-            logger.info(f"Updated user '{user.telegram_id}' successfully")
-        else:
-            logger.warning(
-                f"Attempted to update user '{user.telegram_id}', "
-                f"but user was not found or update failed"
-            )
-
-        return UserDto.from_model(db_updated_user)
+        return await _update_impl(self, user)
 
     async def ensure_referral_code(self, user: UserDto) -> UserDto:
-        """Ensure user has a persistent referral code and return updated DTO."""
-        referral_code = (user.referral_code or "").strip()
-        if referral_code:
-            return user
-
-        generated_code = await self.uow.repository.users.generate_unique_referral_code()
-        db_updated_user = await self.uow.repository.users.update(
-            telegram_id=user.telegram_id,
-            referral_code=generated_code,
-        )
-        if not db_updated_user:
-            raise ValueError(f"Failed to generate referral code for user '{user.telegram_id}'")
-
-        await self.clear_user_cache(user.telegram_id)
-        logger.info(f"Generated referral code for user '{user.telegram_id}'")
-
-        updated_user = UserDto.from_model(db_updated_user)
-        if not updated_user:
-            raise ValueError(
-                f"Failed to load user '{user.telegram_id}' after referral code generation"
-            )
-
-        return updated_user
+        return await _ensure_referral_code_impl(self, user)
 
     async def compare_and_update(
         self,
         user: UserDto,
         aiogram_user: AiogramUser,
     ) -> Optional[UserDto]:
-        new_username = aiogram_user.username
-        if user.username != new_username:
-            logger.debug(
-                f"User '{user.telegram_id}' username changed ({user.username} -> {new_username})"
-            )
-            user.username = new_username
-
-        new_name = aiogram_user.full_name
-        if user.name != new_name:
-            logger.debug(f"User '{user.telegram_id}' name changed ({user.name} -> {new_name})")
-            user.name = new_name
-
-        new_language = aiogram_user.language_code
-        if user.language != new_language:
-            if new_language in self.config.locales:
-                logger.debug(
-                    f"User '{user.telegram_id}' language changed "
-                    f"({user.language} -> {new_language})"
-                )
-                user.language = Locale(new_language)
-            else:
-                logger.warning(
-                    f"User '{user.telegram_id}' language changed. "
-                    f"New language is not supported. "
-                    f"Used default ({user.language} -> {self.config.default_locale})"
-                )
-                user.language = self.config.default_locale
-
-        if not user.prepare_changed_data():
-            return None
-
-        return await self.update(user)
+        return await _compare_and_update_impl(self, user, aiogram_user)
 
     async def delete(self, user: UserDto) -> bool:
-        result = await self.uow.repository.users.delete(user.telegram_id)
-
-        if result:
-            await self.clear_user_cache(user.telegram_id)
-            await self._remove_from_recent_registered(user.telegram_id)
-            await self._remove_from_recent_activity(user.telegram_id)
-
-        logger.info(f"Deleted user '{user.telegram_id}': '{result}'")
-        return result
+        return await _delete_impl(self, user)
 
     async def get_by_partial_name(self, query: str) -> list[UserDto]:
-        db_users = await self.uow.repository.users.get_by_partial_name(query)
-        logger.debug(f"Retrieved '{len(db_users)}' users for query '{query}'")
-        return UserDto.from_model_list(db_users)
+        return await _get_by_partial_name_impl(self, query)
 
     async def get_by_referral_code(self, referral_code: str) -> Optional[UserDto]:
-        user = await self.uow.repository.users.get_by_referral_code(referral_code)
-        return UserDto.from_model(user)
+        return await _get_by_referral_code_impl(self, referral_code)
 
     @redis_cache(prefix="users_count", ttl=TIME_10M)
     async def count(self) -> int:
-        count = await self.uow.repository.users.count()
-        logger.debug(f"Total users count: '{count}'")
-        return count
+        return await _count_impl(self)
 
     @redis_cache(prefix="get_by_role", ttl=TIME_10M)
     async def get_by_role(self, role: UserRole) -> list[UserDto]:
-        db_users = await self.uow.repository.users.filter_by_role(role)
-        logger.debug(f"Retrieved '{len(db_users)}' users with role '{role}'")
-        return UserDto.from_model_list(db_users)
+        return await _get_by_role_impl(self, role)
 
     @redis_cache(prefix="get_blocked_users", ttl=TIME_10M)
     async def get_blocked_users(self) -> list[UserDto]:
-        db_users = await self.uow.repository.users.filter_by_blocked(blocked=True)
-        logger.debug(f"Retrieved '{len(db_users)}' blocked users")
-        return UserDto.from_model_list(list(reversed(db_users)))
+        return await _get_blocked_users_impl(self)
 
     @redis_cache(prefix="get_all", ttl=TIME_10M)
     async def get_all(self) -> list[UserDto]:
-        db_users = await self.uow.repository.users.get_all()
-        logger.debug(f"Retrieved '{len(db_users)}' users")
-        return UserDto.from_model_list(db_users)
+        return await _get_all_impl(self)
 
     async def set_block(self, user: UserDto, blocked: bool) -> None:
-        user.is_blocked = blocked
-        await self.uow.repository.users.update(
-            user.telegram_id,
-            **user.prepare_changed_data(),
-        )
-        await self.clear_user_cache(user.telegram_id)
-        logger.info(f"Set block={blocked} for user '{user.telegram_id}'")
+        await _set_block_impl(self, user, blocked)
 
     async def set_bot_blocked(self, user: UserDto, blocked: bool) -> None:
-        user.is_bot_blocked = blocked
-        await self.uow.repository.users.update(
-            user.telegram_id,
-            **user.prepare_changed_data(),
-        )
-        await self.clear_user_cache(user.telegram_id)
-        logger.info(f"Set bot_blocked={blocked} for user '{user.telegram_id}'")
+        await _set_bot_blocked_impl(self, user, blocked)
 
     async def set_role(self, user: UserDto, role: UserRole) -> None:
-        user.role = role
-        await self.uow.repository.users.update(
-            user.telegram_id,
-            **user.prepare_changed_data(),
-        )
-        await self.clear_user_cache(user.telegram_id)
-        logger.info(f"Set role='{role.name}' for user '{user.telegram_id}'")
+        await _set_role_impl(self, user, role)
 
     async def set_purchase_discount(self, user: UserDto, discount: int) -> None:
-        user.purchase_discount = discount
-        await self.uow.repository.users.update(
-            user.telegram_id,
-            **user.prepare_changed_data(),
-        )
-        await self.clear_user_cache(user.telegram_id)
-        logger.info(f"Set purchase_discount={discount} for user '{user.telegram_id}'")
+        await _set_purchase_discount_impl(self, user, discount)
 
     async def set_partner_balance_currency_override(
         self,
         user: UserDto,
         currency: Currency | None,
     ) -> None:
-        user.partner_balance_currency_override = currency
-        await self.uow.repository.users.update(
-            user.telegram_id,
-            **user.prepare_changed_data(),
-        )
-        await self.clear_user_cache(user.telegram_id)
-        logger.info(
-            "Set partner_balance_currency_override='{}' for user '{}'",
-            getattr(currency, "value", currency),
-            user.telegram_id,
-        )
-
-    #
+        await _set_partner_balance_currency_override_impl(self, user, currency)
 
     async def add_to_recent_registered(self, telegram_id: int) -> None:
-        await self._add_to_recent_list(RecentRegisteredUsersKey(), telegram_id)
+        await _add_to_recent_registered_impl(self, telegram_id)
 
     async def update_recent_activity(self, telegram_id: int) -> None:
-        await self._add_to_recent_list(RecentActivityUsersKey(), telegram_id)
+        await _update_recent_activity_impl(self, telegram_id)
 
     async def get_recent_registered_users(self) -> list[UserDto]:
-        telegram_ids = await self._get_recent_registered()
-        db_users = await self.uow.repository.users.get_by_ids(telegram_ids)
-
-        found_ids = {user.telegram_id for user in db_users}
-        for telegram_id in telegram_ids:
-            if telegram_id not in found_ids:
-                logger.warning(
-                    f"User '{telegram_id}' not found in DB, removing from recent registered cache"
-                )
-                await self._remove_from_recent_registered(telegram_id)
-
-        logger.debug(f"Retrieved '{len(db_users)}' recent registered users")
-        return UserDto.from_model_list(list(reversed(db_users)))
+        return await _get_recent_registered_users_impl(self)
 
     async def get_recent_activity_users(self) -> list[UserDto]:
-        telegram_ids = await self._get_recent_activity()
-        users: list[UserDto] = []
-
-        for telegram_id in telegram_ids:
-            user = await self.get(telegram_id)
-
-            if user:
-                users.append(user)
-            else:
-                logger.warning(
-                    f"User '{telegram_id}' not found in DB, removing from recent activity cache"
-                )
-                await self._remove_from_recent_activity(telegram_id)
-
-        logger.debug(f"Retrieved '{len(users)}' recent active users")
-        return users
+        return await _get_recent_activity_users_impl(self)
 
     async def search_users(self, message: Message) -> list[UserDto]:
-        if message.forward_from and not message.forward_from.is_bot:
-            return await self._search_users_by_forward(message)
-
-        if message.text:
-            return await self._search_users_by_query(message.text.strip())
-
-        return []
+        return await _search_users_impl(self, message)
 
     async def _search_users_by_forward(self, message: Message) -> list[UserDto]:
-        target_telegram_id = message.forward_from.id  # type: ignore[union-attr]
-        single_user = await self.get(telegram_id=target_telegram_id)
-        if not single_user:
-            logger.warning(f"Search by forwarded message, user '{target_telegram_id}' not found")
-            return []
-
-        logger.info(f"Search by forwarded message, found user '{target_telegram_id}'")
-        return [single_user]
+        return await _search_users_by_forward_impl(self, message)
 
     async def _search_users_by_query(self, search_query: str) -> list[UserDto]:
-        logger.debug(f"Searching users by query '{search_query}'")
-
-        telegram_id = parse_int(search_query)
-        if telegram_id is not None:
-            return await self._search_users_by_telegram_id(telegram_id)
-
-        if search_query.startswith(REMNASHOP_PREFIX):  # TODO: any username from panel
-            return await self._search_users_by_remnashop_id(search_query)
-
-        referral_user = await self.get_by_referral_code(search_query.upper())
-        if referral_user:
-            logger.info(f"Searched by referral code '{search_query.upper()}', user found")
-            return [referral_user]
-
-        return await self._search_users_by_login_or_name(search_query)
+        return await _search_users_by_query_impl(self, search_query)
 
     async def _search_users_by_telegram_id(self, target_telegram_id: int) -> list[UserDto]:
-        single_user = await self.get(telegram_id=target_telegram_id)
-        if not single_user:
-            logger.warning(f"Searched by Telegram ID '{target_telegram_id}', user not found")
-            return []
-
-        logger.info(f"Searched by Telegram ID '{target_telegram_id}', user found")
-        return [single_user]
+        return await _search_users_by_telegram_id_impl(self, target_telegram_id)
 
     async def _search_users_by_remnashop_id(self, search_query: str) -> list[UserDto]:
-        try:
-            target_id = int(search_query.split("_", maxsplit=1)[1])
-        except (IndexError, ValueError):
-            logger.warning(f"Failed to parse Remnashop ID from query '{search_query}'")
-            return []
-
-        single_user = await self.get(telegram_id=target_id)
-        if not single_user:
-            logger.warning(f"Searched by Remnashop ID '{target_id}', user not found")
-            return []
-
-        logger.info(f"Searched by Remnashop ID '{target_id}', user found")
-        return [single_user]
+        return await _search_users_by_remnashop_id_impl(self, search_query)
 
     async def _search_users_by_login_or_name(self, search_query: str) -> list[UserDto]:
-        normalized_query = search_query.lower()
-        async with self.uow:
-            web_account = await self.uow.repository.web_accounts.get_by_username(normalized_query)
-            matched_user = None
-            if web_account:
-                matched_user = await self.uow.repository.users.get(web_account.user_telegram_id)
-
-        if matched_user:
-            user_dto = UserDto.from_model(matched_user)
-            if not user_dto:
-                return []
-            logger.info(f"Searched users by exact web login '{normalized_query}', found 1 user")
-            return [user_dto]
-
-        found_users = await self.get_by_partial_name(query=search_query)
-
-        async with self.uow:
-            partial_accounts = await self.uow.repository.web_accounts.get_by_partial_username(
-                normalized_query
-            )
-            partial_account_user_ids = list(
-                {account.user_telegram_id for account in partial_accounts}
-            )
-            partial_login_users = UserDto.from_model_list(
-                await self.uow.repository.users.get_by_ids(partial_account_user_ids)
-            )
-
-        deduplicated_users: dict[int, UserDto] = {}
-        for found_user in [*found_users, *partial_login_users]:
-            deduplicated_users[found_user.telegram_id] = found_user
-
-        merged_users = list(deduplicated_users.values())
-        logger.info(
-            "Searched users by query '{}', found '{}' users (partial name/login)",
-            search_query,
-            len(merged_users),
-        )
-        return merged_users
+        return await _search_users_by_login_or_name_impl(self, search_query)
 
     async def set_current_subscription(self, telegram_id: int, subscription_id: int) -> None:
-        await self.uow.repository.users.update(
-            telegram_id=telegram_id,
-            current_subscription_id=subscription_id,
-        )
-        await self.clear_user_cache(telegram_id)
-        logger.info(f"Set current_subscription='{subscription_id}' for user '{telegram_id}'")
+        await _set_current_subscription_impl(self, telegram_id, subscription_id)
 
     async def delete_current_subscription(self, telegram_id: int) -> None:
-        await self.uow.repository.users.update(
-            telegram_id=telegram_id,
-            current_subscription_id=None,
-        )
-        await self.clear_user_cache(telegram_id)
-        logger.info(f"Delete current subscription for user '{telegram_id}'")
+        await _delete_current_subscription_impl(self, telegram_id)
 
     async def add_points(self, user: Union[BaseUserDto, UserDto], points: int) -> None:
-        await self.uow.repository.users.update(
-            telegram_id=user.telegram_id,
-            points=user.points + points,
-        )
-        await self.clear_user_cache(user.telegram_id)
-        logger.info(f"Add '{points}' points for user '{user.telegram_id}'")
+        await _add_points_impl(self, user, points)
 
     async def reset_rules_acceptance_for_non_privileged(self, accepted: bool) -> int:
-        updated_count = await self.uow.repository.users.set_rules_accepted_for_non_privileged(
-            accepted
-        )
-        await self.uow.commit()
-
-        try:
-            pattern = build_key("cache", "get_user", "*")
-            await self.redis_repository.delete_pattern(pattern)
-        except Exception as exc:
-            logger.warning(f"Failed to invalidate user cache after rules reset: {exc}")
-
-        await self._clear_list_caches()
-        logger.info(
-            "Updated rules acceptance for non-privileged users: accepted='{}', updated='{}'",
-            accepted,
-            updated_count,
-        )
-        return updated_count
-
-    #
+        return await _reset_rules_acceptance_impl(self, accepted)
 
     async def clear_user_cache(self, telegram_id: int) -> None:
-        user_cache_key: str = build_key("cache", "get_user", telegram_id)
-        await self.redis_client.delete(user_cache_key)
-        await self._clear_list_caches()
-        logger.debug(f"User cache for '{telegram_id}' invalidated")
+        await _clear_user_cache_impl(self, telegram_id)
 
     async def _clear_list_caches(self) -> None:
-        list_cache_keys_to_invalidate = [
-            build_key("cache", "get_blocked_users"),
-            build_key("cache", "count"),
-        ]
-
-        for role in UserRole:
-            key = build_key("cache", "get_by_role", role=role)
-            list_cache_keys_to_invalidate.append(key)
-
-        await self.redis_client.delete(*list_cache_keys_to_invalidate)
-        logger.debug("List caches invalidated")
+        await _clear_list_caches_impl(self)
 
     async def _add_to_recent_list(self, key: StorageKey, telegram_id: int) -> None:
-        await self.redis_repository.list_remove(key, value=telegram_id, count=0)
-        await self.redis_repository.list_push(key, telegram_id)
-
-        if key == RecentRegisteredUsersKey():
-            end = RECENT_REGISTERED_MAX_COUNT - 1
-            log_message = "registered"
-        else:
-            end = RECENT_ACTIVITY_MAX_COUNT - 1
-            log_message = "activity updated"
-
-        await self.redis_repository.list_trim(key, start=0, end=end)
-        logger.debug(f"User '{telegram_id}' {log_message} in recent cache")
+        await _add_to_recent_list_impl(self, key, telegram_id)
 
     async def _remove_from_recent_registered(self, telegram_id: int) -> None:
-        await self.redis_repository.list_remove(
-            key=RecentRegisteredUsersKey(),
-            value=telegram_id,
-            count=0,
-        )
-        logger.debug(f"User '{telegram_id}' removed from recent registered cache")
+        await _remove_from_recent_registered_impl(self, telegram_id)
 
     async def _get_recent_registered(self) -> list[int]:
-        telegram_ids_str = await self.redis_repository.list_range(
-            key=RecentRegisteredUsersKey(),
-            start=0,
-            end=RECENT_REGISTERED_MAX_COUNT - 1,
-        )
-        ids = [int(uid) for uid in telegram_ids_str]
-        logger.debug(f"Retrieved '{len(ids)}' recent registered user IDs from cache")
-        return ids
+        return await _get_recent_registered_impl(self)
 
     async def _remove_from_recent_activity(self, telegram_id: int) -> None:
-        await self.redis_repository.list_remove(
-            key=RecentActivityUsersKey(),
-            value=telegram_id,
-            count=0,
-        )
-        logger.debug(f"User '{telegram_id}' removed from recent activity cache")
+        await _remove_from_recent_activity_impl(self, telegram_id)
 
     async def _get_recent_activity(self) -> list[int]:
-        telegram_ids_str = await self.redis_repository.list_range(
-            key=RecentActivityUsersKey(),
-            start=0,
-            end=RECENT_ACTIVITY_MAX_COUNT - 1,
-        )
-        ids = [int(uid) for uid in telegram_ids_str]
-        logger.debug(f"Retrieved '{len(ids)}' recent activity user IDs from cache")
-        return ids
+        return await _get_recent_activity_impl(self)

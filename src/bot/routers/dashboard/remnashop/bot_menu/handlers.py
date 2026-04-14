@@ -23,16 +23,14 @@ from src.infrastructure.database.models.dto import BotMenuCustomButtonDto, Setti
 from src.services.notification import NotificationService
 from src.services.settings import SettingsService
 
+from .common import button_callback_id, sorted_buttons
+
 BUTTON_CLEAR_COMMANDS = {"/clear", "clear", "-"}
-
-
-def _sorted_buttons(buttons: list[BotMenuCustomButtonDto]) -> list[BotMenuCustomButtonDto]:
-    return sorted(buttons, key=lambda item: (item.order, item.id))
 
 
 def _normalize_buttons(buttons: list[BotMenuCustomButtonDto]) -> list[BotMenuCustomButtonDto]:
     normalized: list[BotMenuCustomButtonDto] = []
-    for order, button in enumerate(_sorted_buttons(buttons)):
+    for order, button in enumerate(sorted_buttons(buttons)):
         normalized.append(
             BotMenuCustomButtonDto.model_validate({**button.model_dump(), "order": order})
         )
@@ -50,7 +48,7 @@ def _find_selected_button(
     selected_button_id = str(dialog_manager.dialog_data.get("bot_menu_button_id", "")).strip()
     custom_buttons = _normalize_buttons(settings.bot_menu.custom_buttons)
     for index, button in enumerate(custom_buttons):
-        if button.id == selected_button_id:
+        if button_callback_id(button.id) == selected_button_id:
             return custom_buttons, index, button
     return None
 
@@ -204,7 +202,7 @@ async def on_custom_button_add(
     _assign_buttons(settings, custom_buttons)
     await settings_service.update(settings)
 
-    dialog_manager.dialog_data["bot_menu_button_id"] = new_button.id
+    dialog_manager.dialog_data["bot_menu_button_id"] = button_callback_id(new_button.id)
     logger.info(f"{log(user)} Created bot menu custom button '{new_button.id}'")
     await _notify(
         user=user,

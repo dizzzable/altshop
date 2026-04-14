@@ -661,7 +661,7 @@ async def on_exchange_select_type(
     dialog_manager: DialogManager,
     selected_type: str,
 ) -> None:
-    """Р вЂ™РЎвЂ№Р В±Р С•РЎР‚ РЎвЂљР С‘Р С—Р В° Р С•Р В±Р СР ВµР Р…Р В° Р В±Р В°Р В»Р В»Р С•Р Р†."""
+    """Выбор типа обмена баллов."""
     user: UserDto = dialog_manager.middleware_data[USER_KEY]
 
     exchange_type = PointsExchangeType(selected_type)
@@ -700,7 +700,7 @@ async def on_exchange_gift_select_plan(
         )
         return
 
-    # Р РЋР С•РЎвЂ¦РЎР‚Р В°Р Р…РЎРЏР ВµР С Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р Р…РЎвЂ№Р в„– Р С—Р В»Р В°Р Р…
+    # Сохраняем выбранный план
     dialog_manager.dialog_data["gift_selected_plan_id"] = selected_plan_id
     dialog_manager.dialog_data["gift_selected_plan_name"] = plan.name
 
@@ -727,7 +727,7 @@ async def on_exchange_gift_confirm(
     # Load the selected plan from dialog data.
     selected_plan_id = dialog_manager.dialog_data.get("gift_selected_plan_id")
 
-    # Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚РЎРЏР ВµР С, РЎвЂЎРЎвЂљР С• Р С—Р В»Р В°Р Р… Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…
+    # Проверяем, что план выбран
     if not selected_plan_id:
         await notification_service.notify_user(
             user=user,
@@ -759,7 +759,7 @@ async def on_exchange_gift_confirm(
         return
 
     user.points = result.points_balance_after
-    plan_name = result.result.gift_plan_name or "вЂ”"
+    plan_name = result.result.gift_plan_name or "—"
     gift_duration_days = result.result.gift_duration_days or 0
     logger.info(f"{log(user)} Created gift exchange promocode '{promocode_code}'")
 
